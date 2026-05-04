@@ -1985,8 +1985,8 @@ def _procesar_fila_estafa(row):
 
 @app.route("/api/estafa")
 def estafa():
-    desde  = request.args.get("desde", "2026-04-01")
-    hasta  = request.args.get("hasta", "2026-04-14")
+    desde  = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta  = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
     pais   = request.args.get("pais", "")
     q_id   = request.args.get("q", "").strip()
     q_tipo = request.args.get("tipo", "booking")
@@ -2133,8 +2133,8 @@ LIMIT 3000
 
 @app.route("/api/recaudos")
 def recaudos():
-    desde   = request.args.get("desde", "2026-04-01")
-    hasta   = request.args.get("hasta", "2026-04-14")
+    desde   = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta   = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
     moneda  = request.args.get("moneda", "")
     q_id    = request.args.get("q", "").strip()
     q_tipo  = request.args.get("tipo", "booking")
@@ -2505,9 +2505,9 @@ def _resumen_alertas(rows, campo_alertas):
 
 @app.route("/api/auditoria/comisiones")
 def auditoria_comisiones():
-    desde       = request.args.get("desde", "2025-10-01")
-    hasta       = request.args.get("hasta", "2026-03-31")
-    last_desde  = request.args.get("last_desde", "")
+    desde       = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta       = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
+    last_desde  = request.args.get("last_desde") or ""
     last_hasta  = request.args.get("last_hasta", "")
     company_id  = request.args.get("company_id","").strip()
     tarifa_id   = request.args.get("tarifa_id","").strip()
@@ -2541,9 +2541,9 @@ def auditoria_comisiones():
 
 @app.route("/api/auditoria/creditos")
 def auditoria_creditos():
-    desde       = request.args.get("desde", "2025-10-01")
-    hasta       = request.args.get("hasta", "2026-03-31")
-    last_desde  = request.args.get("last_desde", "")
+    desde       = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta       = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
+    last_desde  = request.args.get("last_desde") or ""
     last_hasta  = request.args.get("last_hasta", "")
     company_id  = request.args.get("company_id","").strip()
     tarifa_id   = request.args.get("tarifa_id","").strip()
@@ -2940,9 +2940,9 @@ def _build_resumen_sheet(ws, data_com, data_cred):
 
 @app.route("/api/auditoria/exportar")
 def auditoria_exportar():
-    desde      = request.args.get("desde", "2025-10-01")
-    hasta      = request.args.get("hasta", "2026-04-17")
-    last_desde = request.args.get("last_desde", "")
+    desde      = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta      = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
+    last_desde = request.args.get("last_desde") or ""
     last_hasta = request.args.get("last_hasta", "")
     company_id = request.args.get("company_id","").strip()
     tarifa_id  = request.args.get("tarifa_id","").strip()
@@ -3312,8 +3312,8 @@ LIMIT 5000
 # ══════════════════════════════════════════════════════════════
 @app.route("/api/exportar/estafa")
 def exportar_estafa():
-    desde  = request.args.get("desde", "2026-04-01")
-    hasta  = request.args.get("hasta", "2026-04-17")
+    desde  = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta  = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
     pais   = request.args.get("pais", "")
     try:
         filtro_pais = _estafa_filtro_pais(pais)
@@ -3391,8 +3391,8 @@ def exportar_estafa():
 # ══════════════════════════════════════════════════════════════
 @app.route("/api/exportar/bloqueos")
 def exportar_bloqueos():
-    desde   = request.args.get("desde", "2026-04-01")
-    hasta   = request.args.get("hasta", "2026-04-17")
+    desde   = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta   = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
     pais    = request.args.get("pais", "")
     subtipo = request.args.get("subtipo", "todos")
     try:
@@ -3506,7 +3506,7 @@ def exportar_bloqueos():
 
 @app.route("/api/exportar/pagos")
 def exportar_pagos():
-    desde = request.args.get("desde", "2026-04-01")
+    desde = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
     hasta  = request.args.get("hasta",  "2026-04-17")
     pais   = request.args.get("pais", "")
     tipo   = request.args.get("tipo", "tc")  # tc | promo
@@ -3603,8 +3603,8 @@ LIMIT 3000
 
 @app.route("/api/exportar/recaudos")
 def exportar_recaudos():
-    desde  = request.args.get("desde", "2026-04-01")
-    hasta  = request.args.get("hasta", "2026-04-17")
+    desde  = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta  = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
     moneda = request.args.get("moneda", "")
     try:
         filtro_moneda = (f"AND JSONExtractString(wat.amount,'currency_iso')=\'{moneda}\'"
@@ -3945,8 +3945,8 @@ ORDER BY total DESC
 
 @app.route("/api/estadisticas_bloqueos")
 def estadisticas_bloqueos():
-    desde      = request.args.get("desde", "2026-03-01")
-    hasta      = request.args.get("hasta", "2026-03-31")
+    desde      = (request.args.get("desde") or (date.today()-timedelta(days=30)).strftime("%Y-%m-%d"))
+    hasta      = (request.args.get("hasta") or date.today().strftime("%Y-%m-%d"))
     pais_fil   = request.args.get("pais", "")
     driver_id  = request.args.get("driver_id", "").strip()
     try:
