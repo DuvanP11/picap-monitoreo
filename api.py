@@ -1661,13 +1661,13 @@ FROM (
         toString(p.g_country)                       AS pais_codigo,
         JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
                                                     AS rekognition_cc,
-        extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+        extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\\s*([0-9]+)')
                                                     AS cc_antecedentes,
-        trim(extract(pwd.people_police_records, 'Apellidos y Nombres:\s*([^\\]+)'))
+        trim(extract(pwd.people_police_records, 'Apellidos y Nombres:\\s*([^\\\\]+)'))
                                                     AS nombre_antecedentes,
         CASE
             WHEN JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
-               = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+               = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\\s*([0-9]+)')
             THEN 'ok' ELSE 'alerta'
         END                                          AS cc_igual,
         ROW_NUMBER() OVER (PARTITION BY p._id ORDER BY p.created_at DESC) AS rn
@@ -1696,11 +1696,11 @@ FROM (
         toTimeZone(p.created_at, 'America/Bogota') AS creacion_cuenta,
         CASE
             WHEN JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
-               = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+               = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\\s*([0-9]+)')
             THEN 'ok' ELSE 'alerta'
         END                                          AS cc_igual,
         JSONExtractString(pwd.rekognition_metadata, 'fiscal_number') AS rk_cc,
-        extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)') AS pr_cc,
+        extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\\s*([0-9]+)') AS pr_cc,
         ROW_NUMBER() OVER (PARTITION BY p._id ORDER BY p.created_at DESC) AS rn
     FROM picapmongoprod.passengers_w_data pwd
     LEFT JOIN picapmongoprod.passengers p ON pwd._id = p._id
