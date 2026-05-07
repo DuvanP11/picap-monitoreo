@@ -5010,8 +5010,8 @@ def _config_diagnostico():
         ("TOKEN_SECRET",             bool(os.environ.get("TOKEN_SECRET"))),
         ("ADMIN_INITIAL_PASSWORD",   bool(os.environ.get("ADMIN_INITIAL_PASSWORD"))),
         ("ADMIN_EMERGENCY_PASSWORD", bool(os.environ.get("ADMIN_EMERGENCY_PASSWORD"))),
-        ("SMTP_USER",                bool(os.environ.get("SMTP_USER"))),
-        ("SMTP_PASSWORD",            bool(os.environ.get("SMTP_PASSWORD"))),
+        ("SMTP_EMAIL/SMTP_USER",     bool(os.environ.get("SMTP_EMAIL") or os.environ.get("SMTP_USER"))),
+        ("SMTP_PASSWORD/SMTP_PASS",  bool(os.environ.get("SMTP_PASSWORD") or os.environ.get("SMTP_PASS"))),
     ]
     print("=" * 60)
     print("  CONFIG DIAGNOSTICO — variables de entorno detectadas:")
@@ -5261,10 +5261,14 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # Variables de entorno para el email (configurar en Render)
+# Acepta SMTP_EMAIL (canónico) o SMTP_USER (alias) para retrocompatibilidad.
+# Igual con la contraseña: SMTP_PASSWORD o SMTP_PASS.
 SMTP_HOST     = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
 SMTP_PORT     = int(os.environ.get('SMTP_PORT', '465'))
-SMTP_EMAIL    = os.environ.get('SMTP_EMAIL', '')     # ej: picap.monitoreo@gmail.com
-SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')  # contraseña de app Gmail
+SMTP_EMAIL    = (os.environ.get('SMTP_EMAIL', '') or
+                 os.environ.get('SMTP_USER', '')).strip()       # ej: picap.monitoreo@gmail.com
+SMTP_PASSWORD = (os.environ.get('SMTP_PASSWORD', '') or
+                 os.environ.get('SMTP_PASS', '')).strip()        # contraseña de app Gmail
 APP_URL        = os.environ.get('APP_URL', 'https://picap-monitoreo.onrender.com')
 
 def _crear_reset_token(usuario, email):
@@ -5296,7 +5300,11 @@ def _verificar_reset_token(token):
 def _enviar_email(destinatario, asunto, cuerpo_html):
     """Envía email via SMTP. Retorna (ok, error)."""
     if not SMTP_EMAIL or not SMTP_PASSWORD:
-        return False, 'Email no configurado (SMTP_EMAIL y SMTP_PASSWORD)'
+        falta = []
+        if not SMTP_EMAIL:    falta.append('SMTP_EMAIL (o SMTP_USER)')
+        if not SMTP_PASSWORD: falta.append('SMTP_PASSWORD (o SMTP_PASS)')
+        return False, ('SMTP no configurado en el servidor. Falta: ' + ', '.join(falta) +
+                       '. Definir en Render → Environment.')
     try:
         msg = MIMEMultipart('alternative')
         msg['Subject'] = asunto

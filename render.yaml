@@ -24,7 +24,11 @@ services:
         sync: false
       - key: ADMIN_EMERGENCY_PASSWORD
         sync: false
-      - key: SMTP_USER
+      - key: SMTP_EMAIL
         sync: false
       - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
         sync: false
