@@ -1,7 +1,30 @@
 services:
   - type: web
-    name: picap-evasion
+    name: picap-monitoreo
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --workers 1 --timeout 120 api:app
     plan: free
+    envVars:
+      # Defínelas con valores reales en el panel de Render → Environment.
+      # Aquí se declaran sin default para que Render las pida.
+      - key: CLICKHOUSE_HOST
+        sync: false
+      - key: CLICKHOUSE_PORT
+        sync: false
+      - key: CLICKHOUSE_USER
+        sync: false
+      - key: CLICKHOUSE_PASSWORD
+        sync: false
+      - key: CLICKHOUSE_DATABASE
+        sync: false
+      - key: TOKEN_SECRET
+        sync: false
+      - key: ADMIN_INITIAL_PASSWORD
+        sync: false
+      - key: ADMIN_EMERGENCY_PASSWORD
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
