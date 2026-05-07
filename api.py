@@ -1534,6 +1534,12 @@ def admin_diag():
         if not v: return None
         v = str(v)
         return v[:3] + '***' + v[-2:] if len(v) > 6 else '***'
+    # Determinar qué proveedor de email se usará
+    if BREVO_API_KEY:    email_provider = 'BREVO (HTTP)'
+    elif RESEND_API_KEY: email_provider = 'RESEND (HTTP)'
+    elif SMTP_EMAIL and SMTP_PASSWORD: email_provider = f'SMTP ({SMTP_HOST}:{SMTP_PORT})'
+    else:                email_provider = 'NINGUNO — emails no se enviarán'
+
     return jsonify({
         "ok": True,
         "envs_detectadas": {
@@ -1541,6 +1547,10 @@ def admin_diag():
             "CLICKHOUSE_USER":     _mask(os.environ.get("CLICKHOUSE_USER")),
             "CLICKHOUSE_PASSWORD": _mask(os.environ.get("CLICKHOUSE_PASSWORD")),
             "TOKEN_SECRET":        _mask(os.environ.get("TOKEN_SECRET")),
+            "BREVO_API_KEY":       _mask(os.environ.get("BREVO_API_KEY")),
+            "RESEND_API_KEY":      _mask(os.environ.get("RESEND_API_KEY")),
+            "RESEND_FROM":         os.environ.get("RESEND_FROM"),
+            "BREVO_FROM":          os.environ.get("BREVO_FROM"),
             "SMTP_EMAIL":          _mask(os.environ.get("SMTP_EMAIL")),
             "SMTP_USER":           _mask(os.environ.get("SMTP_USER")),
             "SMTP_PASSWORD":       _mask(os.environ.get("SMTP_PASSWORD")),
@@ -1548,6 +1558,7 @@ def admin_diag():
             "SMTP_HOST":           os.environ.get("SMTP_HOST"),
             "SMTP_PORT":           os.environ.get("SMTP_PORT"),
         },
+        "email_provider_activo": email_provider,
         "smtp_resuelto": {
             "SMTP_EMAIL_efectivo":    _mask(SMTP_EMAIL),
             "SMTP_PASSWORD_definido": bool(SMTP_PASSWORD),
@@ -5333,6 +5344,62 @@ def _verificar_reset_token(token):
         return None
 
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
+BREVO_API_KEY  = os.environ.get('BREVO_API_KEY', '').strip()
+
+def _enviar_email_brevo(destinatario, asunto, cuerpo_html):
+    """Envía email vía Brevo (antes SendinBlue) HTTP API.
+    Free tier: 300 emails/día sin verificación de dominio. Funciona en
+    Render Free porque es HTTPS estándar (no SMTP)."""
+    import urllib.request, urllib.error, json as _j
+    UA = "PicapMonitoreo/1.0 (+https://picap-monitoreo.onrender.com)"
+    # Remitente: usa el SMTP_EMAIL configurado, o uno por defecto.
+    # Brevo permite cualquier email como remitente siempre que esté verificado
+    # en su panel (te llega un correo de verificación al registrarte).
+    sender_email = (os.environ.get('BREVO_FROM', '').strip() or
+                    SMTP_EMAIL or
+                    'noreply@picap-monitoreo.onrender.com')
+    payload = _j.dumps({
+        "sender":      {"email": sender_email, "name": "Picap Monitoreo"},
+        "to":          [{"email": destinatario}],
+        "subject":     asunto,
+        "htmlContent": cuerpo_html,
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=payload,
+        headers={
+            "api-key":      BREVO_API_KEY,
+            "Content-Type": "application/json",
+            "Accept":       "application/json",
+            "User-Agent":   UA,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read().decode('utf-8', errors='replace')
+            print(f"[brevo] OK from={sender_email} → {destinatario}: {body[:200]}")
+            return True, None
+    except urllib.error.HTTPError as e:
+        body = ''
+        try: body = e.read().decode('utf-8', errors='replace')[:400]
+        except Exception: pass
+        if e.code == 401:
+            err = f"Brevo rechazó la API KEY (HTTP 401). Verifica BREVO_API_KEY en Render. Detalle: {body}"
+        elif e.code == 400:
+            err = (f"Brevo rechazó el envío (400). Causa común: el remitente '{sender_email}' "
+                   f"no está verificado en Brevo. Ve a https://app.brevo.com/senders y verifícalo. "
+                   f"Detalle: {body}")
+        elif e.code == 403:
+            err = f"Brevo devolvió 403 (Forbidden). Verifica permisos de tu API KEY. Detalle: {body}"
+        else:
+            err = f"HTTP {e.code} de Brevo: {body or e.reason}"
+        print(f"[brevo] HTTP_ERROR: {err}")
+        return False, err
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        print(f"[brevo] UNEXPECTED: {err}")
+        return False, err
 
 def _enviar_email_resend(destinatario, asunto, cuerpo_html):
     """Envía email vía Resend HTTP API. Funciona en Render Free (no bloqueado).
@@ -5449,23 +5516,32 @@ def _enviar_email_smtp(destinatario, asunto, cuerpo_html):
         return False, err
 
 def _enviar_email(destinatario, asunto, cuerpo_html):
-    """Envía email — prefiere Resend (HTTP) si está configurado, si no SMTP.
-    Resend evita el problema de puertos SMTP bloqueados en Render Free."""
-    # Validación mínima
+    """Despachador de email. Prioridad:
+       1) Brevo (HTTP) si BREVO_API_KEY — permite enviar a cualquier destinatario.
+       2) Resend (HTTP) si RESEND_API_KEY — requiere dominio verificado para
+          enviar a no-propietarios.
+       3) SMTP — último recurso, suele estar bloqueado en Render Free.
+    """
     if not destinatario or '@' not in destinatario:
         return False, f"Destinatario inválido: {destinatario}"
 
-    # 1) Resend (HTTP) — siempre funciona si está configurado
+    # 1) Brevo (recomendado en Render Free): HTTP, libre de DNS/dominio.
+    if BREVO_API_KEY:
+        return _enviar_email_brevo(destinatario, asunto, cuerpo_html)
+
+    # 2) Resend
     if RESEND_API_KEY:
         return _enviar_email_resend(destinatario, asunto, cuerpo_html)
 
-    # 2) Fallback a SMTP
+    # 3) Fallback a SMTP
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         falta = []
         if not SMTP_EMAIL:    falta.append('SMTP_EMAIL (o SMTP_USER)')
         if not SMTP_PASSWORD: falta.append('SMTP_PASSWORD (o SMTP_PASS)')
         msg = ('Email no configurado. Falta: ' + ', '.join(falta) +
-               '. Alternativa: definir RESEND_API_KEY (https://resend.com — gratis 100 emails/día).')
+               '. Alternativas HTTP (mejores en Render Free): BREVO_API_KEY '
+               '(https://brevo.com — 300/día sin dominio) o RESEND_API_KEY '
+               '(https://resend.com — 100/día con dominio verificado).')
         print(f"[email] CONFIG_MISSING: {msg}")
         return False, msg
     return _enviar_email_smtp(destinatario, asunto, cuerpo_html)
