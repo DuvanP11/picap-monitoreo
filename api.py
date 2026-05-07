@@ -4619,23 +4619,35 @@ def logout_ch():
 @app.route("/api/me")
 def me_ch():
     token = request.headers.get("X-Token","")
+    # 1) Verificar el token PRIMERO (no requiere CH). Si la firma o expiración
+    #    fallan → 401 (la sesión es inválida y el frontend debe cerrar).
+    s = _verificar_sesion(None, token)
+    if not s:
+        return jsonify({"ok":False,"error":"Sesión expirada","code":"session_invalid"}), 401
+
+    # 2) Token válido — leer datos del usuario en CH. Si CH falla, devolvemos
+    #    503 (service unavailable). El frontend NO debe cerrar la sesión por
+    #    un 503: es problema del backend, no del usuario.
     try:
         ch = get_client()
-        s  = _verificar_sesion(ch, token)
-        if not s:
-            return jsonify({"ok":False,"error":"Sesión expirada"}), 401
         r  = ch.query(f"""
             SELECT nombre, rol, email FROM picapmongoprod.dashboard_users FINAL
             WHERE usuario='{s["usuario"]}' AND activo=1 LIMIT 1
         """)
         if not r.result_rows:
-            return jsonify({"ok":False}), 401
+            # Usuario no encontrado o inactivo → trata como sesión inválida
+            return jsonify({"ok":False,"error":"Usuario inactivo","code":"user_inactive"}), 401
         row = r.result_rows[0]
         rol = row[1] or "pendiente"
         return jsonify({"ok":True,"nombre":row[0],"rol":rol,
                         "acceso":ROLES_ACCESO.get(rol,["home"]),"email":row[2]})
     except Exception as e:
-        return jsonify({"ok":False,"error":str(e)}), 500
+        return jsonify({
+            "ok": False,
+            "error": "Backend de datos no disponible",
+            "code": "backend_unavailable",
+            "detalle": str(e)[:200],
+        }), 503
 
 
 # ══════════════════════════════════════════════════════════════════════════════

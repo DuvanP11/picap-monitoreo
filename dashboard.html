@@ -5153,21 +5153,22 @@ async function verificarSesion(intento) {
   try {
     const r = await fetch(`${API}/api/me`, {
       headers: {'X-Token': _sesionToken},
-      signal: AbortSignal.timeout(8000)
+      // 30s de timeout: tolera cold-start de Render Free (~50s en peor caso,
+      // pero el reintento se encarga de eso). 8s era muy bajo.
+      signal: AbortSignal.timeout(30000)
     });
     const d = await safeJson(r);
-    // Si el servidor confirma que la sesión es inválida (401, ok:false), cerramos.
-    // Si fue HTML / red / 5xx, NO cerramos: dejamos al usuario adentro y reintentará.
+    // SOLO HTTP 401 = sesión inválida. Cualquier otro error (500, 503, red, HTML)
+    // se trata como transitorio: mantenemos la sesión local y dejamos al
+    // usuario adentro; los datos vendrán cuando el backend se recupere.
     if (d && d.ok === false) {
-      const expired = (d._httpStatus === 401) || /sesi[oó]n|token|auth/i.test(d.error || "");
-      if (expired) {
+      if (d._httpStatus === 401) {
         _cerrarSesionLocal();
         document.getElementById('login-screen').style.display = 'flex';
         return;
       }
       // Error transitorio: continuar con datos en localStorage
       console.warn("[validarSesion] error transitorio, manteniendo sesión local:", d.error);
-      // Caemos al flujo de iniciarSesion() debajo usando los datos en memoria
       iniciarSesion();
       return;
     }
