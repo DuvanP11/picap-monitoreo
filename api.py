@@ -1624,6 +1624,284 @@ def reconocimiento():
 
 
 # ══════════════════════════════════════════════════════════════
+# MÓDULO ALERTA CÉDULA
+# Compara la cédula que extrajo Rekognition (foto del documento) con la
+# cédula que aparece en el reporte de antecedentes (people_police_records).
+# Si NO coinciden → 'alerta' (la persona pudo registrar documento ajeno).
+# ══════════════════════════════════════════════════════════════
+
+# Mapeo: nombre de país visible (en la UI) → código ISO en passengers.g_country
+_CEDULA_PAIS_ISO = {
+    "Colombia":  "CO",
+    "Mexico":    "MX",
+    "Nicaragua": "NI",
+    "Guatemala": "GT",
+    "Peru":      "PE",
+    "Ecuador":   "EC",
+}
+
+def _cedula_filtro_pais(pais):
+    """Cláusula AND para filtrar la query de cédula por país."""
+    if not pais:
+        return ""
+    iso = _CEDULA_PAIS_ISO.get(pais, pais)
+    return f"AND p.g_country = '{iso}'"
+
+# Query base (sin LIMIT) — el endpoint la usa para detalle (con LIMIT) y
+# para agregación.
+_Q_CEDULA = r"""
+SELECT
+    creacion_cuenta, id_user, name_user, pais_codigo,
+    rekognition_cc, cc_antecedentes, nombre_antecedentes, cc_igual
+FROM (
+    SELECT
+        toTimeZone(p.created_at, 'America/Bogota') AS creacion_cuenta,
+        toString(pwd._id)                           AS id_user,
+        toString(p.name)                            AS name_user,
+        toString(p.g_country)                       AS pais_codigo,
+        JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
+                                                    AS rekognition_cc,
+        extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+                                                    AS cc_antecedentes,
+        trim(extract(pwd.people_police_records, 'Apellidos y Nombres:\s*([^\\]+)'))
+                                                    AS nombre_antecedentes,
+        CASE
+            WHEN JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
+               = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+            THEN 'ok' ELSE 'alerta'
+        END                                          AS cc_igual,
+        ROW_NUMBER() OVER (PARTITION BY p._id ORDER BY p.created_at DESC) AS rn
+    FROM picapmongoprod.passengers_w_data pwd
+    LEFT JOIN picapmongoprod.passengers p ON pwd._id = p._id
+    WHERE p.created_at BETWEEN toDateTime('{desde} 00:00:00')
+                           AND toDateTime('{hasta} 23:59:59')
+      {filtro_pais}
+)
+WHERE rn = 1
+  AND rekognition_cc != ''
+  AND cc_antecedentes != ''
+ORDER BY creacion_cuenta DESC
+LIMIT {limit_filas}
+"""
+
+# Query de agregación (totales por día y conteo total) sin LIMIT, para que
+# los KPIs reflejen el universo completo aunque la tabla muestre solo un sample.
+_Q_CEDULA_AGG = r"""
+SELECT
+    toDate(creacion_cuenta)               AS dia,
+    count()                               AS total_dia,
+    countIf(cc_igual = 'alerta')          AS alertas_dia
+FROM (
+    SELECT
+        toTimeZone(p.created_at, 'America/Bogota') AS creacion_cuenta,
+        CASE
+            WHEN JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
+               = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+            THEN 'ok' ELSE 'alerta'
+        END                                          AS cc_igual,
+        JSONExtractString(pwd.rekognition_metadata, 'fiscal_number') AS rk_cc,
+        extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)') AS pr_cc,
+        ROW_NUMBER() OVER (PARTITION BY p._id ORDER BY p.created_at DESC) AS rn
+    FROM picapmongoprod.passengers_w_data pwd
+    LEFT JOIN picapmongoprod.passengers p ON pwd._id = p._id
+    WHERE p.created_at BETWEEN toDateTime('{desde} 00:00:00')
+                           AND toDateTime('{hasta} 23:59:59')
+      {filtro_pais}
+)
+WHERE rn = 1
+  AND rk_cc != ''
+  AND pr_cc != ''
+GROUP BY dia
+ORDER BY dia
+"""
+
+@app.route("/api/cedula-alertas")
+def cedula_alertas():
+    """Alertas de Cédula: compara CC en foto vs CC en antecedentes."""
+    # Verificar autenticación
+    token = request.headers.get("X-Token", "")
+    sesion = _verificar_sesion(None, token)
+    if not sesion:
+        return jsonify({"ok": False, "error": "Sesión expirada"}), 401
+
+    desde   = request.args.get("desde") or (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+    hasta   = request.args.get("hasta") or date.today().strftime("%Y-%m-%d")
+    pais    = request.args.get("pais", "").strip()
+    LIMIT_DETALLE = 5000
+
+    filtro_pais = _cedula_filtro_pais(pais)
+
+    try:
+        ch = get_client()
+
+        # 1) Agregación: totales reales (no limitada)
+        sql_agg = _Q_CEDULA_AGG.format(desde=desde, hasta=hasta, filtro_pais=filtro_pais)
+        r_agg   = ch.query(sql_agg)
+        agg_rows = [dict(zip(r_agg.column_names, row)) for row in r_agg.result_rows]
+
+        total_real    = sum(int(r.get('total_dia', 0)   or 0) for r in agg_rows)
+        alertas_real  = sum(int(r.get('alertas_dia', 0) or 0) for r in agg_rows)
+        ok_real       = total_real - alertas_real
+
+        trend = [
+            {
+                'fecha':   str(r['dia']),
+                'alertas': int(r.get('alertas_dia', 0) or 0),
+                'ok':      int(r.get('total_dia', 0) or 0) - int(r.get('alertas_dia', 0) or 0),
+            }
+            for r in agg_rows
+        ]
+
+        # 2) Sample detallado para la tabla
+        sql_det = _Q_CEDULA.format(desde=desde, hasta=hasta, filtro_pais=filtro_pais,
+                                   limit_filas=LIMIT_DETALLE)
+        r_det = ch.query(sql_det)
+        rows = [dict(zip(r_det.column_names, row)) for row in r_det.result_rows]
+
+        # Normalización: fechas a string, mapeo de país visible
+        for row in rows:
+            fc = row.get('creacion_cuenta')
+            if hasattr(fc, 'isoformat'):
+                row['creacion_cuenta'] = str(fc)[:19]
+            row['pais_nombre'] = {
+                'CO':'Colombia','MX':'México','NI':'Nicaragua','GT':'Guatemala',
+                'PE':'Perú','EC':'Ecuador'
+            }.get(row.get('pais_codigo',''), row.get('pais_codigo',''))
+
+        muestra_truncada = total_real > len(rows)
+
+        return jsonify(limpiar_nan({
+            "ok": True,
+            "desde": desde, "hasta": hasta, "pais": pais,
+            "resumen": {
+                "total":        total_real,
+                "alertas":      alertas_real,
+                "ok":           ok_real,
+                "pct_alertas":  round(alertas_real / total_real * 100, 1) if total_real else 0,
+                "pct_ok":       round(ok_real     / total_real * 100, 1) if total_real else 0,
+                "muestra_size":     len(rows),
+                "muestra_truncada": muestra_truncada,
+            },
+            "trend":   trend,
+            "alertas": rows,
+        }))
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "detalle": traceback.format_exc()[:500],
+        }), 500
+
+
+@app.route("/api/cedula-alertas/exportar")
+def cedula_alertas_exportar():
+    """Exporta las alertas (todas, sin filtros client-side) a Excel."""
+    # Auth: aceptar token en header o query param (para descargas directas)
+    token = request.headers.get("X-Token", "") or request.args.get("token", "")
+    sesion = _verificar_sesion(None, token)
+    if not sesion:
+        return jsonify({"ok": False, "error": "Sesión expirada"}), 401
+
+    desde = request.args.get("desde") or (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+    hasta = request.args.get("hasta") or date.today().strftime("%Y-%m-%d")
+    pais  = request.args.get("pais", "").strip()
+    filtro_pais = _cedula_filtro_pais(pais)
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        ch  = get_client()
+        sql = _Q_CEDULA.format(desde=desde, hasta=hasta, filtro_pais=filtro_pais,
+                               limit_filas=20000)
+        r = ch.query(sql)
+        rows = [dict(zip(r.column_names, row)) for row in r.result_rows]
+
+        wb  = Workbook()
+        ws  = wb.active
+        ws.title = "Alertas Cédula"
+
+        # Cabecera
+        headers = [
+            "Creación cuenta", "ID Usuario", "Nombre", "País",
+            "CC Rekognition", "CC Antecedentes", "Nombre antecedentes", "Resultado"
+        ]
+        purple_fill = PatternFill(start_color="6B21A8", end_color="6B21A8", fill_type="solid")
+        thin = Side(style="thin", color="CCCCCC")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        ws.cell(row=1, column=1, value=f"Alertas de Cédula  ·  {desde} → {hasta}  ·  {pais or 'Todos los países'}")
+        ws.cell(row=1, column=1).font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+        ws.cell(row=1, column=1).fill = purple_fill
+        ws.cell(row=1, column=1).alignment = Alignment(horizontal="left", vertical="center")
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+        ws.row_dimensions[1].height = 28
+
+        for col, h in enumerate(headers, start=1):
+            c = ws.cell(row=2, column=col, value=h)
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = purple_fill
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = border
+
+        # Filas
+        for i, row in enumerate(rows, start=3):
+            fc = row.get('creacion_cuenta')
+            fc_str = str(fc)[:19] if fc else ''
+            pais_iso = row.get('pais_codigo', '')
+            pais_nombre = {
+                'CO':'Colombia','MX':'México','NI':'Nicaragua','GT':'Guatemala',
+                'PE':'Perú','EC':'Ecuador'
+            }.get(pais_iso, pais_iso)
+            cc_igual = row.get('cc_igual', 'ok')
+            datos = [
+                fc_str,
+                row.get('id_user', ''),
+                row.get('name_user', ''),
+                pais_nombre,
+                row.get('rekognition_cc', ''),
+                row.get('cc_antecedentes', ''),
+                row.get('nombre_antecedentes', ''),
+                cc_igual.upper(),
+            ]
+            for col, val in enumerate(datos, start=1):
+                c = ws.cell(row=i, column=col, value=val)
+                c.border = border
+                c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            # Color por resultado
+            res_cell = ws.cell(row=i, column=len(headers))
+            if cc_igual == 'alerta':
+                res_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+                res_cell.font = Font(bold=True, color="991B1B")
+            else:
+                res_cell.fill = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")
+                res_cell.font = Font(bold=True, color="166534")
+
+        # Anchos
+        widths = [22, 30, 28, 12, 18, 18, 30, 12]
+        for col, w in enumerate(widths, start=1):
+            from openpyxl.utils import get_column_letter
+            ws.column_dimensions[get_column_letter(col)].width = w
+        ws.freeze_panes = ws.cell(row=3, column=1)
+
+        # Salida en memoria
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return send_file(
+            buf,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=f"alerta_cedula_{desde}_{hasta}_{ts}.xlsx",
+        )
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "detalle": traceback.format_exc()[:500]}), 500
+
+
+# ══════════════════════════════════════════════════════════════
 # MÓDULO PAGOS — Tarjeta de Crédito + PromoCode
 # Clasificación GPS igual que el script Python:
 #   OK           → driver recibió pago wallet
@@ -4368,17 +4646,17 @@ ROLES_ACCESO = {
     # admin: TODO incluyendo Panel Admin
     "admin":      ["monitoreo","conversor","bloqueos","wallet","pagos",
                    "retencion","cashout","reconocimiento","pibox",
-                   "estafa","recaudos","auditoria",
+                   "estafa","recaudos","auditoria","cedula",
                    "admin_panel","home"],
     # monitoreo: TODO excepto Panel Admin
     "monitoreo":  ["monitoreo","conversor","bloqueos","wallet","pagos",
                    "retencion","cashout","reconocimiento","pibox",
-                   "estafa","recaudos","auditoria","home"],
+                   "estafa","recaudos","auditoria","cedula","home"],
     # financiero: módulos financieros
     "financiero": ["pagos","wallet","retencion","cashout",
                    "recaudos","auditoria","pibox","home"],
-    # sac: solo bloqueos y reconocimiento
-    "sac":        ["bloqueos","reconocimiento","estafa","home"],
+    # sac: bloqueos, reconocimiento, estafa y alerta de cédula
+    "sac":        ["bloqueos","reconocimiento","estafa","cedula","home"],
     # pibox: solo pibox, recaudos y auditoría
     "pibox":      ["pibox","recaudos","auditoria","home"],
     "pendiente":  ["home"],

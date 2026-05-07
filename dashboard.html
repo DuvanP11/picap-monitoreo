@@ -1363,6 +1363,17 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   <div class="fly-link" id="nav-estadistica-bloqueos" onclick="switchView('bloqueos','estadistica')"><span>📊</span> Estadística general</div>
     </div>
   </div>
+  <div class="sb2-item" id="sbg-cedula">
+    <div class="sb2-icon" title="Alerta Cédula">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="11" rx="1.5" stroke="white" stroke-width="1.5"/><circle cx="7" cy="9" r="2" stroke="white" stroke-width="1.3"/><path d="M11 8h4M11 11h4M5 13h6" stroke="white" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <span class="sb2-label">Alerta Cédula</span>
+    </div>
+    <div class="sb2-flyout">
+      <div class="fly-title">Alerta Cédula</div>
+      <div class="fly-link" id="nav-cedula-stats"   onclick="switchView('cedula','stats')"><span>📊</span> Estadística</div>
+      <div class="fly-link" id="nav-cedula-alertas" onclick="switchView('cedula','alertas')"><span>🆔</span> Alertas</div>
+    </div>
+  </div>
   <div class="sb2-item" id="sbg-pagos">
     <div class="sb2-icon" title="Pagos">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="16" height="11" rx="2" stroke="white" stroke-width="1.5"/><path d="M2 9h16" stroke="white" stroke-width="1.5"/><circle cx="6" cy="13" r="1" fill="white"/></svg>
@@ -2890,6 +2901,96 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     </div>
   </div>
 
+  <!-- ══ VISTA: ALERTA CÉDULA ══════════════════════════════════ -->
+  <div class="view" id="view-cedula">
+    <div class="wrap">
+
+      <!-- Banner explicativo -->
+      <div id="cedula-help" style="display:none;gap:14px;align-items:flex-start;background:linear-gradient(90deg,#f3eaff 0%,#fff7e6 100%);border:1px solid #d8c4ff;border-radius:14px;padding:14px 18px;margin-bottom:14px;color:#3b1f6b;line-height:1.5;font-size:12px">
+        <div style="font-size:22px;line-height:1;flex-shrink:0">🆔</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700;color:#5a2bb8;margin-bottom:6px">¿Cómo funciona Alerta Cédula?</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 18px">
+            <div><strong style="color:#5a2bb8">1️⃣ Comparación</strong><br>Se compara la cédula que extrajo Rekognition de la <em>foto del documento</em> con la cédula que aparece en el reporte de antecedentes asociado al usuario.</div>
+            <div><strong style="color:#5a2bb8">2️⃣ Alerta</strong><br>Si las dos cédulas <strong>NO coinciden</strong> → marca <span style="color:#dc2626">ALERTA</span> (la persona registró un documento que no le pertenece).</div>
+            <div><strong style="color:#5a2bb8">3️⃣ Estadística</strong><br>Total de cuentas revisadas en el rango, cuántas están OK y cuántas con alertas, con porcentajes y tendencia diaria.</div>
+            <div><strong style="color:#5a2bb8">4️⃣ Alertas</strong><br>Tabla detallada con búsqueda por cédula, ID de usuario o nombre, y exportación a Excel.</div>
+          </div>
+          <button onclick="document.getElementById('cedula-help').style.display='none';localStorage.setItem('cedula_help_hide','1')"
+            style="float:right;margin-top:-32px;background:transparent;border:none;color:#5a2bb8;font-size:14px;cursor:pointer;font-weight:700"
+            title="Ocultar este recordatorio">✕</button>
+        </div>
+      </div>
+
+      <!-- Filtros globales -->
+      <div class="filters-bar">
+        <label>Período:</label>
+        <input type="date" class="filter-select" id="ced-from" onchange="cargarCedulaAlertas()">
+        <span style="font-size:11px;color:var(--text3)">→</span>
+        <input type="date" class="filter-select" id="ced-to" onchange="cargarCedulaAlertas()">
+        <button class="apply-btn" onclick="cargarCedulaAlertas()">↻ Actualizar</button>
+
+        <div class="sep"></div>
+
+        <label>País:</label>
+        <select class="filter-select" id="ced-pais" onchange="cargarCedulaAlertas()">
+          <option value="">Todos</option>
+          <option value="Colombia">Colombia</option>
+          <option value="Mexico">México</option>
+          <option value="Nicaragua">Nicaragua</option>
+          <option value="Guatemala">Guatemala</option>
+          <option value="Peru">Perú</option>
+          <option value="Ecuador">Ecuador</option>
+        </select>
+
+        <div class="sep"></div>
+
+        <label>Tipo de alerta:</label>
+        <select class="filter-select" id="ced-tipo-alerta" onchange="renderCedulaResults()">
+          <option value="">Todas</option>
+          <option value="alerta">🚨 Alerta (no coinciden)</option>
+          <option value="ok">✅ OK (coinciden)</option>
+        </select>
+
+        <label>Buscar por:</label>
+        <select class="filter-select" id="ced-q-tipo">
+          <option value="cedula">Cédula</option>
+          <option value="user_id">ID Usuario</option>
+          <option value="nombre">Nombre</option>
+        </select>
+        <input type="text" class="filter-select" id="ced-q-input"
+          placeholder="Pega cédula, ID o nombre..." style="width:200px"
+          oninput="renderCedulaResults()">
+
+        <button class="apply-btn" onclick="exportarCedulaAlertas()" style="background:#16a34a">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:middle;margin-right:4px"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+
+      <!-- Tabs Estadística / Alertas -->
+      <div class="est-tabs" style="margin-top:12px">
+        <div class="est-tab active" id="ced-tab-stats"   onclick="switchCedulaTab('stats')">📊 Estadística</div>
+        <div class="est-tab"        id="ced-tab-alertas" onclick="switchCedulaTab('alertas')">🚨 Alertas</div>
+      </div>
+
+      <!-- Panel Estadística -->
+      <div class="est-panel active" id="ced-panel-stats">
+        <div id="ced-stats-content">
+          <div style="text-align:center;padding:40px;color:var(--text3)">Selecciona un período y haz clic en ↻ Actualizar.</div>
+        </div>
+      </div>
+
+      <!-- Panel Alertas -->
+      <div class="est-panel" id="ced-panel-alertas">
+        <div id="ced-alertas-content">
+          <div style="text-align:center;padding:40px;color:var(--text3)">Selecciona un período y haz clic en ↻ Actualizar.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ══ VISTAS COMING SOON ══ -->
   <div class="view" id="view-coming">
     <div class="wrap">
@@ -2963,6 +3064,7 @@ function switchView(view){
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
     'pibox-stats':    'Auditorías de Servicios Pibox — Estadísticas',
     'estadistica-bloqueos': 'Estadística de Bloqueos y Reactivaciones',
+    'cedula':         'Alerta Cédula — Validación documental',
     coming:           'Próximamente',
     perfil:           'Mi Perfil',
     wallet:           'Motor Wallet',
@@ -2997,6 +3099,11 @@ function switchView(view){
     const tab = arguments[1] || 'stats';
     switchEstafaTab(tab);
     if(!_estafaLoaded) cargarEstafa();
+  }
+  if(view === 'cedula'){
+    const tab = arguments[1] || 'stats';
+    switchCedulaTab(tab);
+    if(!_cedulaLoaded) cargarCedulaAlertas();
   }
   if(view === 'pagos'){
     const tab = arguments[1] || 'tc';
@@ -6472,6 +6579,293 @@ function renderEstafaAlertas(alertas) {
 
 
 // ══════════════════════════════════════════════════════════════
+// MÓDULO ALERTA CÉDULA
+// Compara CC de Rekognition vs CC de antecedentes. Misma estructura
+// que el módulo de Estafa: dos tabs, agregación + sample, filtros
+// client-side y export Excel.
+// ══════════════════════════════════════════════════════════════
+let _cedulaLoaded = false;
+let _cedulaData   = null;
+let _cedulaChart  = null;
+let _cedulaCargando = false;
+
+(function _initCedulaFechas(){
+  const h = new Date().toISOString().slice(0,10);
+  const d = new Date(); d.setDate(d.getDate() - 29);
+  const desde = d.toISOString().slice(0,10);
+  setTimeout(() => {
+    const f = document.getElementById('ced-from');
+    const t = document.getElementById('ced-to');
+    if(f && !f.value) f.value = desde;
+    if(t && !t.value) t.value = h;
+  }, 50);
+})();
+
+function switchCedulaTab(tab) {
+  ['stats','alertas'].forEach(t => {
+    document.getElementById(`ced-tab-${t}`)?.classList.remove('active');
+    document.getElementById(`ced-panel-${t}`)?.classList.remove('active');
+  });
+  document.getElementById(`ced-tab-${tab}`)?.classList.add('active');
+  document.getElementById(`ced-panel-${tab}`)?.classList.add('active');
+  // Si ya hay data, re-render para reflejar filtros actuales
+  if (_cedulaData) {
+    if (tab === 'stats') renderCedulaStats(_cedulaData);
+    else                 renderCedulaAlertas(_cedulaData);
+  }
+}
+
+async function cargarCedulaAlertas() {
+  if (_cedulaCargando) return;
+  _cedulaCargando = true;
+  const desde = document.getElementById('ced-from')?.value || '';
+  const hasta = document.getElementById('ced-to')?.value   || '';
+  const pais  = document.getElementById('ced-pais')?.value || '';
+
+  const setLoading = (txt) => {
+    const html = `<div style="text-align:center;padding:40px"><div style="font-size:28px;margin-bottom:10px">🆔</div><div style="color:var(--text3);font-size:13px">${txt}</div></div>`;
+    document.getElementById('ced-stats-content').innerHTML  = html;
+    document.getElementById('ced-alertas-content').innerHTML = html;
+  };
+  setLoading('Consultando ClickHouse — esto puede tardar un poco...');
+
+  try {
+    const token = _sesionToken || localStorage.getItem('picap_token');
+    if (!token) throw new Error('Sin autenticación — recarga la página');
+    let url = `${API}/api/cedula-alertas?desde=${desde}&hasta=${hasta}`;
+    if (pais) url += `&pais=${encodeURIComponent(pais)}`;
+    const r = await fetch(url, { headers: { 'X-Token': token } });
+    const d = await safeJson(r);
+    if (!d || d.ok === false) throw new Error(d?.error || `HTTP ${r.status}`);
+
+    _cedulaData = d;
+    _cedulaLoaded = true;
+    _cedulaCargando = false;
+    renderCedulaResults();
+  } catch (err) {
+    _cedulaCargando = false;
+    const html = `<div style="text-align:center;padding:40px;color:var(--red)">❌ Error: ${err.message}</div>`;
+    document.getElementById('ced-stats-content').innerHTML  = html;
+    document.getElementById('ced-alertas-content').innerHTML = html;
+  }
+}
+
+// Aplica los filtros client-side (tipo de alerta + búsqueda) sobre _cedulaData.
+function _cedulaFiltrar(rows) {
+  const tipo = document.getElementById('ced-tipo-alerta')?.value || '';
+  const q    = (document.getElementById('ced-q-input')?.value || '').trim().toLowerCase();
+  const qTipo = document.getElementById('ced-q-tipo')?.value || 'cedula';
+  return (rows || []).filter(r => {
+    if (tipo && r.cc_igual !== tipo) return false;
+    if (q.length >= 2) {
+      let campo = '';
+      if (qTipo === 'cedula')  campo = `${r.rekognition_cc||''} ${r.cc_antecedentes||''}`.toLowerCase();
+      else if (qTipo === 'user_id') campo = String(r.id_user||'').toLowerCase();
+      else if (qTipo === 'nombre')  campo = `${r.name_user||''} ${r.nombre_antecedentes||''}`.toLowerCase();
+      if (!campo.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+// Render maestro: pinta el tab activo con los filtros vigentes.
+function renderCedulaResults() {
+  if (!_cedulaData) return;
+  const tabActivo = document.querySelector('.est-tab.active')?.id || 'ced-tab-stats';
+  if (tabActivo === 'ced-tab-alertas') renderCedulaAlertas(_cedulaData);
+  else                                  renderCedulaStats(_cedulaData);
+}
+
+function renderCedulaStats(data) {
+  const r = data.resumen || {};
+  const total      = r.total       || 0;
+  const totalSafe  = total || 1;
+  const alertas    = r.alertas     || 0;
+  const ok         = r.ok          || 0;
+  const pctAlertas = total ? Math.round(alertas/totalSafe*100) : 0;
+  const pctOk      = total ? Math.round(ok/totalSafe*100) : 0;
+  const muestraTrunc = !!r.muestra_truncada;
+
+  // Aplicar filtros sobre la tabla detallada para mostrar coincidencias en pantalla
+  const filtered = _cedulaFiltrar(data.alertas || []);
+  const nFilt    = filtered.length;
+  const totalCargado = (data.alertas || []).length;
+  const subFiltro = (nFilt !== totalCargado)
+    ? `<div style="font-size:11px;color:var(--text3);margin-top:5px">🔎 Filtros aplicados: <strong>${nFilt.toLocaleString('es-CO')}</strong> de ${totalCargado.toLocaleString('es-CO')} casos en la muestra coinciden.</div>`
+    : '';
+
+  const headlineColor = pctAlertas >= 25 ? '#dc2626' : pctAlertas >= 10 ? '#d97706' : '#16a34a';
+  const headlineEmoji = pctAlertas >= 25 ? '🚨' : pctAlertas >= 10 ? '⚠️' : '✅';
+  const headlineMsg   = pctAlertas >= 25 ? 'Tasa elevada — revisar registros con prioridad.'
+                      : pctAlertas >= 10 ? 'Tasa moderada — vigilancia preventiva.'
+                                         : 'Tasa baja — el cruce documental está sano.';
+
+  const resumen = `
+    <div style="background:linear-gradient(135deg,#fff5f5 0%,#fff 100%);border:1px solid #fecaca;border-radius:14px;padding:14px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px">
+        <div style="flex:1;min-width:280px">
+          <div style="font-size:11px;color:#991b1b;font-weight:700;letter-spacing:.5px;margin-bottom:6px">📊 RESUMEN EJECUTIVO — ALERTA CÉDULA</div>
+          <div style="font-size:14px;color:var(--text1);line-height:1.55">
+            De <strong>${total.toLocaleString('es-CO')}</strong> cuentas revisadas en el rango,
+            <strong style="color:#dc2626">${alertas.toLocaleString('es-CO')}</strong> tienen <strong>alerta</strong>
+            (la cédula del documento no coincide con la del reporte de antecedentes,
+            <strong style="color:${headlineColor}">${pctAlertas}%</strong>).
+            Las restantes <strong style="color:#16a34a">${ok.toLocaleString('es-CO')}</strong> están <strong>OK</strong>.
+          </div>
+          ${muestraTrunc ? `<div style="margin-top:6px;font-size:11px;color:#7c2d12;background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:6px 10px">ℹ️ La <strong>tabla de Alertas</strong> muestra una muestra de ${(r.muestra_size||0).toLocaleString('es-CO')} casos. Los KPIs de arriba reflejan el universo completo. Para ver todo, usa <strong>Exportar Excel</strong>.</div>` : ''}
+          ${subFiltro}
+        </div>
+        <div style="text-align:right;min-width:140px">
+          <div style="font-size:36px;font-weight:800;color:${headlineColor};line-height:1">${pctAlertas}%</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">tasa de alerta</div>
+          <div style="font-size:12px;color:${headlineColor};margin-top:6px">${headlineEmoji} ${headlineMsg}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="est-kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px">
+      <div class="est-kpi pu" title="Total de cuentas revisadas en el rango (con CC en foto Y CC en antecedentes).">
+        <div class="est-kpi-val">${total.toLocaleString('es-CO')}</div>
+        <div class="est-kpi-lbl">Total cuentas revisadas</div>
+        <div class="est-kpi-bar" style="background:var(--purple)"></div>
+      </div>
+      <div class="est-kpi danger" title="Cuentas donde la cédula del documento NO coincide con la del reporte de antecedentes.">
+        <div class="est-kpi-val">${alertas.toLocaleString('es-CO')}</div>
+        <div class="est-kpi-lbl">🚨 Alertas · ${pctAlertas}%</div>
+        <div class="est-kpi-bar" style="background:#ef4444"></div>
+      </div>
+      <div class="est-kpi ok" title="Cuentas donde las dos cédulas coinciden — documento legítimo.">
+        <div class="est-kpi-val">${ok.toLocaleString('es-CO')}</div>
+        <div class="est-kpi-lbl">✅ OK · ${pctOk}%</div>
+        <div class="est-kpi-bar" style="background:#22c55e"></div>
+      </div>
+    </div>
+  `;
+
+  const trend = data.trend || [];
+  const chartId = 'chart-cedula-trend';
+  const html = resumen + `
+    <div class="pag-grid-2" style="grid-template-columns:1fr 1fr;gap:14px;display:grid;margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">Tendencia diaria</div>
+        <div style="position:relative;height:220px"><canvas id="${chartId}"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Distribución del rango</div>
+        <div class="est-vbar">
+          <span class="est-vbar-lbl">🚨 Alerta (no coinciden)</span>
+          <div class="est-vbar-track"><div class="est-vbar-fill" style="width:${pctAlertas}%;background:#ef4444"></div></div>
+          <span class="est-vbar-val">${alertas.toLocaleString('es-CO')} (${pctAlertas}%)</span>
+        </div>
+        <div class="est-vbar">
+          <span class="est-vbar-lbl">✅ OK (coinciden)</span>
+          <div class="est-vbar-track"><div class="est-vbar-fill" style="width:${pctOk}%;background:#22c55e"></div></div>
+          <span class="est-vbar-val">${ok.toLocaleString('es-CO')} (${pctOk}%)</span>
+        </div>
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.5">
+          <strong>Cómo se calcula:</strong> el sistema cruza la cédula que extrajo Rekognition (foto del documento)
+          con la cédula que aparece en <code>people_police_records</code>. Si difieren → alerta.
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('ced-stats-content').innerHTML = html;
+
+  if (trend.length && document.getElementById(chartId)) {
+    if (_cedulaChart) { _cedulaChart.destroy(); _cedulaChart = null; }
+    _cedulaChart = new Chart(document.getElementById(chartId).getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: trend.map(t => (t.fecha || '').slice(5)),
+        datasets: [
+          {label:'Alerta', data:trend.map(t=>t.alertas), backgroundColor:'#ef444488',borderColor:'#ef4444',borderWidth:1,stack:'s'},
+          {label:'OK',     data:trend.map(t=>t.ok),      backgroundColor:'#22c55e55',borderColor:'#22c55e',borderWidth:1,stack:'s'},
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:true, position:'top', labels:{ font:{ size:10 } } } },
+        scales:{
+          x:{ stacked:true, ticks:{ font:{size:9}, color:'#a89fc0', maxRotation:45 }, grid:{ display:false } },
+          y:{ stacked:true, ticks:{ font:{size:9}, color:'#a89fc0' },               grid:{ color:'#ede9f5' } }
+        }
+      }
+    });
+  }
+}
+
+function renderCedulaAlertas(data) {
+  const filas = _cedulaFiltrar(data.alertas || []);
+  const cont  = document.getElementById('ced-alertas-content');
+  if (!filas.length) {
+    const totalCargado = (data.alertas||[]).length;
+    cont.innerHTML = totalCargado === 0
+      ? '<div style="text-align:center;padding:40px;color:var(--green)">✅ Sin registros en el período seleccionado.</div>'
+      : '<div style="text-align:center;padding:40px;color:var(--text3)">🔎 Ningún registro coincide con los filtros aplicados.</div>';
+    return;
+  }
+  const totalCargado = (data.alertas||[]).length;
+  const subtitulo = (filas.length === totalCargado)
+    ? `${filas.length.toLocaleString('es-CO')} registros en la muestra`
+    : `${filas.length.toLocaleString('es-CO')} de ${totalCargado.toLocaleString('es-CO')} registros (filtrados)`;
+
+  const filasHtml = filas.map(a => {
+    const cls = a.cc_igual === 'alerta' ? 'row-estafa' : '';
+    const badge = a.cc_igual === 'alerta'
+      ? '<span style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700">🚨 ALERTA</span>'
+      : '<span style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700">✅ OK</span>';
+    const fc = (a.creacion_cuenta || '').slice(0,16);
+    return `<tr class="${cls}">
+      <td style="font-size:11px;white-space:nowrap">${fc || '—'}</td>
+      <td style="font-family:monospace;font-size:10px;max-width:140px;word-break:break-all" title="Click para copiar"
+          onclick="navigator.clipboard&&navigator.clipboard.writeText('${a.id_user||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',900)">${a.id_user || '—'}</td>
+      <td style="font-size:11px">${a.name_user || '—'}</td>
+      <td style="font-size:11px;color:var(--text3)">${a.pais_nombre || a.pais_codigo || '—'}</td>
+      <td style="font-family:monospace;font-size:11px">${a.rekognition_cc || '—'}</td>
+      <td style="font-family:monospace;font-size:11px">${a.cc_antecedentes || '—'}</td>
+      <td style="font-size:11px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${a.nombre_antecedentes||''}">${a.nombre_antecedentes || '—'}</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+      ${subtitulo} · ordenados por fecha de creación
+    </div>
+    <div style="overflow-x:auto">
+      <table class="aud-table" style="width:100%">
+        <thead>
+          <tr>
+            <th>Creación cuenta</th>
+            <th>ID Usuario</th>
+            <th>Nombre</th>
+            <th>País</th>
+            <th>CC Rekognition</th>
+            <th>CC Antecedentes</th>
+            <th>Nombre antecedentes</th>
+            <th>Resultado</th>
+          </tr>
+        </thead>
+        <tbody>${filasHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function exportarCedulaAlertas() {
+  const desde = document.getElementById('ced-from')?.value || '';
+  const hasta = document.getElementById('ced-to')?.value   || '';
+  const pais  = document.getElementById('ced-pais')?.value || '';
+  const token = _sesionToken || localStorage.getItem('picap_token') || '';
+  if (!token) { alert('Sin autenticación — recarga la página'); return; }
+  let url = `${API}/api/cedula-alertas/exportar?desde=${desde}&hasta=${hasta}&token=${encodeURIComponent(token)}`;
+  if (pais) url += `&pais=${encodeURIComponent(pais)}`;
+  // Descarga directa
+  window.location.href = url;
+}
+
+
+// ══════════════════════════════════════════════════════════════
 // MÓDULO VALIDACIÓN DE RECAUDOS
 // ══════════════════════════════════════════════════════════════
 let _recDesde = '', _recHasta = '';
@@ -7612,7 +8006,7 @@ const _switchViewOrig = window.switchView;
 function inyectarBotonesVolver() {
   const MODULOS = [
     'view-monitoreo','view-estafa','view-bloqueos','view-pagos',
-    'view-recaudos','view-wallet','view-auditoria','view-rf',
+    'view-recaudos','view-wallet','view-auditoria','view-rf','view-cedula',
   ];
   MODULOS.forEach(viewId => {
     const viewEl = document.getElementById(viewId);
