@@ -1384,6 +1384,331 @@ def _scheduler_recordatorios():
 # Iniciar scheduler de recordatorios
 threading.Thread(target=_scheduler_recordatorios, daemon=True).start()
 
+# ══════════════════════════════════════════════════════════════════════
+# CRONOGRAMA DE FUNCIONES — tareas recurrentes con email push
+# A diferencia de calendario_recordatorios (eventos puntuales),
+# cronograma_tareas son tareas que se repiten en días específicos
+# de la semana a una hora fija (ej: "Cada lunes y miércoles a las 9:00").
+# ══════════════════════════════════════════════════════════════════════
+
+_CRONOGRAMA_TABLE = """
+CREATE TABLE IF NOT EXISTS picapmongoprod.cronograma_tareas (
+    id           String,
+    titulo       String,
+    descripcion  String,
+    dias_semana  String,           -- 'lun,mar,mie,jue,vie,sab,dom' separados por coma
+    hora         String,           -- HH:MM (24h)
+    email        String,
+    creado_por   String,
+    activo       UInt8 DEFAULT 1,
+    ultima_ejecucion String DEFAULT '',  -- YYYY-MM-DD última vez enviado (anti-duplicado)
+    creado_en    DateTime DEFAULT now(),
+    actualizado_en DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(actualizado_en)
+ORDER BY id
+"""
+
+# Mapeo entre el índice de Python (Monday=0) y la abreviatura usada en la tabla.
+_DIAS_ABREV = ['lun','mar','mie','jue','vie','sab','dom']
+
+def _init_cronograma_table():
+    try:
+        ch = get_client()
+        ch.command(_CRONOGRAMA_TABLE)
+    except Exception as e:
+        print(f"[cronograma] Error creando tabla: {e}")
+
+def _scheduler_cronograma():
+    """Cada 60s: revisar tareas activas que coincidan con día y hora actual."""
+    import time as _time
+    _time.sleep(15)  # esperar a que el server arranque
+    _init_cronograma_table()
+
+    while True:
+        try:
+            now    = datetime.now()
+            hoy    = now.strftime("%Y-%m-%d")
+            minuto = now.strftime("%H:%M")
+            dia_idx = now.weekday()  # 0=lunes, 6=domingo
+            dia_abr = _DIAS_ABREV[dia_idx]
+
+            ch = get_client()
+            rows = ch.query(f"""
+                SELECT id, titulo, descripcion, dias_semana, hora, email, creado_por
+                FROM picapmongoprod.cronograma_tareas FINAL
+                WHERE activo = 1
+                  AND hora = '{minuto}'
+                  AND email != ''
+                  AND ultima_ejecucion != '{hoy}'
+                  AND (dias_semana = '*' OR positionCaseInsensitive(dias_semana, '{dia_abr}') > 0)
+            """).result_rows
+
+            for row in rows:
+                rid, titulo, descripcion, dias_semana, hora, email, creado_por = row
+                # Render del email
+                desc_html = ''
+                if descripcion:
+                    descripcion_safe = (descripcion[:500]
+                                        .replace('<', '&lt;').replace('>', '&gt;'))
+                    desc_html = f"""
+                      <div style="margin-top:10px;font-size:13px;color:#374151;
+                                  background:#f9fafb;padding:10px 14px;border-radius:8px;
+                                  border-left:3px solid #a78bfa;line-height:1.5">
+                        {descripcion_safe}
+                      </div>"""
+                cuerpo = f"""
+                <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;
+                            background:#f9fafb;border-radius:12px;overflow:hidden;">
+                  <div style="background:linear-gradient(135deg,#4c1d95,#7c3aed);
+                              padding:24px 32px;text-align:center;">
+                    <h1 style="color:#fff;margin:0;font-size:20px">🗓️ Cronograma — Picap Monitoreo</h1>
+                    <p style="color:rgba(255,255,255,.85);margin:4px 0 0;font-size:12px">
+                      Recordatorio programado de tu cronograma de funciones
+                    </p>
+                  </div>
+                  <div style="padding:24px 32px;background:#fff;">
+                    <h2 style="color:#1e1b4b;font-size:15px;margin:0 0 12px">
+                      Es hora de tu tarea programada
+                    </h2>
+                    <div style="background:#f5f3ff;border-left:4px solid #7c3aed;
+                                border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:14px;">
+                      <div style="font-size:18px;font-weight:700;color:#1e1b4b;margin-bottom:8px">
+                        {titulo}
+                      </div>
+                      <div style="font-size:13px;color:#374151;margin-bottom:4px;">
+                        ⏰ <strong>Hora:</strong> {hora}
+                      </div>
+                      <div style="font-size:13px;color:#374151">
+                        📅 <strong>Días:</strong> {dias_semana if dias_semana != '*' else 'Todos los días'}
+                      </div>
+                      {desc_html}
+                    </div>
+                    <p style="color:#9ca3af;font-size:11px;margin:14px 0 0">
+                      Picap Monitoreo · Cronograma de funciones · No responder este correo.
+                    </p>
+                  </div>
+                </div>"""
+
+                ok, err = _enviar_email(
+                    email,
+                    f"🗓️ Cronograma: {titulo} — {hora}",
+                    cuerpo
+                )
+
+                if ok:
+                    # Marcar última ejecución para no enviar otro hoy mismo
+                    ch.command(f"""
+                        ALTER TABLE picapmongoprod.cronograma_tareas
+                        UPDATE ultima_ejecucion = '{hoy}',
+                               actualizado_en = now()
+                        WHERE id = '{rid}'
+                    """)
+                    print(f"[cronograma] ✓ {email}: {titulo} a las {hora}")
+                else:
+                    print(f"[cronograma] ✗ {email}: {err}")
+
+        except Exception as e:
+            print(f"[cronograma] Error scheduler: {e}")
+
+        _time.sleep(60)
+
+threading.Thread(target=_scheduler_cronograma, daemon=True).start()
+
+
+# ── CRUD del cronograma ──────────────────────────────────────────────
+
+def _es_admin(token):
+    """Helper: True si el token corresponde a un usuario con rol admin."""
+    s = _verificar_sesion(None, token)
+    return bool(s and s.get('rol') == 'admin')
+
+@app.route("/api/cronograma", methods=["GET"])
+def cronograma_list():
+    """Lista todas las tareas del cronograma. Solo admin."""
+    token = request.headers.get("X-Token", "")
+    if not _es_admin(token):
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    try:
+        ch = get_client()
+        _init_cronograma_table()
+        r = ch.query("""
+            SELECT id, titulo, descripcion, dias_semana, hora, email, creado_por,
+                   activo, ultima_ejecucion, creado_en, actualizado_en
+            FROM picapmongoprod.cronograma_tareas FINAL
+            ORDER BY hora, titulo
+        """)
+        cols = r.column_names
+        tareas = []
+        for row in r.result_rows:
+            t = dict(zip(cols, row))
+            # Normalizar tipos
+            t['activo']         = int(t.get('activo', 0) or 0)
+            t['creado_en']      = str(t.get('creado_en', ''))[:19]
+            t['actualizado_en'] = str(t.get('actualizado_en', ''))[:19]
+            tareas.append(t)
+        return jsonify({"ok": True, "tareas": tareas})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/cronograma", methods=["POST"])
+def cronograma_create():
+    """Crea una nueva tarea recurrente. Solo admin."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    data = request.get_json() or {}
+    titulo      = (data.get("titulo") or "").strip()
+    descripcion = (data.get("descripcion") or "").strip()
+    dias_semana = (data.get("dias_semana") or "").strip().lower()
+    hora        = (data.get("hora") or "").strip()
+    email       = (data.get("email") or "").strip()
+    if not titulo or not dias_semana or not hora or not email:
+        return jsonify({"ok": False, "error": "Faltan campos: titulo, dias_semana, hora, email"}), 400
+    # Validaciones simples
+    if not _validar_hora(hora):
+        return jsonify({"ok": False, "error": "Hora inválida (HH:MM, 24h)"}), 400
+    if not _validar_dias(dias_semana):
+        return jsonify({"ok": False, "error": "Días inválidos (usar abreviaturas: lun,mar,mie,jue,vie,sab,dom o '*')"}), 400
+    try:
+        ch = get_client()
+        _init_cronograma_table()
+        new_id = str(uuid.uuid4())
+        ch.insert("picapmongoprod.cronograma_tareas",
+            [[new_id, titulo, descripcion, dias_semana, hora, email,
+              s.get('usuario','admin'), 1, '',
+              datetime.utcnow(), datetime.utcnow()]],
+            column_names=["id","titulo","descripcion","dias_semana","hora","email",
+                          "creado_por","activo","ultima_ejecucion",
+                          "creado_en","actualizado_en"])
+        return jsonify({"ok": True, "id": new_id})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/cronograma/<tid>", methods=["PUT"])
+def cronograma_update(tid):
+    """Edita una tarea. Solo admin."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    data = request.get_json() or {}
+    titulo      = (data.get("titulo") or "").strip()
+    descripcion = (data.get("descripcion") or "").strip()
+    dias_semana = (data.get("dias_semana") or "").strip().lower()
+    hora        = (data.get("hora") or "").strip()
+    email       = (data.get("email") or "").strip()
+    activo      = 1 if data.get("activo", True) else 0
+    if not titulo or not dias_semana or not hora or not email:
+        return jsonify({"ok": False, "error": "Faltan campos"}), 400
+    if not _validar_hora(hora):
+        return jsonify({"ok": False, "error": "Hora inválida"}), 400
+    if not _validar_dias(dias_semana):
+        return jsonify({"ok": False, "error": "Días inválidos"}), 400
+    # Sanitizar tid (prevenir SQL injection en el WHERE)
+    if not all(c in '0123456789abcdef-' for c in tid.lower()):
+        return jsonify({"ok": False, "error": "ID inválido"}), 400
+    try:
+        ch = get_client()
+        # Leer fila actual para preservar campos no modificables
+        r = ch.query(f"""
+            SELECT creado_por, ultima_ejecucion, creado_en
+            FROM picapmongoprod.cronograma_tareas FINAL
+            WHERE id = '{tid}' LIMIT 1
+        """).result_rows
+        if not r:
+            return jsonify({"ok": False, "error": "Tarea no encontrada"}), 404
+        creado_por, ultima_ejecucion, creado_en = r[0]
+        # Insert con mismo id para que ReplacingMergeTree haga el merge
+        ch.insert("picapmongoprod.cronograma_tareas",
+            [[tid, titulo, descripcion, dias_semana, hora, email,
+              creado_por, activo, ultima_ejecucion,
+              creado_en, datetime.utcnow()]],
+            column_names=["id","titulo","descripcion","dias_semana","hora","email",
+                          "creado_por","activo","ultima_ejecucion",
+                          "creado_en","actualizado_en"])
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/cronograma/<tid>", methods=["DELETE"])
+def cronograma_delete(tid):
+    """Borra una tarea (hard delete). Solo admin."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    if not all(c in '0123456789abcdef-' for c in tid.lower()):
+        return jsonify({"ok": False, "error": "ID inválido"}), 400
+    try:
+        ch = get_client()
+        ch.command(f"ALTER TABLE picapmongoprod.cronograma_tareas DELETE WHERE id = '{tid}'")
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/cronograma/<tid>/test", methods=["POST"])
+def cronograma_test(tid):
+    """Envía un email de prueba inmediato con la tarea. Solo admin."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    if not all(c in '0123456789abcdef-' for c in tid.lower()):
+        return jsonify({"ok": False, "error": "ID inválido"}), 400
+    try:
+        ch = get_client()
+        r = ch.query(f"""
+            SELECT titulo, descripcion, dias_semana, hora, email
+            FROM picapmongoprod.cronograma_tareas FINAL
+            WHERE id = '{tid}' LIMIT 1
+        """).result_rows
+        if not r:
+            return jsonify({"ok": False, "error": "Tarea no encontrada"}), 404
+        titulo, descripcion, dias_semana, hora, email = r[0]
+        desc_safe = (descripcion[:500].replace('<','&lt;').replace('>','&gt;')) if descripcion else ''
+        desc_html = f"""<div style="margin-top:10px;font-size:13px;color:#374151;background:#f9fafb;padding:10px 14px;border-radius:8px;border-left:3px solid #a78bfa;line-height:1.5">{desc_safe}</div>""" if desc_safe else ''
+        cuerpo = f"""
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#f9fafb;border-radius:12px;overflow:hidden;">
+          <div style="background:linear-gradient(135deg,#16a34a,#22c55e);padding:24px 32px;text-align:center;">
+            <h1 style="color:#fff;margin:0;font-size:20px">🧪 Prueba de Cronograma</h1>
+            <p style="color:rgba(255,255,255,.85);margin:4px 0 0;font-size:12px">
+              Este es un envío de prueba — la tarea se enviará automáticamente según su programación
+            </p>
+          </div>
+          <div style="padding:24px 32px;background:#fff;">
+            <div style="background:#f0fdf4;border-left:4px solid #16a34a;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:14px;">
+              <div style="font-size:18px;font-weight:700;color:#1e1b4b;margin-bottom:8px">{titulo}</div>
+              <div style="font-size:13px;color:#374151;margin-bottom:4px;">⏰ <strong>Hora:</strong> {hora}</div>
+              <div style="font-size:13px;color:#374151">📅 <strong>Días:</strong> {dias_semana if dias_semana != '*' else 'Todos los días'}</div>
+              {desc_html}
+            </div>
+          </div>
+        </div>"""
+        ok, err = _enviar_email(email, f"🧪 [Prueba] {titulo}", cuerpo)
+        if ok:
+            return jsonify({"ok": True, "mensaje": f"Email de prueba enviado a {email}"})
+        else:
+            return jsonify({"ok": False, "error": err or "Falló el envío"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+def _validar_hora(hora):
+    try:
+        if len(hora) != 5 or hora[2] != ':': return False
+        h = int(hora[0:2]); m = int(hora[3:5])
+        return 0 <= h <= 23 and 0 <= m <= 59
+    except Exception:
+        return False
+
+def _validar_dias(dias):
+    if not dias: return False
+    if dias.strip() == '*': return True
+    valid = set(_DIAS_ABREV)
+    parts = [p.strip() for p in dias.split(',') if p.strip()]
+    return bool(parts) and all(p in valid for p in parts)
+
+
 # ══════════════════════════════════════════════════════════════
 # MÓDULO RECONOCIMIENTO FACIAL — aislado, sin tocar lo anterior
 # Los datos los genera reconocimiento_facial_v3.py localmente

@@ -2489,10 +2489,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         </div>
       </div>
       <!-- Tabs admin -->
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:18px;">
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:18px;flex-wrap:wrap">
         <div class="bloqueos-tab active" id="admin-tab-users" onclick="switchAdminTab('users')">👥 Usuarios</div>
         <div class="bloqueos-tab" id="admin-tab-console" onclick="switchAdminTab('console')">💻 Consola</div>
         <div class="bloqueos-tab" id="admin-tab-cal" onclick="switchAdminTab('cal')">📅 Calendario</div>
+        <div class="bloqueos-tab" id="admin-tab-cron" onclick="switchAdminTab('cron')">🗓️ Cronograma</div>
       </div>
       <!-- Panel usuarios -->
       <div id="admin-panel-users" class="admin-panel admin-panel-active">
@@ -2522,6 +2523,69 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
       <!-- Panel calendario -->
       <div id="admin-panel-cal" class="admin-panel">
         <div id="cal-root"></div>
+      </div>
+      <!-- Panel cronograma -->
+      <div id="admin-panel-cron" class="admin-panel">
+        <div style="background:linear-gradient(90deg,#f3eaff 0%,#fff7e6 100%);border:1px solid #d8c4ff;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#3b1f6b;line-height:1.5">
+          🗓️ <strong>Cronograma de funciones</strong> — programa tareas que se repiten en días específicos a una hora fija. Cuando llega la hora, el sistema envía un email push al destinatario configurado. <strong>Diferente del Calendario</strong>: aquí las tareas se repiten cada semana automáticamente.
+        </div>
+
+        <!-- Formulario crear/editar -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:10px" id="cron-form-title">➕ Nueva tarea recurrente</div>
+          <input type="hidden" id="cron-edit-id" value="">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Título *</label>
+              <input id="cron-titulo" class="filter-select" style="width:100%" placeholder="Ej: Revisión diaria de bloqueos">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Email destino *</label>
+              <input id="cron-email" class="filter-select" style="width:100%" placeholder="dperilla@pibox.app" type="email">
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Descripción (opcional)</label>
+            <textarea id="cron-descripcion" class="filter-select" style="width:100%;min-height:60px;resize:vertical" placeholder="Detalles del recordatorio o pasos a seguir..."></textarea>
+          </div>
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:5px">Días de la semana *</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap" id="cron-dias-wrap">
+                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="lun" style="margin:0">LUN</label>
+                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="mar" style="margin:0">MAR</label>
+                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="mie" style="margin:0">MIE</label>
+                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="jue" style="margin:0">JUE</label>
+                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="vie" style="margin:0">VIE</label>
+                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="sab" style="margin:0">SAB</label>
+                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="dom" style="margin:0">DOM</label>
+                <label style="display:flex;align-items:center;gap:4px;background:#f5f3ff;border:1px solid #d8c4ff;color:#5a2bb8;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600">
+                  <input type="checkbox" id="cron-dia-todos" onchange="cronToggleTodos(this.checked)" style="margin:0">TODOS
+                </label>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Hora * (24h)</label>
+              <input id="cron-hora" type="time" class="filter-select" style="width:100%">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+            <button class="apply-btn" id="cron-cancelar" onclick="cronCancelarEdicion()" style="background:#9ca3af;display:none">✕ Cancelar edición</button>
+            <button class="apply-btn" onclick="cronGuardar()">💾 Guardar tarea</button>
+          </div>
+          <div id="cron-form-msg" style="font-size:12px;margin-top:8px;text-align:right"></div>
+        </div>
+
+        <!-- Lista de tareas -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:13px;font-weight:700;color:var(--text2)">📋 Tareas programadas</div>
+            <button class="apply-btn" onclick="cargarCronograma()" style="font-size:11px;padding:4px 10px">↻ Recargar</button>
+          </div>
+          <div id="cron-lista">
+            <div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Carga las tareas con ↻ Recargar.</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -5371,16 +5435,221 @@ async function doRegister() {
 // ADMIN PANEL
 // ══════════════════════════════════════════════════════════════
 function switchAdminTab(tab) {
-  ['users','console','cal'].forEach(t => {
+  ['users','console','cal','cron'].forEach(t => {
     document.getElementById(`admin-tab-${t}`)?.classList.remove('active');
     // Usar clase admin-panel-active en lugar de active para no colisionar
     document.getElementById(`admin-panel-${t}`)?.classList.remove('admin-panel-active');
   });
   document.getElementById(`admin-tab-${tab}`)?.classList.add('active');
   document.getElementById(`admin-panel-${tab}`)?.classList.add('admin-panel-active');
-  if(tab==='cal') setTimeout(renderCalendario, 50);
+  if(tab==='cal')   setTimeout(renderCalendario, 50);
   if(tab==='users') cargarUsuarios();
+  if(tab==='cron')  cargarCronograma();
 }
+
+// ══════════════════════════════════════════════════════════════
+// ADMIN — CRONOGRAMA DE FUNCIONES
+// ══════════════════════════════════════════════════════════════
+const _CRON_DIAS_LABEL = {lun:'Lun', mar:'Mar', mie:'Mié', jue:'Jue', vie:'Vie', sab:'Sáb', dom:'Dom'};
+let _cronTareas = [];
+
+function cronToggleTodos(checked) {
+  document.querySelectorAll('.cron-dia').forEach(c => { c.checked = checked; });
+}
+
+function cronGetDiasSeleccionados() {
+  const todos = document.getElementById('cron-dia-todos')?.checked;
+  if (todos) return '*';
+  const dias = Array.from(document.querySelectorAll('.cron-dia'))
+    .filter(c => c.checked)
+    .map(c => c.value);
+  return dias.join(',');
+}
+
+function cronLimpiarForm() {
+  document.getElementById('cron-edit-id').value = '';
+  document.getElementById('cron-titulo').value = '';
+  document.getElementById('cron-email').value = '';
+  document.getElementById('cron-descripcion').value = '';
+  document.getElementById('cron-hora').value = '';
+  document.querySelectorAll('.cron-dia').forEach(c => c.checked = false);
+  document.getElementById('cron-dia-todos').checked = false;
+  document.getElementById('cron-form-title').textContent = '➕ Nueva tarea recurrente';
+  document.getElementById('cron-cancelar').style.display = 'none';
+  document.getElementById('cron-form-msg').textContent = '';
+}
+
+function cronCancelarEdicion() { cronLimpiarForm(); }
+
+async function cargarCronograma() {
+  const cont = document.getElementById('cron-lista');
+  if (!cont) return;
+  cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Cargando...</div>';
+  try {
+    const r = await fetch(`${API}/api/cronograma`, {headers: {'X-Token': _sesionToken}});
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    _cronTareas = d.tareas || [];
+    renderCronogramaLista();
+  } catch (err) {
+    cont.innerHTML = `<div style="text-align:center;padding:24px;color:var(--red);font-size:12px">❌ ${err.message}</div>`;
+  }
+}
+
+function renderCronogramaLista() {
+  const cont = document.getElementById('cron-lista');
+  if (!cont) return;
+  if (!_cronTareas.length) {
+    cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">📭 No hay tareas programadas. Crea una con el formulario de arriba.</div>';
+    return;
+  }
+  const html = _cronTareas.map(t => {
+    const dias = (t.dias_semana === '*')
+      ? '<span style="color:#5a2bb8;font-weight:700">Todos los días</span>'
+      : t.dias_semana.split(',').map(d => `<span style="display:inline-block;background:#ede9fe;color:#5a2bb8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:3px">${_CRON_DIAS_LABEL[d.trim()]||d}</span>`).join('');
+    const activoBadge = t.activo === 1
+      ? '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">● ACTIVO</span>'
+      : '<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">○ PAUSADO</span>';
+    const ultEjec = t.ultima_ejecucion
+      ? `<span style="font-size:10px;color:var(--text3)">Última ejecución: ${t.ultima_ejecucion}</span>`
+      : '<span style="font-size:10px;color:var(--text3)">Nunca ejecutada</span>';
+    const desc = t.descripcion
+      ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;white-space:pre-wrap">${(t.descripcion||'').replace(/</g,'&lt;')}</div>`
+      : '';
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+        <div style="flex:1;min-width:240px">
+          <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(t.titulo||'').replace(/</g,'&lt;')} ${activoBadge}</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:4px">⏰ <strong style="font-family:monospace">${t.hora}</strong> · ${dias}</div>
+          <div style="font-size:11px;color:var(--text3)">📧 ${t.email} · ${ultEjec}</div>
+          ${desc}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#0ea5e9" onclick="cronTest('${t.id}')">🧪 Probar</button>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="cronEditar('${t.id}')">✎ Editar</button>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:${t.activo===1?'#9ca3af':'#16a34a'}" onclick="cronToggleActivo('${t.id}', ${t.activo===1?0:1})">${t.activo===1?'⏸ Pausar':'▶ Activar'}</button>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#dc2626" onclick="cronEliminar('${t.id}', '${(t.titulo||'').replace(/'/g,'').replace(/"/g,'')}')">🗑 Eliminar</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  cont.innerHTML = html;
+}
+
+async function cronGuardar() {
+  const id          = document.getElementById('cron-edit-id').value;
+  const titulo      = document.getElementById('cron-titulo').value.trim();
+  const email       = document.getElementById('cron-email').value.trim();
+  const descripcion = document.getElementById('cron-descripcion').value.trim();
+  const hora        = document.getElementById('cron-hora').value.trim();
+  const dias_semana = cronGetDiasSeleccionados();
+  const msg         = document.getElementById('cron-form-msg');
+
+  if (!titulo)      { msg.style.color='#dc2626'; msg.textContent='Título obligatorio'; return; }
+  if (!email)       { msg.style.color='#dc2626'; msg.textContent='Email obligatorio'; return; }
+  if (!hora)        { msg.style.color='#dc2626'; msg.textContent='Hora obligatoria'; return; }
+  if (!dias_semana) { msg.style.color='#dc2626'; msg.textContent='Selecciona al menos un día (o TODOS)'; return; }
+
+  msg.style.color = '#6b7280';
+  msg.textContent = 'Guardando...';
+  try {
+    const url = id ? `${API}/api/cronograma/${encodeURIComponent(id)}` : `${API}/api/cronograma`;
+    const method = id ? 'PUT' : 'POST';
+    const body = {titulo, email, descripcion, hora, dias_semana};
+    if (id) body.activo = true; // al editar mantener activo a menos que se haya pausado expresamente
+    const r = await fetch(url, {
+      method, headers: {'Content-Type':'application/json','X-Token': _sesionToken},
+      body: JSON.stringify(body)
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    msg.style.color = '#16a34a';
+    msg.textContent = id ? '✓ Tarea actualizada' : '✓ Tarea creada';
+    cronLimpiarForm();
+    cargarCronograma();
+  } catch (err) {
+    msg.style.color = '#dc2626';
+    msg.textContent = '❌ ' + err.message;
+  }
+}
+
+function cronEditar(id) {
+  const t = _cronTareas.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('cron-edit-id').value     = t.id;
+  document.getElementById('cron-titulo').value      = t.titulo || '';
+  document.getElementById('cron-email').value       = t.email || '';
+  document.getElementById('cron-descripcion').value = t.descripcion || '';
+  document.getElementById('cron-hora').value        = t.hora || '';
+  // Resetear checkboxes y aplicar los del registro
+  document.querySelectorAll('.cron-dia').forEach(c => c.checked = false);
+  document.getElementById('cron-dia-todos').checked = (t.dias_semana === '*');
+  if (t.dias_semana && t.dias_semana !== '*') {
+    const dias = t.dias_semana.split(',').map(d => d.trim());
+    document.querySelectorAll('.cron-dia').forEach(c => {
+      if (dias.includes(c.value)) c.checked = true;
+    });
+  } else if (t.dias_semana === '*') {
+    document.querySelectorAll('.cron-dia').forEach(c => c.checked = true);
+  }
+  document.getElementById('cron-form-title').textContent = `✎ Editando: ${t.titulo}`;
+  document.getElementById('cron-cancelar').style.display = '';
+  document.getElementById('cron-form-msg').textContent = '';
+  // Scroll al formulario
+  document.getElementById('cron-titulo').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+async function cronToggleActivo(id, nuevoActivo) {
+  const t = _cronTareas.find(x => x.id === id);
+  if (!t) return;
+  try {
+    const r = await fetch(`${API}/api/cronograma/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json','X-Token': _sesionToken},
+      body: JSON.stringify({
+        titulo: t.titulo, email: t.email, descripcion: t.descripcion,
+        hora: t.hora, dias_semana: t.dias_semana,
+        activo: !!nuevoActivo
+      })
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    cargarCronograma();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function cronEliminar(id, titulo) {
+  if (!confirm(`¿Eliminar la tarea "${titulo}"?\nEsta acción no se puede deshacer.`)) return;
+  try {
+    const r = await fetch(`${API}/api/cronograma/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: {'X-Token': _sesionToken}
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    cargarCronograma();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function cronTest(id) {
+  if (!confirm('¿Enviar email de prueba ahora? El destinatario recibirá un correo inmediatamente.')) return;
+  try {
+    const r = await fetch(`${API}/api/cronograma/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+      headers: {'X-Token': _sesionToken}
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    alert('✓ ' + (d.mensaje || 'Email enviado'));
+  } catch (err) {
+    alert('❌ Error: ' + err.message);
+  }
+}
+
 
 async function cargarUsuarios() {
   document.getElementById('admin-users-content').innerHTML =
