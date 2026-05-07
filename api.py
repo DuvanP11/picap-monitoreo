@@ -1522,6 +1522,41 @@ def _es_admin(token):
     s = _verificar_sesion(None, token)
     return bool(s and s.get('rol') == 'admin')
 
+@app.route("/api/admin/diag")
+def admin_diag():
+    """Endpoint de diagnóstico solo-admin: muestra qué envs detectó el server.
+    Útil para verificar la configuración en Render sin tocar el código."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    def _mask(v):
+        if not v: return None
+        v = str(v)
+        return v[:3] + '***' + v[-2:] if len(v) > 6 else '***'
+    return jsonify({
+        "ok": True,
+        "envs_detectadas": {
+            "CLICKHOUSE_HOST":     _mask(os.environ.get("CLICKHOUSE_HOST")),
+            "CLICKHOUSE_USER":     _mask(os.environ.get("CLICKHOUSE_USER")),
+            "CLICKHOUSE_PASSWORD": _mask(os.environ.get("CLICKHOUSE_PASSWORD")),
+            "TOKEN_SECRET":        _mask(os.environ.get("TOKEN_SECRET")),
+            "SMTP_EMAIL":          _mask(os.environ.get("SMTP_EMAIL")),
+            "SMTP_USER":           _mask(os.environ.get("SMTP_USER")),
+            "SMTP_PASSWORD":       _mask(os.environ.get("SMTP_PASSWORD")),
+            "SMTP_PASS":           _mask(os.environ.get("SMTP_PASS")),
+            "SMTP_HOST":           os.environ.get("SMTP_HOST"),
+            "SMTP_PORT":           os.environ.get("SMTP_PORT"),
+        },
+        "smtp_resuelto": {
+            "SMTP_EMAIL_efectivo":    _mask(SMTP_EMAIL),
+            "SMTP_PASSWORD_definido": bool(SMTP_PASSWORD),
+            "SMTP_HOST_efectivo":     SMTP_HOST,
+            "SMTP_PORT_efectivo":     SMTP_PORT,
+        },
+    })
+
+
 @app.route("/api/cronograma", methods=["GET"])
 def cronograma_list():
     """Lista todas las tareas del cronograma. Solo admin."""
