@@ -5332,21 +5332,49 @@ def _verificar_reset_token(token):
     except:
         return None
 
-def _enviar_email(destinatario, asunto, cuerpo_html):
-    """Envía email via SMTP. Retorna (ok, error). Logs detallados a stdout
-    para que en Render se pueda diagnosticar paso por paso."""
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        falta = []
-        if not SMTP_EMAIL:    falta.append('SMTP_EMAIL (o SMTP_USER)')
-        if not SMTP_PASSWORD: falta.append('SMTP_PASSWORD (o SMTP_PASS)')
-        msg = ('SMTP no configurado en el servidor. Falta: ' + ', '.join(falta) +
-               '. Definir en Render → Environment.')
-        print(f"[smtp] CONFIG_MISSING: {msg}")
-        return False, msg
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
 
-    # Log de intento (sin exponer la contraseña)
+def _enviar_email_resend(destinatario, asunto, cuerpo_html):
+    """Envía email vía Resend HTTP API. Funciona en Render Free (no bloqueado).
+    Sign up gratis en https://resend.com — 100 emails/día sin tarjeta."""
+    import urllib.request, urllib.error, json as _j
+    payload = _j.dumps({
+        "from":    f"Picap Monitoreo <{SMTP_EMAIL}>" if SMTP_EMAIL else "Picap Monitoreo <onboarding@resend.dev>",
+        "to":      [destinatario],
+        "subject": asunto,
+        "html":    cuerpo_html,
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type":  "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read().decode('utf-8', errors='replace')
+            print(f"[resend] OK → {destinatario}: {body[:200]}")
+            return True, None
+    except urllib.error.HTTPError as e:
+        body = ''
+        try: body = e.read().decode('utf-8', errors='replace')[:300]
+        except Exception: pass
+        err = f"HTTP {e.code} de Resend: {body or e.reason}"
+        print(f"[resend] HTTP_ERROR: {err}")
+        return False, err
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        print(f"[resend] UNEXPECTED: {err}")
+        return False, err
+
+def _enviar_email_smtp(destinatario, asunto, cuerpo_html):
+    """Envía email vía SMTP (Gmail/otros). Soporta puerto 465 (SSL) y 587 (STARTTLS).
+    En Render Free el puerto 465 suele estar bloqueado a nivel de red — usar 587."""
     pwd_norm = SMTP_PASSWORD.replace(' ', '')  # Gmail App Password puede traer espacios
-    print(f"[smtp] intentando enviar — host={SMTP_HOST}:{SMTP_PORT} from={SMTP_EMAIL} to={destinatario} pwd_len={len(pwd_norm)}")
+    print(f"[smtp] intentando — host={SMTP_HOST}:{SMTP_PORT} from={SMTP_EMAIL} to={destinatario} pwd_len={len(pwd_norm)}")
 
     try:
         msg = MIMEMultipart('alternative')
@@ -5355,16 +5383,33 @@ def _enviar_email(destinatario, asunto, cuerpo_html):
         msg['To']      = destinatario
         msg.attach(MIMEText(cuerpo_html, 'html', 'utf-8'))
         ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=20) as server:
-            # Gmail acepta la app password con o sin espacios — limpiamos por si acaso
-            server.login(SMTP_EMAIL, pwd_norm)
-            server.sendmail(SMTP_EMAIL, destinatario, msg.as_string())
-        print(f"[smtp] OK envío a {destinatario}")
+
+        if int(SMTP_PORT) == 587:
+            # STARTTLS — el server de Render Free suele permitir este puerto
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+                server.ehlo()
+                server.starttls(context=ctx)
+                server.ehlo()
+                server.login(SMTP_EMAIL, pwd_norm)
+                server.sendmail(SMTP_EMAIL, destinatario, msg.as_string())
+        else:
+            # SSL directo (puerto 465) — puede estar bloqueado en Render Free
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=15) as server:
+                server.login(SMTP_EMAIL, pwd_norm)
+                server.sendmail(SMTP_EMAIL, destinatario, msg.as_string())
+        print(f"[smtp] OK → {destinatario}")
         return True, None
     except smtplib.SMTPAuthenticationError as e:
-        # Error típico: 535 5.7.8 Username and Password not accepted
-        err = f"Autenticación rechazada por el servidor SMTP. Verifica que SMTP_EMAIL y SMTP_PASSWORD sean correctos. Si usas Gmail, debe ser una APP PASSWORD (no la contraseña normal). Detalle: {e}"
+        err = f"Autenticación rechazada. Si usas Gmail, debe ser una APP PASSWORD (no la contraseña normal). Detalle: {e}"
         print(f"[smtp] AUTH_ERROR: {err}")
+        return False, err
+    except (TimeoutError, OSError) as e:
+        # Error típico cuando Render Free bloquea el puerto SMTP
+        err = (f"Conexión SMTP bloqueada o timeout ({type(e).__name__}: {e}). "
+               f"Render Free suele bloquear el puerto {SMTP_PORT}. "
+               f"Probá cambiar SMTP_PORT a 587 (STARTTLS), o usar Resend "
+               f"(definir RESEND_API_KEY en Environment).")
+        print(f"[smtp] NETWORK_BLOCKED: {err}")
         return False, err
     except smtplib.SMTPException as e:
         err = f"Error SMTP: {type(e).__name__}: {e}"
@@ -5374,6 +5419,28 @@ def _enviar_email(destinatario, asunto, cuerpo_html):
         err = f"{type(e).__name__}: {e}"
         print(f"[smtp] UNEXPECTED: {err}")
         return False, err
+
+def _enviar_email(destinatario, asunto, cuerpo_html):
+    """Envía email — prefiere Resend (HTTP) si está configurado, si no SMTP.
+    Resend evita el problema de puertos SMTP bloqueados en Render Free."""
+    # Validación mínima
+    if not destinatario or '@' not in destinatario:
+        return False, f"Destinatario inválido: {destinatario}"
+
+    # 1) Resend (HTTP) — siempre funciona si está configurado
+    if RESEND_API_KEY:
+        return _enviar_email_resend(destinatario, asunto, cuerpo_html)
+
+    # 2) Fallback a SMTP
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        falta = []
+        if not SMTP_EMAIL:    falta.append('SMTP_EMAIL (o SMTP_USER)')
+        if not SMTP_PASSWORD: falta.append('SMTP_PASSWORD (o SMTP_PASS)')
+        msg = ('Email no configurado. Falta: ' + ', '.join(falta) +
+               '. Alternativa: definir RESEND_API_KEY (https://resend.com — gratis 100 emails/día).')
+        print(f"[email] CONFIG_MISSING: {msg}")
+        return False, msg
+    return _enviar_email_smtp(destinatario, asunto, cuerpo_html)
 
 @app.route("/api/cambiar_password", methods=["POST"])
 def cambiar_password():
