@@ -1,0 +1,11 @@
+flask
+flask-cors
+clickhouse-connect
+pandas
+numpy
+gunicorn
+openpyxl
+selenium
+Pillow
+imagehash
+webdriver-manager

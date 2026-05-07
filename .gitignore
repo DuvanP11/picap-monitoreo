@@ -1,0 +1,43 @@
+# Variables de entorno con secretos — NUNCA commitear
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Checkpoints automáticos del editor (backups locales antes de cambios)
+_checkpoints/
+
+# Caches y artefactos
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Outputs locales
+*.json.tmp
+*.log
+*.xlsx
+_rf.json
+_e.json
+_b.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
