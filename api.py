@@ -4394,6 +4394,34 @@ import hmac, base64, json as _json
 TOKEN_SECRET = os.environ.get('TOKEN_SECRET', 'dev_only_change_me_in_production')
 SESSION_TTL  = 24 * 3600  # 24 horas
 
+# ── Diagnóstico de configuración al arranque ──
+# Imprime una matriz clara de qué env vars están definidas. Útil para
+# debuggear en Render cuando algo no logra conectar.
+def _config_diagnostico():
+    flags = [
+        ("CLICKHOUSE_HOST",          bool(os.environ.get("CLICKHOUSE_HOST"))),
+        ("CLICKHOUSE_PORT",          bool(os.environ.get("CLICKHOUSE_PORT"))),
+        ("CLICKHOUSE_USER",          bool(os.environ.get("CLICKHOUSE_USER"))),
+        ("CLICKHOUSE_PASSWORD",      bool(os.environ.get("CLICKHOUSE_PASSWORD"))),
+        ("CLICKHOUSE_DATABASE",      bool(os.environ.get("CLICKHOUSE_DATABASE"))),
+        ("TOKEN_SECRET",             bool(os.environ.get("TOKEN_SECRET"))),
+        ("ADMIN_INITIAL_PASSWORD",   bool(os.environ.get("ADMIN_INITIAL_PASSWORD"))),
+        ("ADMIN_EMERGENCY_PASSWORD", bool(os.environ.get("ADMIN_EMERGENCY_PASSWORD"))),
+        ("SMTP_USER",                bool(os.environ.get("SMTP_USER"))),
+        ("SMTP_PASSWORD",            bool(os.environ.get("SMTP_PASSWORD"))),
+    ]
+    print("=" * 60)
+    print("  CONFIG DIAGNOSTICO — variables de entorno detectadas:")
+    for name, ok in flags:
+        print(f"    {'OK ' if ok else 'NO '} {name}")
+    if not any(ok for n, ok in flags if n.startswith("CLICKHOUSE")):
+        print("  AVISO: ClickHouse no esta configurado. La autenticacion via CH")
+        print("  va a fallar. Define CLICKHOUSE_PASSWORD (al menos) en el panel")
+        print("  de Render -> Environment, y los usuarios podran iniciar sesion.")
+    print("=" * 60)
+try: _config_diagnostico()
+except Exception as _diag_err: print(f"[diag] error: {_diag_err}")
+
 def _guardar_sesion(ch, token, usuario, rol):
     pass  # No necesario — el token ya lleva la info firmada
 
@@ -4514,6 +4542,12 @@ def login_ch():
 
     pwd_hash = hashlib.sha256(password.encode()).hexdigest()
 
+    # Trackear el estado de la consulta a ClickHouse para distinguir entre:
+    #   - usuario realmente no encontrado
+    #   - CH inaccesible (probablemente env vars mal configuradas)
+    ch_error  = None
+    ch_buscado = False
+
     # 1) Intentar login via ClickHouse (usuarios registrados + admin en tabla)
     try:
         ch = get_client()
@@ -4524,6 +4558,7 @@ def login_ch():
             WHERE usuario=\'{usuario}\' AND activo=1
             LIMIT 1
         """)
+        ch_buscado = True
         if r.result_rows:
             row     = r.result_rows[0]
             db_hash = row[1]
@@ -4538,11 +4573,12 @@ def login_ch():
                 "acceso":acceso, "email":row[3]
             })
     except Exception as e:
+        ch_error = str(e)
         print(f"[login] CH error: {e}")
 
-    # 2) Fallback: credenciales de emergencia hardcoded (solo admin)
+    # 2) Fallback: credenciales de emergencia configuradas vía env var
     em = _ADMIN_EMERGENCY.get(usuario)
-    if em and pwd_hash == em["password_hash"]:
+    if em and em.get("password_hash") and pwd_hash == em["password_hash"]:
         rol    = em["rol"]
         acceso = ROLES_ACCESO.get(rol, ["home"])
         token  = _crear_token(usuario, rol)
@@ -4561,6 +4597,16 @@ def login_ch():
             "nombre":em["nombre"], "rol":rol,
             "acceso":acceso, "email":em["email"]
         })
+
+    # 3) No se pudo autenticar. Distinguir el caso CH muerto del caso usuario inexistente.
+    if not ch_buscado:
+        # No alcanzamos a consultar CH — los usuarios existen pero no podemos validar.
+        return jsonify({
+            "ok": False,
+            "error": "Servicio de autenticación no disponible. Contacta al administrador.",
+            "code": "auth_backend_unavailable",
+            "detalle": (ch_error or 'sin detalle')[:200],
+        }), 503
 
     return jsonify({"ok":False,"error":"Usuario no encontrado"}), 401
 
