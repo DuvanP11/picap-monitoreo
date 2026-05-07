@@ -5333,13 +5333,21 @@ def _verificar_reset_token(token):
         return None
 
 def _enviar_email(destinatario, asunto, cuerpo_html):
-    """Envía email via SMTP. Retorna (ok, error)."""
+    """Envía email via SMTP. Retorna (ok, error). Logs detallados a stdout
+    para que en Render se pueda diagnosticar paso por paso."""
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         falta = []
         if not SMTP_EMAIL:    falta.append('SMTP_EMAIL (o SMTP_USER)')
         if not SMTP_PASSWORD: falta.append('SMTP_PASSWORD (o SMTP_PASS)')
-        return False, ('SMTP no configurado en el servidor. Falta: ' + ', '.join(falta) +
-                       '. Definir en Render → Environment.')
+        msg = ('SMTP no configurado en el servidor. Falta: ' + ', '.join(falta) +
+               '. Definir en Render → Environment.')
+        print(f"[smtp] CONFIG_MISSING: {msg}")
+        return False, msg
+
+    # Log de intento (sin exponer la contraseña)
+    pwd_norm = SMTP_PASSWORD.replace(' ', '')  # Gmail App Password puede traer espacios
+    print(f"[smtp] intentando enviar — host={SMTP_HOST}:{SMTP_PORT} from={SMTP_EMAIL} to={destinatario} pwd_len={len(pwd_norm)}")
+
     try:
         msg = MIMEMultipart('alternative')
         msg['Subject'] = asunto
@@ -5347,12 +5355,25 @@ def _enviar_email(destinatario, asunto, cuerpo_html):
         msg['To']      = destinatario
         msg.attach(MIMEText(cuerpo_html, 'html', 'utf-8'))
         ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as server:
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=20) as server:
+            # Gmail acepta la app password con o sin espacios — limpiamos por si acaso
+            server.login(SMTP_EMAIL, pwd_norm)
             server.sendmail(SMTP_EMAIL, destinatario, msg.as_string())
+        print(f"[smtp] OK envío a {destinatario}")
         return True, None
+    except smtplib.SMTPAuthenticationError as e:
+        # Error típico: 535 5.7.8 Username and Password not accepted
+        err = f"Autenticación rechazada por el servidor SMTP. Verifica que SMTP_EMAIL y SMTP_PASSWORD sean correctos. Si usas Gmail, debe ser una APP PASSWORD (no la contraseña normal). Detalle: {e}"
+        print(f"[smtp] AUTH_ERROR: {err}")
+        return False, err
+    except smtplib.SMTPException as e:
+        err = f"Error SMTP: {type(e).__name__}: {e}"
+        print(f"[smtp] SMTP_ERROR: {err}")
+        return False, err
     except Exception as e:
-        return False, str(e)
+        err = f"{type(e).__name__}: {e}"
+        print(f"[smtp] UNEXPECTED: {err}")
+        return False, err
 
 @app.route("/api/cambiar_password", methods=["POST"])
 def cambiar_password():
