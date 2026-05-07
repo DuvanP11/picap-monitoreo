@@ -5336,10 +5336,25 @@ RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
 
 def _enviar_email_resend(destinatario, asunto, cuerpo_html):
     """Envía email vía Resend HTTP API. Funciona en Render Free (no bloqueado).
-    Sign up gratis en https://resend.com — 100 emails/día sin tarjeta."""
+    Sign up gratis en https://resend.com — 100 emails/día sin tarjeta.
+
+    Usa el dominio sandbox de Resend (onboarding@resend.dev) si no hay un
+    dominio verificado configurado vía RESEND_FROM. Para producción,
+    verificar dominio propio en https://resend.com/domains y setear:
+        RESEND_FROM = 'Picap Monitoreo <noreply@tudominio.com>'
+    """
     import urllib.request, urllib.error, json as _j
+    # Cloudflare bloquea el UA por defecto de urllib (error 1010). Usar uno
+    # que parezca un cliente HTTP normal evita el bloqueo.
+    UA = "PicapMonitoreo/1.0 (+https://picap-monitoreo.onrender.com)"
+
+    # Remitente: por defecto el sandbox público de Resend (siempre funciona).
+    # Si tienes un dominio verificado, define RESEND_FROM en Render.
+    from_addr = (os.environ.get('RESEND_FROM', '').strip()
+                 or 'Picap Monitoreo <onboarding@resend.dev>')
+
     payload = _j.dumps({
-        "from":    f"Picap Monitoreo <{SMTP_EMAIL}>" if SMTP_EMAIL else "Picap Monitoreo <onboarding@resend.dev>",
+        "from":    from_addr,
         "to":      [destinatario],
         "subject": asunto,
         "html":    cuerpo_html,
@@ -5350,19 +5365,32 @@ def _enviar_email_resend(destinatario, asunto, cuerpo_html):
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type":  "application/json",
+            "Accept":        "application/json",
+            "User-Agent":    UA,
         },
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             body = resp.read().decode('utf-8', errors='replace')
-            print(f"[resend] OK → {destinatario}: {body[:200]}")
+            print(f"[resend] OK from={from_addr} → {destinatario}: {body[:200]}")
             return True, None
     except urllib.error.HTTPError as e:
         body = ''
-        try: body = e.read().decode('utf-8', errors='replace')[:300]
+        try: body = e.read().decode('utf-8', errors='replace')[:400]
         except Exception: pass
-        err = f"HTTP {e.code} de Resend: {body or e.reason}"
+        # Detección de errores comunes
+        if e.code == 401:
+            err = f"Resend rechazó la API KEY (HTTP 401). Verifica RESEND_API_KEY en Render. Detalle: {body}"
+        elif e.code == 403:
+            err = (f"Resend devolvió 403 (Forbidden). Posibles causas: "
+                   f"(1) la cuenta de Resend bloqueó la IP de Render — escribir a soporte; "
+                   f"(2) el dominio del 'from' no está verificado — usar onboarding@resend.dev "
+                   f"o verificar tu dominio. Detalle: {body}")
+        elif e.code == 422:
+            err = f"Resend rechazó el envío (422 — datos inválidos). Detalle: {body}"
+        else:
+            err = f"HTTP {e.code} de Resend: {body or e.reason}"
         print(f"[resend] HTTP_ERROR: {err}")
         return False, err
     except Exception as e:
