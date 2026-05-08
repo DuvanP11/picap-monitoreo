@@ -1474,14 +1474,24 @@ CREATE TABLE IF NOT EXISTS picapmongoprod.cronograma_tareas (
     id           String,
     titulo       String,
     descripcion  String,
-    dias_semana  String,           -- 'lun,mar,mie,jue,vie,sab,dom' separados por coma
+    dias_semana  String,           -- 'lun,mar,mie,jue,vie,sab,dom' separados por coma (frecuencia=semanal)
     hora         String,           -- HH:MM (24h)
     email        String,
     creado_por   String,
     activo       UInt8 DEFAULT 1,
     ultima_ejecucion String DEFAULT '',  -- YYYY-MM-DD última vez enviado (anti-duplicado)
     creado_en    DateTime DEFAULT now(),
-    actualizado_en DateTime DEFAULT now()
+    actualizado_en DateTime DEFAULT now(),
+    -- Frecuencia: diaria | semanal | mensual | trimestral | semestral | anual | unica
+    -- Si está vacío, se asume 'semanal' (retrocompat con tareas viejas).
+    frecuencia       String DEFAULT 'semanal',
+    -- Día del mes (1-31) para frecuencias mensual/trimestral/semestral/anual.
+    dia_mes          UInt8 DEFAULT 0,
+    -- Mes de referencia (1-12). En anual = mes exacto. En trimestral/semestral
+    -- = mes inicial (la tarea repite cada 3 o 6 meses contando desde aquí).
+    mes_referencia   UInt8 DEFAULT 0,
+    -- Fecha exacta YYYY-MM-DD para frecuencia=unica (one-shot).
+    fecha_ejecucion  String DEFAULT ''
 ) ENGINE = ReplacingMergeTree(actualizado_en)
 ORDER BY id
 """
@@ -1489,15 +1499,97 @@ ORDER BY id
 # Mapeo entre el índice de Python (Monday=0) y la abreviatura usada en la tabla.
 _DIAS_ABREV = ['lun','mar','mie','jue','vie','sab','dom']
 
+# Frecuencias soportadas por el cronograma.
+_FREQ_VALIDAS = {'diaria','semanal','mensual','trimestral','semestral','anual','unica'}
+
 def _init_cronograma_table():
+    """Crea la tabla si no existe. Si ya existía con esquema viejo, agrega
+    las columnas nuevas con sus defaults (migración idempotente)."""
     try:
         ch = get_client()
         ch.command(_CRONOGRAMA_TABLE)
+        # Migración: agregar columnas nuevas si no estaban (idempotente)
+        for ddl in [
+            "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS frecuencia String DEFAULT 'semanal'",
+            "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS dia_mes UInt8 DEFAULT 0",
+            "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS mes_referencia UInt8 DEFAULT 0",
+            "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS fecha_ejecucion String DEFAULT ''",
+        ]:
+            try: ch.command(ddl)
+            except Exception as _e: print(f"[cronograma] migrate skip: {_e}")
     except Exception as e:
         print(f"[cronograma] Error creando tabla: {e}")
 
+def _cronograma_debe_disparar(tarea, ahora):
+    """True si la tarea debe ejecutarse en este momento, según su frecuencia.
+    `tarea` es un dict con los campos del registro; `ahora` es datetime.now()."""
+    freq = (tarea.get('frecuencia') or 'semanal').lower()
+    if freq not in _FREQ_VALIDAS:
+        freq = 'semanal'
+    dia_mes  = int(tarea.get('dia_mes') or 0)
+    mes_ref  = int(tarea.get('mes_referencia') or 0)
+    fecha_ej = (tarea.get('fecha_ejecucion') or '').strip()
+    dias_sem = (tarea.get('dias_semana') or '').strip().lower()
+
+    dia_actual_mes  = ahora.day
+    mes_actual      = ahora.month
+    dow_actual      = _DIAS_ABREV[ahora.weekday()]
+    fecha_actual    = ahora.strftime('%Y-%m-%d')
+
+    if freq == 'diaria':
+        return True
+    if freq == 'semanal':
+        return dias_sem == '*' or dow_actual in [d.strip() for d in dias_sem.split(',') if d.strip()]
+    if freq == 'mensual':
+        return dia_mes == dia_actual_mes
+    if freq == 'trimestral':
+        if dia_mes != dia_actual_mes or mes_ref < 1: return False
+        # Mes inicial mes_ref, repite cada 3 meses (mes_ref, mes_ref+3, mes_ref+6, mes_ref+9)
+        return ((mes_actual - mes_ref) % 3 == 0) and (mes_actual >= mes_ref or
+                # Permite el ciclo cuando ha dado vuelta al año
+                ((mes_actual + 12 - mes_ref) % 3 == 0))
+    if freq == 'semestral':
+        if dia_mes != dia_actual_mes or mes_ref < 1: return False
+        return ((mes_actual - mes_ref) % 6 == 0) and (mes_actual >= mes_ref or
+                ((mes_actual + 12 - mes_ref) % 6 == 0))
+    if freq == 'anual':
+        return dia_mes == dia_actual_mes and mes_ref == mes_actual
+    if freq == 'unica':
+        return fecha_ej == fecha_actual
+    return False
+
+def _cronograma_freq_label(tarea, ahora):
+    """Texto humano de la frecuencia de una tarea, para mostrar en email/UI."""
+    freq = (tarea.get('frecuencia') or 'semanal').lower()
+    MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
+             'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+    DIAS_LABEL = {'lun':'Lun','mar':'Mar','mie':'Mié','jue':'Jue','vie':'Vie','sab':'Sáb','dom':'Dom'}
+    if freq == 'diaria':
+        return 'Todos los días'
+    if freq == 'semanal':
+        ds = (tarea.get('dias_semana') or '').strip()
+        if ds == '*' or not ds: return 'Semanal — todos los días'
+        return 'Semanal — ' + ', '.join(DIAS_LABEL.get(d.strip(), d.strip()) for d in ds.split(','))
+    if freq == 'mensual':
+        return f"Mensual — el día {tarea.get('dia_mes', '?')} de cada mes"
+    if freq == 'trimestral':
+        m = int(tarea.get('mes_referencia') or 0)
+        return f"Trimestral — día {tarea.get('dia_mes')} cada 3 meses (desde {MESES[m] if 1<=m<=12 else '?'})"
+    if freq == 'semestral':
+        m = int(tarea.get('mes_referencia') or 0)
+        return f"Semestral — día {tarea.get('dia_mes')} cada 6 meses (desde {MESES[m] if 1<=m<=12 else '?'})"
+    if freq == 'anual':
+        m = int(tarea.get('mes_referencia') or 0)
+        return f"Anual — {tarea.get('dia_mes')} de {MESES[m] if 1<=m<=12 else '?'}"
+    if freq == 'unica':
+        return f"Única — {tarea.get('fecha_ejecucion','')}"
+    return freq
+
 def _scheduler_cronograma():
-    """Cada 60s: revisar tareas activas que coincidan con día y hora actual."""
+    """Cada 60s: revisar tareas activas que deben dispararse según su frecuencia.
+    Hace un primer filtro en SQL (hora + activo + no ejecutada hoy) y luego
+    aplica la lógica de frecuencia en Python (más legible y soporta calendarios
+    complejos como trimestral/semestral)."""
     import time as _time
     _time.sleep(15)  # esperar a que el server arranque
     _init_cronograma_table()
@@ -1507,22 +1599,31 @@ def _scheduler_cronograma():
             now    = datetime.now()
             hoy    = now.strftime("%Y-%m-%d")
             minuto = now.strftime("%H:%M")
-            dia_idx = now.weekday()  # 0=lunes, 6=domingo
-            dia_abr = _DIAS_ABREV[dia_idx]
 
             ch = get_client()
+            cols = ["id","titulo","descripcion","dias_semana","hora","email",
+                    "creado_por","frecuencia","dia_mes","mes_referencia","fecha_ejecucion"]
             rows = ch.query(f"""
-                SELECT id, titulo, descripcion, dias_semana, hora, email, creado_por
+                SELECT {', '.join(cols)}
                 FROM picapmongoprod.cronograma_tareas FINAL
                 WHERE activo = 1
                   AND hora = '{minuto}'
                   AND email != ''
                   AND ultima_ejecucion != '{hoy}'
-                  AND (dias_semana = '*' OR positionCaseInsensitive(dias_semana, '{dia_abr}') > 0)
             """).result_rows
 
-            for row in rows:
-                rid, titulo, descripcion, dias_semana, hora, email, creado_por = row
+            for raw in rows:
+                tarea = dict(zip(cols, raw))
+                # Aplicar lógica de frecuencia
+                if not _cronograma_debe_disparar(tarea, now):
+                    continue
+                rid         = tarea['id']
+                titulo      = tarea['titulo']
+                descripcion = tarea['descripcion']
+                dias_semana = tarea['dias_semana']
+                hora        = tarea['hora']
+                email       = tarea['email']
+                creado_por  = tarea['creado_por']
                 # Render del email
                 desc_html = ''
                 if descripcion:
@@ -1534,6 +1635,8 @@ def _scheduler_cronograma():
                                   border-left:3px solid #a78bfa;line-height:1.5">
                         {descripcion_safe}
                       </div>"""
+                # Texto humano para la frecuencia (mostrado en el email)
+                freq_label = _cronograma_freq_label(tarea, now)
                 cuerpo = f"""
                 <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;
                             background:#f9fafb;border-radius:12px;overflow:hidden;">
@@ -1557,7 +1660,7 @@ def _scheduler_cronograma():
                         ⏰ <strong>Hora:</strong> {hora}
                       </div>
                       <div style="font-size:13px;color:#374151">
-                        📅 <strong>Días:</strong> {dias_semana if dias_semana != '*' else 'Todos los días'}
+                        🔁 <strong>Frecuencia:</strong> {freq_label}
                       </div>
                       {desc_html}
                     </div>
@@ -1646,6 +1749,70 @@ def admin_diag():
     })
 
 
+def _cronograma_parsear_payload(data):
+    """Lee y valida el payload del create/update. Retorna (datos_dict, error_str).
+    Si error_str es no-vacío, los datos son inválidos."""
+    titulo      = (data.get("titulo") or "").strip()
+    descripcion = (data.get("descripcion") or "").strip()
+    hora        = (data.get("hora") or "").strip()
+    email       = (data.get("email") or "").strip()
+    frecuencia  = (data.get("frecuencia") or "semanal").strip().lower()
+    dias_semana = (data.get("dias_semana") or "").strip().lower()
+    try:
+        dia_mes = int(data.get("dia_mes") or 0)
+    except Exception: dia_mes = 0
+    try:
+        mes_referencia = int(data.get("mes_referencia") or 0)
+    except Exception: mes_referencia = 0
+    fecha_ejecucion = (data.get("fecha_ejecucion") or "").strip()
+
+    # Validación básica común
+    if not titulo: return None, "Título obligatorio"
+    if not email:  return None, "Email obligatorio"
+    if not hora or not _validar_hora(hora): return None, "Hora inválida (HH:MM 24h)"
+    if frecuencia not in _FREQ_VALIDAS:
+        return None, f"Frecuencia inválida ({frecuencia}). Usar: {', '.join(sorted(_FREQ_VALIDAS))}"
+
+    # Validación específica por frecuencia
+    if frecuencia == 'diaria':
+        # Solo necesita hora
+        dias_semana = '*'  # se almacena para retrocompat
+        dia_mes = 0; mes_referencia = 0; fecha_ejecucion = ''
+    elif frecuencia == 'semanal':
+        if not _validar_dias(dias_semana):
+            return None, "Selecciona al menos un día (lun,mar,…) o usa '*' para todos"
+        dia_mes = 0; mes_referencia = 0; fecha_ejecucion = ''
+    elif frecuencia == 'mensual':
+        if not (1 <= dia_mes <= 31):
+            return None, "Día del mes inválido (1–31)"
+        dias_semana = ''; mes_referencia = 0; fecha_ejecucion = ''
+    elif frecuencia in ('trimestral','semestral'):
+        if not (1 <= dia_mes <= 31):       return None, "Día del mes inválido (1–31)"
+        if not (1 <= mes_referencia <= 12): return None, "Mes inicial inválido (1–12)"
+        dias_semana = ''; fecha_ejecucion = ''
+    elif frecuencia == 'anual':
+        if not (1 <= dia_mes <= 31):       return None, "Día inválido (1–31)"
+        if not (1 <= mes_referencia <= 12): return None, "Mes inválido (1–12)"
+        dias_semana = ''; fecha_ejecucion = ''
+    elif frecuencia == 'unica':
+        # Aceptar YYYY-MM-DD
+        if len(fecha_ejecucion) != 10 or fecha_ejecucion[4] != '-' or fecha_ejecucion[7] != '-':
+            return None, "Fecha inválida (formato YYYY-MM-DD)"
+        try:
+            yy = int(fecha_ejecucion[0:4]); mm = int(fecha_ejecucion[5:7]); dd = int(fecha_ejecucion[8:10])
+            if not (1 <= mm <= 12 and 1 <= dd <= 31): raise ValueError()
+        except Exception:
+            return None, "Fecha inválida"
+        dias_semana = ''; dia_mes = 0; mes_referencia = 0
+
+    return {
+        'titulo': titulo, 'descripcion': descripcion, 'email': email,
+        'hora': hora, 'frecuencia': frecuencia,
+        'dias_semana': dias_semana, 'dia_mes': dia_mes,
+        'mes_referencia': mes_referencia, 'fecha_ejecucion': fecha_ejecucion,
+    }, None
+
+
 @app.route("/api/cronograma", methods=["GET"])
 def cronograma_list():
     """Lista todas las tareas del cronograma. Solo admin."""
@@ -1657,7 +1824,8 @@ def cronograma_list():
         _init_cronograma_table()
         r = ch.query("""
             SELECT id, titulo, descripcion, dias_semana, hora, email, creado_por,
-                   activo, ultima_ejecucion, creado_en, actualizado_en
+                   activo, ultima_ejecucion, creado_en, actualizado_en,
+                   frecuencia, dia_mes, mes_referencia, fecha_ejecucion
             FROM picapmongoprod.cronograma_tareas FINAL
             ORDER BY hora, titulo
         """)
@@ -1665,14 +1833,21 @@ def cronograma_list():
         tareas = []
         for row in r.result_rows:
             t = dict(zip(cols, row))
-            # Normalizar tipos
             t['activo']         = int(t.get('activo', 0) or 0)
+            t['dia_mes']        = int(t.get('dia_mes', 0) or 0)
+            t['mes_referencia'] = int(t.get('mes_referencia', 0) or 0)
+            t['frecuencia']     = (t.get('frecuencia') or 'semanal') or 'semanal'
             t['creado_en']      = str(t.get('creado_en', ''))[:19]
             t['actualizado_en'] = str(t.get('actualizado_en', ''))[:19]
             tareas.append(t)
         return jsonify({"ok": True, "tareas": tareas})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+_CRON_INSERT_COLS = ["id","titulo","descripcion","dias_semana","hora","email",
+                     "creado_por","activo","ultima_ejecucion",
+                     "creado_en","actualizado_en",
+                     "frecuencia","dia_mes","mes_referencia","fecha_ejecucion"]
 
 @app.route("/api/cronograma", methods=["POST"])
 def cronograma_create():
@@ -1681,30 +1856,19 @@ def cronograma_create():
     s = _verificar_sesion(None, token)
     if not s or s.get('rol') != 'admin':
         return jsonify({"ok": False, "error": "Solo admins"}), 403
-    data = request.get_json() or {}
-    titulo      = (data.get("titulo") or "").strip()
-    descripcion = (data.get("descripcion") or "").strip()
-    dias_semana = (data.get("dias_semana") or "").strip().lower()
-    hora        = (data.get("hora") or "").strip()
-    email       = (data.get("email") or "").strip()
-    if not titulo or not dias_semana or not hora or not email:
-        return jsonify({"ok": False, "error": "Faltan campos: titulo, dias_semana, hora, email"}), 400
-    # Validaciones simples
-    if not _validar_hora(hora):
-        return jsonify({"ok": False, "error": "Hora inválida (HH:MM, 24h)"}), 400
-    if not _validar_dias(dias_semana):
-        return jsonify({"ok": False, "error": "Días inválidos (usar abreviaturas: lun,mar,mie,jue,vie,sab,dom o '*')"}), 400
+    parsed, err = _cronograma_parsear_payload(request.get_json() or {})
+    if err: return jsonify({"ok": False, "error": err}), 400
     try:
         ch = get_client()
         _init_cronograma_table()
         new_id = str(uuid.uuid4())
         ch.insert("picapmongoprod.cronograma_tareas",
-            [[new_id, titulo, descripcion, dias_semana, hora, email,
-              s.get('usuario','admin'), 1, '',
-              datetime.utcnow(), datetime.utcnow()]],
-            column_names=["id","titulo","descripcion","dias_semana","hora","email",
-                          "creado_por","activo","ultima_ejecucion",
-                          "creado_en","actualizado_en"])
+            [[new_id, parsed['titulo'], parsed['descripcion'], parsed['dias_semana'],
+              parsed['hora'], parsed['email'], s.get('usuario','admin'), 1, '',
+              datetime.utcnow(), datetime.utcnow(),
+              parsed['frecuencia'], parsed['dia_mes'],
+              parsed['mes_referencia'], parsed['fecha_ejecucion']]],
+            column_names=_CRON_INSERT_COLS)
         return jsonify({"ok": True, "id": new_id})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -1716,25 +1880,14 @@ def cronograma_update(tid):
     s = _verificar_sesion(None, token)
     if not s or s.get('rol') != 'admin':
         return jsonify({"ok": False, "error": "Solo admins"}), 403
-    data = request.get_json() or {}
-    titulo      = (data.get("titulo") or "").strip()
-    descripcion = (data.get("descripcion") or "").strip()
-    dias_semana = (data.get("dias_semana") or "").strip().lower()
-    hora        = (data.get("hora") or "").strip()
-    email       = (data.get("email") or "").strip()
-    activo      = 1 if data.get("activo", True) else 0
-    if not titulo or not dias_semana or not hora or not email:
-        return jsonify({"ok": False, "error": "Faltan campos"}), 400
-    if not _validar_hora(hora):
-        return jsonify({"ok": False, "error": "Hora inválida"}), 400
-    if not _validar_dias(dias_semana):
-        return jsonify({"ok": False, "error": "Días inválidos"}), 400
-    # Sanitizar tid (prevenir SQL injection en el WHERE)
     if not all(c in '0123456789abcdef-' for c in tid.lower()):
         return jsonify({"ok": False, "error": "ID inválido"}), 400
+    data = request.get_json() or {}
+    parsed, err = _cronograma_parsear_payload(data)
+    if err: return jsonify({"ok": False, "error": err}), 400
+    activo = 1 if data.get("activo", True) else 0
     try:
         ch = get_client()
-        # Leer fila actual para preservar campos no modificables
         r = ch.query(f"""
             SELECT creado_por, ultima_ejecucion, creado_en
             FROM picapmongoprod.cronograma_tareas FINAL
@@ -1743,14 +1896,13 @@ def cronograma_update(tid):
         if not r:
             return jsonify({"ok": False, "error": "Tarea no encontrada"}), 404
         creado_por, ultima_ejecucion, creado_en = r[0]
-        # Insert con mismo id para que ReplacingMergeTree haga el merge
         ch.insert("picapmongoprod.cronograma_tareas",
-            [[tid, titulo, descripcion, dias_semana, hora, email,
-              creado_por, activo, ultima_ejecucion,
-              creado_en, datetime.utcnow()]],
-            column_names=["id","titulo","descripcion","dias_semana","hora","email",
-                          "creado_por","activo","ultima_ejecucion",
-                          "creado_en","actualizado_en"])
+            [[tid, parsed['titulo'], parsed['descripcion'], parsed['dias_semana'],
+              parsed['hora'], parsed['email'], creado_por, activo, ultima_ejecucion,
+              creado_en, datetime.utcnow(),
+              parsed['frecuencia'], parsed['dia_mes'],
+              parsed['mes_referencia'], parsed['fecha_ejecucion']]],
+            column_names=_CRON_INSERT_COLS)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

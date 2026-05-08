@@ -2548,26 +2548,82 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
             <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Descripción (opcional)</label>
             <textarea id="cron-descripcion" class="filter-select" style="width:100%;min-height:60px;resize:vertical" placeholder="Detalles del recordatorio o pasos a seguir..."></textarea>
           </div>
+          <!-- Selector de frecuencia + hora -->
           <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:10px">
             <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:5px">Días de la semana *</label>
-              <div style="display:flex;gap:6px;flex-wrap:wrap" id="cron-dias-wrap">
-                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="lun" style="margin:0">LUN</label>
-                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="mar" style="margin:0">MAR</label>
-                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="mie" style="margin:0">MIE</label>
-                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="jue" style="margin:0">JUE</label>
-                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="vie" style="margin:0">VIE</label>
-                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="sab" style="margin:0">SAB</label>
-                <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="dom" style="margin:0">DOM</label>
-                <label style="display:flex;align-items:center;gap:4px;background:#f5f3ff;border:1px solid #d8c4ff;color:#5a2bb8;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600">
-                  <input type="checkbox" id="cron-dia-todos" onchange="cronToggleTodos(this.checked)" style="margin:0">TODOS
-                </label>
-              </div>
+              <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Frecuencia *</label>
+              <select id="cron-frecuencia" class="filter-select" style="width:100%" onchange="cronOnFrecuenciaChange()">
+                <option value="diaria">📅 Diaria — todos los días</option>
+                <option value="semanal" selected>📆 Semanal — días específicos de la semana</option>
+                <option value="mensual">🗓️ Mensual — un día específico cada mes</option>
+                <option value="trimestral">📊 Trimestral — cada 3 meses</option>
+                <option value="semestral">📈 Semestral — cada 6 meses</option>
+                <option value="anual">🎯 Anual — una fecha al año</option>
+                <option value="unica">📍 Única — una sola vez (con fecha)</option>
+              </select>
             </div>
             <div>
               <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Hora * (24h)</label>
               <input id="cron-hora" type="time" class="filter-select" style="width:100%">
             </div>
+          </div>
+
+          <!-- Bloque condicional: días de la semana (frecuencia=semanal) -->
+          <div id="cron-grupo-semanal" style="margin-bottom:10px">
+            <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:5px">Días de la semana *</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap" id="cron-dias-wrap">
+              <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="lun" style="margin:0">LUN</label>
+              <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="mar" style="margin:0">MAR</label>
+              <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="mie" style="margin:0">MIE</label>
+              <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="jue" style="margin:0">JUE</label>
+              <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="vie" style="margin:0">VIE</label>
+              <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="sab" style="margin:0">SAB</label>
+              <label style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;text-transform:uppercase;font-weight:600"><input type="checkbox" class="cron-dia" value="dom" style="margin:0">DOM</label>
+              <label style="display:flex;align-items:center;gap:4px;background:#f5f3ff;border:1px solid #d8c4ff;color:#5a2bb8;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600">
+                <input type="checkbox" id="cron-dia-todos" onchange="cronToggleTodos(this.checked)" style="margin:0">TODOS
+              </label>
+            </div>
+          </div>
+
+          <!-- Bloque condicional: día del mes (mensual/trimestral/semestral/anual) -->
+          <div id="cron-grupo-dia-mes" style="display:none;margin-bottom:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Día del mes * <span style="font-weight:400">(1–31)</span></label>
+                <input id="cron-dia-mes" type="number" min="1" max="31" class="filter-select" style="width:100%" placeholder="Ej: 5">
+              </div>
+              <div id="cron-grupo-mes-ref" style="display:none">
+                <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px"><span id="cron-mes-ref-label">Mes inicial *</span></label>
+                <select id="cron-mes-referencia" class="filter-select" style="width:100%">
+                  <option value="">Selecciona el mes</option>
+                  <option value="1">Enero</option>
+                  <option value="2">Febrero</option>
+                  <option value="3">Marzo</option>
+                  <option value="4">Abril</option>
+                  <option value="5">Mayo</option>
+                  <option value="6">Junio</option>
+                  <option value="7">Julio</option>
+                  <option value="8">Agosto</option>
+                  <option value="9">Septiembre</option>
+                  <option value="10">Octubre</option>
+                  <option value="11">Noviembre</option>
+                  <option value="12">Diciembre</option>
+                </select>
+              </div>
+            </div>
+            <div id="cron-mes-ref-help" style="font-size:11px;color:var(--text3);margin-top:4px;display:none"></div>
+          </div>
+
+          <!-- Bloque condicional: fecha exacta (única) -->
+          <div id="cron-grupo-unica" style="display:none;margin-bottom:10px">
+            <label style="font-size:11px;font-weight:600;color:var(--text3);display:block;margin-bottom:3px">Fecha de ejecución *</label>
+            <input id="cron-fecha-ejec" type="date" class="filter-select" style="max-width:240px">
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">La tarea se ejecutará una sola vez en esa fecha a la hora indicada.</div>
+          </div>
+
+          <!-- Resumen leíble de la configuración -->
+          <div id="cron-resumen-freq" style="font-size:11px;color:#5a2bb8;background:#f5f3ff;border:1px solid #d8c4ff;border-radius:6px;padding:6px 10px;margin-bottom:10px">
+            ↳ Configura los campos de arriba para ver el resumen.
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
             <button class="apply-btn" id="cron-cancelar" onclick="cronCancelarEdicion()" style="background:#9ca3af;display:none">✕ Cancelar edición</button>
@@ -5637,10 +5693,13 @@ function switchAdminTab(tab) {
 // ADMIN — CRONOGRAMA DE FUNCIONES
 // ══════════════════════════════════════════════════════════════
 const _CRON_DIAS_LABEL = {lun:'Lun', mar:'Mar', mie:'Mié', jue:'Jue', vie:'Vie', sab:'Sáb', dom:'Dom'};
+const _CRON_MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                      'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 let _cronTareas = [];
 
 function cronToggleTodos(checked) {
   document.querySelectorAll('.cron-dia').forEach(c => { c.checked = checked; });
+  cronActualizarResumen();
 }
 
 function cronGetDiasSeleccionados() {
@@ -5652,20 +5711,108 @@ function cronGetDiasSeleccionados() {
   return dias.join(',');
 }
 
+// Mostrar/ocultar bloques de campos según la frecuencia seleccionada.
+function cronOnFrecuenciaChange() {
+  const freq = document.getElementById('cron-frecuencia').value || 'semanal';
+  const grpSemanal = document.getElementById('cron-grupo-semanal');
+  const grpDiaMes  = document.getElementById('cron-grupo-dia-mes');
+  const grpMesRef  = document.getElementById('cron-grupo-mes-ref');
+  const grpUnica   = document.getElementById('cron-grupo-unica');
+  const lblMesRef  = document.getElementById('cron-mes-ref-label');
+  const helpMesRef = document.getElementById('cron-mes-ref-help');
+
+  // Por defecto ocultar todos
+  grpSemanal.style.display = 'none';
+  grpDiaMes.style.display  = 'none';
+  grpMesRef.style.display  = 'none';
+  grpUnica.style.display   = 'none';
+  helpMesRef.style.display = 'none';
+
+  if (freq === 'diaria') {
+    // No requiere campos adicionales
+  } else if (freq === 'semanal') {
+    grpSemanal.style.display = '';
+  } else if (freq === 'mensual') {
+    grpDiaMes.style.display = '';
+  } else if (freq === 'trimestral' || freq === 'semestral') {
+    grpDiaMes.style.display  = '';
+    grpMesRef.style.display  = '';
+    helpMesRef.style.display = '';
+    lblMesRef.textContent  = 'Mes inicial *';
+    helpMesRef.textContent = freq === 'trimestral'
+      ? 'Cada 3 meses contando desde el mes elegido (ej: Ene → Abr → Jul → Oct).'
+      : 'Cada 6 meses contando desde el mes elegido (ej: Feb → Ago).';
+  } else if (freq === 'anual') {
+    grpDiaMes.style.display = '';
+    grpMesRef.style.display = '';
+    lblMesRef.textContent   = 'Mes *';
+  } else if (freq === 'unica') {
+    grpUnica.style.display = '';
+  }
+  cronActualizarResumen();
+}
+
+// Resumen humano de la configuración actual (se muestra encima de los botones).
+function cronActualizarResumen() {
+  const r = document.getElementById('cron-resumen-freq');
+  if (!r) return;
+  const freq    = document.getElementById('cron-frecuencia').value || 'semanal';
+  const hora    = document.getElementById('cron-hora').value || '--:--';
+  const dia     = parseInt(document.getElementById('cron-dia-mes')?.value || '0');
+  const mesRef  = parseInt(document.getElementById('cron-mes-referencia')?.value || '0');
+  const fecha   = document.getElementById('cron-fecha-ejec')?.value || '';
+  const ds      = cronGetDiasSeleccionados();
+  let txt = '↳ ';
+  if (freq === 'diaria')        txt += `Todos los días a las ${hora}`;
+  else if (freq === 'semanal')  txt += ds === '*' ? `Todos los días a las ${hora}`
+                                                  : ds ? `Cada semana (${ds.split(',').map(d=>_CRON_DIAS_LABEL[d.trim()]||d).join(', ')}) a las ${hora}`
+                                                       : `Selecciona los días`;
+  else if (freq === 'mensual')   txt += dia ? `El día ${dia} de cada mes a las ${hora}` : `Selecciona el día del mes`;
+  else if (freq === 'trimestral')txt += dia && mesRef ? `Día ${dia} cada 3 meses desde ${_CRON_MESES[mesRef]} a las ${hora}`
+                                                       : `Configura día y mes inicial`;
+  else if (freq === 'semestral') txt += dia && mesRef ? `Día ${dia} cada 6 meses desde ${_CRON_MESES[mesRef]} a las ${hora}`
+                                                       : `Configura día y mes inicial`;
+  else if (freq === 'anual')     txt += dia && mesRef ? `Una vez al año: ${dia} de ${_CRON_MESES[mesRef]} a las ${hora}`
+                                                       : `Configura día y mes`;
+  else if (freq === 'unica')     txt += fecha ? `Una sola vez el ${fecha} a las ${hora}` : `Selecciona la fecha`;
+  r.textContent = txt;
+}
+
 function cronLimpiarForm() {
   document.getElementById('cron-edit-id').value = '';
   document.getElementById('cron-titulo').value = '';
   document.getElementById('cron-email').value = '';
   document.getElementById('cron-descripcion').value = '';
   document.getElementById('cron-hora').value = '';
+  document.getElementById('cron-frecuencia').value = 'semanal';
   document.querySelectorAll('.cron-dia').forEach(c => c.checked = false);
   document.getElementById('cron-dia-todos').checked = false;
+  const dm = document.getElementById('cron-dia-mes');         if (dm) dm.value = '';
+  const mr = document.getElementById('cron-mes-referencia');  if (mr) mr.value = '';
+  const fe = document.getElementById('cron-fecha-ejec');      if (fe) fe.value = '';
   document.getElementById('cron-form-title').textContent = '➕ Nueva tarea recurrente';
   document.getElementById('cron-cancelar').style.display = 'none';
   document.getElementById('cron-form-msg').textContent = '';
+  cronOnFrecuenciaChange();
 }
 
 function cronCancelarEdicion() { cronLimpiarForm(); }
+
+// Conectar listeners para que el "resumen" del formulario se actualice al
+// modificar cualquier campo. Lo hacemos una sola vez cuando se carga el DOM.
+(function _cronWireResumen(){
+  const wire = () => {
+    ['cron-hora','cron-dia-mes','cron-mes-referencia','cron-fecha-ejec'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el._cronWired) { el.addEventListener('input', cronActualizarResumen); el._cronWired = true; }
+    });
+    document.querySelectorAll('.cron-dia').forEach(el => {
+      if (!el._cronWired) { el.addEventListener('change', cronActualizarResumen); el._cronWired = true; }
+    });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+  else wire();
+})();
 
 async function cargarCronograma() {
   const cont = document.getElementById('cron-lista');
@@ -5682,6 +5829,23 @@ async function cargarCronograma() {
   }
 }
 
+// Texto humano para describir la frecuencia de una tarea (para la lista).
+function _cronFreqLabel(t) {
+  const f = (t.frecuencia || 'semanal').toLowerCase();
+  if (f === 'diaria')   return '<strong style="color:#5a2bb8">Todos los días</strong>';
+  if (f === 'semanal') {
+    if (t.dias_semana === '*' || !t.dias_semana) return '<strong style="color:#5a2bb8">Semanal · Todos los días</strong>';
+    const dias = t.dias_semana.split(',').map(d => `<span style="display:inline-block;background:#ede9fe;color:#5a2bb8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:3px">${_CRON_DIAS_LABEL[d.trim()]||d}</span>`).join('');
+    return `<span style="color:#5a2bb8;font-weight:600">Semanal · </span>${dias}`;
+  }
+  if (f === 'mensual')    return `<strong style="color:#5a2bb8">Mensual · día ${t.dia_mes||'?'}</strong>`;
+  if (f === 'trimestral') return `<strong style="color:#5a2bb8">Trimestral · día ${t.dia_mes||'?'} desde ${_CRON_MESES[t.mes_referencia]||'?'}</strong>`;
+  if (f === 'semestral')  return `<strong style="color:#5a2bb8">Semestral · día ${t.dia_mes||'?'} desde ${_CRON_MESES[t.mes_referencia]||'?'}</strong>`;
+  if (f === 'anual')      return `<strong style="color:#5a2bb8">Anual · ${t.dia_mes||'?'} de ${_CRON_MESES[t.mes_referencia]||'?'}</strong>`;
+  if (f === 'unica')      return `<strong style="color:#5a2bb8">Única · ${t.fecha_ejecucion||'?'}</strong>`;
+  return f;
+}
+
 function renderCronogramaLista() {
   const cont = document.getElementById('cron-lista');
   if (!cont) return;
@@ -5690,9 +5854,7 @@ function renderCronogramaLista() {
     return;
   }
   const html = _cronTareas.map(t => {
-    const dias = (t.dias_semana === '*')
-      ? '<span style="color:#5a2bb8;font-weight:700">Todos los días</span>'
-      : t.dias_semana.split(',').map(d => `<span style="display:inline-block;background:#ede9fe;color:#5a2bb8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:3px">${_CRON_DIAS_LABEL[d.trim()]||d}</span>`).join('');
+    const freqHtml = _cronFreqLabel(t);
     const activoBadge = t.activo === 1
       ? '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">● ACTIVO</span>'
       : '<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">○ PAUSADO</span>';
@@ -5706,7 +5868,7 @@ function renderCronogramaLista() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
         <div style="flex:1;min-width:240px">
           <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(t.titulo||'').replace(/</g,'&lt;')} ${activoBadge}</div>
-          <div style="font-size:12px;color:var(--text2);margin-bottom:4px">⏰ <strong style="font-family:monospace">${t.hora}</strong> · ${dias}</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:4px">⏰ <strong style="font-family:monospace">${t.hora}</strong> · ${freqHtml}</div>
           <div style="font-size:11px;color:var(--text3)">📧 ${t.email} · ${ultEjec}</div>
           ${desc}
         </div>
@@ -5728,20 +5890,43 @@ async function cronGuardar() {
   const email       = document.getElementById('cron-email').value.trim();
   const descripcion = document.getElementById('cron-descripcion').value.trim();
   const hora        = document.getElementById('cron-hora').value.trim();
+  const frecuencia  = document.getElementById('cron-frecuencia').value;
   const dias_semana = cronGetDiasSeleccionados();
-  const msg         = document.getElementById('cron-form-msg');
+  const dia_mes        = parseInt(document.getElementById('cron-dia-mes')?.value || '0') || 0;
+  const mes_referencia = parseInt(document.getElementById('cron-mes-referencia')?.value || '0') || 0;
+  const fecha_ejec     = document.getElementById('cron-fecha-ejec')?.value || '';
+  const msg            = document.getElementById('cron-form-msg');
 
-  if (!titulo)      { msg.style.color='#dc2626'; msg.textContent='Título obligatorio'; return; }
-  if (!email)       { msg.style.color='#dc2626'; msg.textContent='Email obligatorio'; return; }
-  if (!hora)        { msg.style.color='#dc2626'; msg.textContent='Hora obligatoria'; return; }
-  if (!dias_semana) { msg.style.color='#dc2626'; msg.textContent='Selecciona al menos un día (o TODOS)'; return; }
+  // Validaciones del frontend según frecuencia
+  if (!titulo) { msg.style.color='#dc2626'; msg.textContent='Título obligatorio'; return; }
+  if (!email)  { msg.style.color='#dc2626'; msg.textContent='Email obligatorio'; return; }
+  if (!hora)   { msg.style.color='#dc2626'; msg.textContent='Hora obligatoria'; return; }
+
+  if (frecuencia === 'semanal' && !dias_semana) {
+    msg.style.color='#dc2626'; msg.textContent='Selecciona al menos un día (o TODOS)'; return;
+  }
+  if (['mensual','trimestral','semestral','anual'].includes(frecuencia) && !(dia_mes >= 1 && dia_mes <= 31)) {
+    msg.style.color='#dc2626'; msg.textContent='Día del mes inválido (1–31)'; return;
+  }
+  if (['trimestral','semestral','anual'].includes(frecuencia) && !(mes_referencia >= 1 && mes_referencia <= 12)) {
+    msg.style.color='#dc2626';
+    msg.textContent = frecuencia === 'anual' ? 'Selecciona el mes del año' : 'Selecciona el mes inicial';
+    return;
+  }
+  if (frecuencia === 'unica' && !fecha_ejec) {
+    msg.style.color='#dc2626'; msg.textContent='Selecciona la fecha de ejecución'; return;
+  }
 
   msg.style.color = '#6b7280';
   msg.textContent = 'Guardando...';
   try {
     const url = id ? `${API}/api/cronograma/${encodeURIComponent(id)}` : `${API}/api/cronograma`;
     const method = id ? 'PUT' : 'POST';
-    const body = {titulo, email, descripcion, hora, dias_semana};
+    const body = {
+      titulo, email, descripcion, hora, frecuencia,
+      dias_semana, dia_mes, mes_referencia,
+      fecha_ejecucion: fecha_ejec
+    };
     if (id) body.activo = true; // al editar mantener activo a menos que se haya pausado expresamente
     const r = await fetch(url, {
       method, headers: {'Content-Type':'application/json','X-Token': _sesionToken},
@@ -5767,21 +5952,34 @@ function cronEditar(id) {
   document.getElementById('cron-email').value       = t.email || '';
   document.getElementById('cron-descripcion').value = t.descripcion || '';
   document.getElementById('cron-hora').value        = t.hora || '';
-  // Resetear checkboxes y aplicar los del registro
+  // Frecuencia (con default 'semanal' para registros viejos)
+  const freq = (t.frecuencia || 'semanal').toLowerCase();
+  document.getElementById('cron-frecuencia').value = freq;
+
+  // Resetear todos los checkboxes / inputs
   document.querySelectorAll('.cron-dia').forEach(c => c.checked = false);
-  document.getElementById('cron-dia-todos').checked = (t.dias_semana === '*');
-  if (t.dias_semana && t.dias_semana !== '*') {
+  document.getElementById('cron-dia-todos').checked = false;
+  const dm = document.getElementById('cron-dia-mes');         if (dm) dm.value = t.dia_mes || '';
+  const mr = document.getElementById('cron-mes-referencia');  if (mr) mr.value = t.mes_referencia || '';
+  const fe = document.getElementById('cron-fecha-ejec');      if (fe) fe.value = t.fecha_ejecucion || '';
+
+  // Días de la semana (para frecuencia=semanal, retrocompat)
+  if (t.dias_semana === '*') {
+    document.getElementById('cron-dia-todos').checked = true;
+    document.querySelectorAll('.cron-dia').forEach(c => c.checked = true);
+  } else if (t.dias_semana) {
     const dias = t.dias_semana.split(',').map(d => d.trim());
     document.querySelectorAll('.cron-dia').forEach(c => {
       if (dias.includes(c.value)) c.checked = true;
     });
-  } else if (t.dias_semana === '*') {
-    document.querySelectorAll('.cron-dia').forEach(c => c.checked = true);
   }
+
+  // Mostrar/ocultar bloques según la frecuencia cargada
+  cronOnFrecuenciaChange();
+
   document.getElementById('cron-form-title').textContent = `✎ Editando: ${t.titulo}`;
   document.getElementById('cron-cancelar').style.display = '';
   document.getElementById('cron-form-msg').textContent = '';
-  // Scroll al formulario
   document.getElementById('cron-titulo').scrollIntoView({behavior:'smooth', block:'center'});
 }
 
@@ -5794,7 +5992,12 @@ async function cronToggleActivo(id, nuevoActivo) {
       headers: {'Content-Type':'application/json','X-Token': _sesionToken},
       body: JSON.stringify({
         titulo: t.titulo, email: t.email, descripcion: t.descripcion,
-        hora: t.hora, dias_semana: t.dias_semana,
+        hora: t.hora,
+        frecuencia: t.frecuencia || 'semanal',
+        dias_semana: t.dias_semana,
+        dia_mes: t.dia_mes || 0,
+        mes_referencia: t.mes_referencia || 0,
+        fecha_ejecucion: t.fecha_ejecucion || '',
         activo: !!nuevoActivo
       })
     });
