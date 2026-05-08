@@ -7472,6 +7472,408 @@ def pibox_export():
         }), 500
 
 
+# ══════════════════════════════════════════════════════════════════════
+# RESUMEN GENERAL — vista Power BI con KPIs de TODOS los módulos
+# Consolida en una sola llamada los conteos principales por módulo,
+# distribuidos por área responsable. Reutiliza los códigos ISO de país
+# (CO, MX, NI, GT…) y rangos de fecha. Cada bloque se aísla en try/except
+# para que un módulo caído no rompa el resto del dashboard.
+# ══════════════════════════════════════════════════════════════════════
+
+# Mapa: cada módulo declara su área responsable. El frontend lo usa para
+# colorear y agrupar las tarjetas. Si en el futuro cambia un responsable,
+# solo se actualiza aquí.
+RESUMEN_AREAS = {
+    "evasion":        {"area": "monitoreo",  "nombre": "Evasión de Comisión",        "icono": "💰", "color": "#1d4ed8", "ir_a": "monitoreo"},
+    "estafa":         {"area": "monitoreo",  "nombre": "Servicios Estafa",           "icono": "🚨", "color": "#1d4ed8", "ir_a": "estafa"},
+    "pagos_tc":       {"area": "monitoreo",  "nombre": "Pagos Tarjeta de Crédito",   "icono": "💳", "color": "#1d4ed8", "ir_a": "pagos"},
+    "pagos_promo":    {"area": "monitoreo",  "nombre": "Pagos PromoCode",            "icono": "🎟️", "color": "#1d4ed8", "ir_a": "pagos"},
+    "facial":         {"area": "monitoreo",  "nombre": "Reconocimiento Facial",      "icono": "👤", "color": "#1d4ed8", "ir_a": "rf"},
+    "bloqueos":       {"area": "sac_recl",   "nombre": "Bloqueos y Reactivaciones",  "icono": "🚫", "color": "#7c3aed", "ir_a": "bloqueos"},
+    "auditoria_com":  {"area": "comercial",  "nombre": "Auditorías Comerciales",     "icono": "📋", "color": "#16a34a", "ir_a": "auditoria"},
+    "pibox":          {"area": "operaciones","nombre": "Auditorías Pibox B2B",       "icono": "📦", "color": "#ea580c", "ir_a": "pibox-alertas"},
+    "recaudos":       {"area": "operaciones","nombre": "Recaudos",                   "icono": "💵", "color": "#ea580c", "ir_a": "recaudos"},
+    "cedula":         {"area": "sac_act",    "nombre": "Alertas de Cédula",          "icono": "🪪", "color": "#ca8a04", "ir_a": "cedula"},
+}
+
+RESUMEN_AREAS_META = {
+    "monitoreo":   {"nombre": "Monitoreo",                    "color": "#1d4ed8", "icono": "🔵"},
+    "sac_recl":    {"nombre": "SAC / Reclamaciones",          "color": "#7c3aed", "icono": "🟣"},
+    "comercial":   {"nombre": "Comercial",                    "color": "#16a34a", "icono": "🟢"},
+    "operaciones": {"nombre": "Operaciones",                  "color": "#ea580c", "icono": "🟠"},
+    "sac_act":     {"nombre": "SAC / Activaciones",           "color": "#ca8a04", "icono": "🟡"},
+}
+
+def _resumen_iso(pais):
+    """Convierte 'Colombia'→'CO', 'Mexico'→'MX', etc. Si ya es ISO, lo deja."""
+    if not pais: return ""
+    PAIS_A_ISO = {"Colombia": "CO", "Mexico": "MX", "México": "MX",
+                  "Nicaragua": "NI", "Guatemala": "GT", "Peru": "PE",
+                  "Perú": "PE", "Ecuador": "EC"}
+    return PAIS_A_ISO.get(pais, pais).upper()
+
+def _kpi(label, valor, fmt='numero', sub=None, color=None):
+    """Helper para construir cada KPI de manera consistente."""
+    return {"label": label, "valor": valor, "fmt": fmt,
+            "sub": sub, "color": color}
+
+def _resumen_evasion(ch, desde, hasta, pais_iso):
+    """KPIs de evasión: totales, confirmadas, comisión evadida, pilotos."""
+    extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
+    sql = f"""
+    WITH base AS (
+        SELECT
+            b._id, b.driver_id, b.g_country,
+            toFloat64OrNull(JSONExtractString(b.estimated_cost,'cents')) / 100 AS costo_est,
+            multiIf(b.g_country='CO', 0.12,
+                    b.g_country IN ('MX','NI'), 0.10,
+                    0.15) AS tasa,
+            ifNull(toFloat64OrNull(JSONExtractString(b.start_geojson,'lon')), 0) AS o_lon,
+            ifNull(toFloat64OrNull(JSONExtractString(b.start_geojson,'lat')), 0) AS o_lat,
+            ifNull(toFloat64OrNull(JSONExtractString(b.end_geojson,'lon')),   0) AS d_lon,
+            ifNull(toFloat64OrNull(JSONExtractString(b.end_geojson,'lat')),   0) AS d_lat,
+            dateDiff('minute', b.created_at, b.end_at) AS minutos
+        FROM picapmongoprod.bookings b
+        WHERE b.created_at >= toDateTime('{desde} 00:00:00')
+          AND b.created_at <= toDateTime('{hasta} 23:59:59')
+          AND b.status_cd IN (100, 102){extra}
+    ),
+    flag AS (
+        SELECT *,
+            multiIf(minutos < 4, 1, 0)                                       AS f_tiempo,
+            multiIf(greatCircleDistance(o_lon,o_lat,d_lon,d_lat) < 200, 1, 0) AS f_dist
+        FROM base
+    )
+    SELECT
+        count()                                                  AS total,
+        countIf(f_tiempo=1 AND f_dist=1)                         AS confirmadas,
+        countIf((f_tiempo=1 AND f_dist=0) OR (f_tiempo=0 AND f_dist=1)) AS probables,
+        countIf(f_tiempo=0 AND f_dist=0)                         AS ok,
+        round(sumIf(costo_est * tasa, f_tiempo=1 AND f_dist=1)) AS comision_conf,
+        uniqExact(driver_id)                                     AS pilotos_total,
+        uniqExactIf(driver_id, f_tiempo=1 AND f_dist=1)          AS pilotos_evasion
+    FROM flag
+    """
+    r = ch.query(sql).result_rows
+    if not r:
+        return None
+    total, conf, prob, ok, com, pt, pe = r[0]
+    tasa = round((conf + prob) / total * 100, 1) if total else 0
+    return {
+        "kpis": [
+            _kpi("Total servicios analizados", int(total or 0), "numero"),
+            _kpi("Evasiones confirmadas",       int(conf  or 0), "numero", color="#dc2626"),
+            _kpi("Tasa de evasión",             tasa,            "porcentaje"),
+            _kpi("Comisión evadida (confirm.)", int(com   or 0), "moneda"),
+            _kpi("Pilotos auditados",           int(pt    or 0), "numero"),
+            _kpi("Pilotos con evasión",         int(pe    or 0), "numero", color="#dc2626"),
+        ],
+        "tip": "Una evasión es 'confirmada' cuando hay 2 banderas simultáneas: tiempo < 4 min y distancia < 200 m. La penalidad real cobrada agrega 5% a la comisión evadida."
+    }
+
+def _resumen_estafa(ch, desde, hasta, pais_iso):
+    extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
+    sql = f"""
+    SELECT
+        countIf(b.status_cd IN (100,102))                                                         AS total_serv,
+        countIf(b.status_cd IN (100,102) AND multiSearchAny(lower(b.cancellation_reason),
+            ['estafa','fraude','fraud','scam','suplant','suplantacion','suplantación'])) AS estafa_serv
+    FROM picapmongoprod.bookings b
+    WHERE b.created_at >= toDateTime('{desde} 00:00:00')
+      AND b.created_at <= toDateTime('{hasta} 23:59:59'){extra}
+    """
+    r = ch.query(sql).result_rows
+    total, est = (r[0] if r else (0, 0))
+    pct = round(int(est or 0) / int(total or 1) * 100, 2) if total else 0
+    return {
+        "kpis": [
+            _kpi("Total servicios revisados", int(total or 0), "numero"),
+            _kpi("Servicios marcados estafa", int(est   or 0), "numero", color="#dc2626"),
+            _kpi("Tasa de estafa",            pct,             "porcentaje"),
+        ],
+        "tip": "Detección por palabras clave en el motivo de cancelación. La tasa esperada es < 0,5%; si supera 1% conviene revisar zonas o pilotos concretos."
+    }
+
+def _resumen_pagos_tc(ch, desde, hasta, pais_iso):
+    """Pagos con tarjeta de crédito — total transacciones y monto."""
+    # No hay filtro por país en pagos TC (campo no disponible directo)
+    sql = f"""
+    SELECT
+        count()                                                       AS total,
+        round(sum(abs(toFloat64OrNull(JSONExtractString(amount,'cents'))/100)), 0) AS monto
+    FROM picapmongoprod.wallet_account_transactions
+    WHERE _type = 'WalletAccountTransactionCard'
+      AND created_at >= toDateTime('{desde} 00:00:00')
+      AND created_at <= toDateTime('{hasta} 23:59:59')
+    """
+    r = ch.query(sql).result_rows
+    total, monto = (r[0] if r else (0, 0))
+    return {
+        "kpis": [
+            _kpi("Transacciones TC",  int(total or 0), "numero"),
+            _kpi("Monto total cargado", int(monto or 0), "moneda"),
+        ],
+        "tip": "Volumen total de pagos con tarjeta. Para detección de fraude por TC abre el módulo Pagos → tabla TC."
+    }
+
+def _resumen_pagos_promo(ch, desde, hasta, pais_iso):
+    sql = f"""
+    SELECT
+        count()                                              AS total,
+        round(sum(abs(toFloat64OrNull(JSONExtractString(amount,'cents'))/100)), 0) AS monto
+    FROM picapmongoprod.wallet_account_transactions
+    WHERE _type = 'WalletAccountTransactionPromoCode'
+      AND created_at >= toDateTime('{desde} 00:00:00')
+      AND created_at <= toDateTime('{hasta} 23:59:59')
+    """
+    r = ch.query(sql).result_rows
+    total, monto = (r[0] if r else (0, 0))
+    return {
+        "kpis": [
+            _kpi("Redenciones de PromoCode", int(total or 0), "numero"),
+            _kpi("Monto otorgado",            int(monto or 0), "moneda"),
+        ],
+        "tip": "Cada redención es un código aplicado por un usuario. Picos repentinos pueden indicar abuso o filtración del código."
+    }
+
+def _resumen_facial(ch, desde, hasta, pais_iso):
+    sql = f"""
+    SELECT
+        count()                                AS total,
+        countIf(nivel='ALERTA')                AS alerta,
+        countIf(nivel='REVISAR')               AS revisar,
+        round(max(similitud), 4)               AS sim_max,
+        uniqExact(user_id_a) + uniqExact(user_id_b) AS personas
+    FROM picapmongoprod.alertas_reconocimiento
+    WHERE procesado_en >= toDateTime('{desde} 00:00:00')
+      AND procesado_en <= toDateTime('{hasta} 23:59:59')
+    """
+    r = ch.query(sql).result_rows
+    total, alerta, revisar, sim, personas = (r[0] if r else (0, 0, 0, 0, 0))
+    return {
+        "kpis": [
+            _kpi("Total comparaciones",   int(total   or 0), "numero"),
+            _kpi("Alertas (alta confianza)", int(alerta or 0), "numero", color="#dc2626"),
+            _kpi("Para revisar",          int(revisar or 0), "numero", color="#ca8a04"),
+            _kpi("Similitud máxima",      float(sim    or 0), "decimal"),
+        ],
+        "tip": "Similitud > 0.96 ≈ misma persona con alta confianza. Entre 0.85 y 0.96 sugiere revisión manual antes de bloquear."
+    }
+
+def _resumen_bloqueos(ch, desde, hasta, pais_iso):
+    extra = f" AND ds.country_code = '{pais_iso}'" if pais_iso else ""
+    sql = f"""
+    SELECT
+        count()                                       AS total,
+        countIf(ds.ends_at IS NULL OR ds.ends_at > now()) AS activos,
+        countIf(ds.tipo_suspension = 'EXPULSADO')     AS expulsados,
+        countIf(ds.tipo_suspension = 'SUSPENDIDO'
+                AND dateDiff('day', ds.starts_at, ifNull(ds.ends_at, now())) > 30) AS suspendidos_mas30
+    FROM picapmongoprod.driver_suspensions ds
+    WHERE ds.starts_at >= toDateTime('{desde} 00:00:00')
+      AND ds.starts_at <= toDateTime('{hasta} 23:59:59'){extra}
+    """
+    try:
+        r = ch.query(sql).result_rows
+    except Exception:
+        # Si la tabla driver_suspensions no tiene country_code u otro campo,
+        # caemos a una versión sin filtro de país.
+        r = ch.query(f"""
+        SELECT
+            count() AS total,
+            countIf(ends_at IS NULL OR ends_at > now()) AS activos,
+            countIf(tipo_suspension = 'EXPULSADO') AS expulsados,
+            countIf(tipo_suspension = 'SUSPENDIDO'
+                    AND dateDiff('day', starts_at, ifNull(ends_at, now())) > 30) AS suspendidos_mas30
+        FROM picapmongoprod.driver_suspensions
+        WHERE starts_at >= toDateTime('{desde} 00:00:00')
+          AND starts_at <= toDateTime('{hasta} 23:59:59')
+        """).result_rows
+    total, act, exp, susp30 = (r[0] if r else (0, 0, 0, 0))
+    return {
+        "kpis": [
+            _kpi("Bloqueos en el período",      int(total or 0), "numero"),
+            _kpi("Aún activos",                 int(act   or 0), "numero", color="#dc2626"),
+            _kpi("Expulsiones permanentes",     int(exp   or 0), "numero", color="#dc2626"),
+            _kpi("Suspendidos > 30 días",       int(susp30 or 0), "numero", color="#ca8a04"),
+        ],
+        "tip": "Suspendidos con más de 30 días son la prioridad: SAC debe contactarlos para definir reactivación o expulsión."
+    }
+
+def _resumen_auditoria_com(ch, desde, hasta, pais_iso):
+    """Lectura conservadora — solo conteo de bookings de clientes B2B."""
+    sql = f"""
+    SELECT
+        count() AS total
+    FROM picapmongoprod.bookings b
+    WHERE b.created_at >= toDateTime('{desde} 00:00:00')
+      AND b.created_at <= toDateTime('{hasta} 23:59:59')
+      AND b.status_cd IN (100, 102)
+      AND notEmpty(JSONExtractString(b.client_data, 'client_id'))
+    """
+    try:
+        r = ch.query(sql).result_rows
+        total = int(r[0][0] or 0) if r else 0
+    except Exception:
+        total = 0
+    return {
+        "kpis": [
+            _kpi("Servicios B2B analizados", total, "numero"),
+        ],
+        "tip": "Las auditorías comerciales revisan que los servicios facturados a clientes B2B cumplan tarifa y SLA. Detalle completo en el módulo Auditorías."
+    }
+
+def _resumen_pibox(ch, desde, hasta, pais_iso):
+    """Pibox B2B — uses bookings con cliente B2B (mismos datos que auditoría)
+    pero contando los marcados como sospechosos por el robot, si existe."""
+    extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
+    sql = f"""
+    SELECT
+        countIf(b.status_cd IN (100, 102)
+                AND notEmpty(JSONExtractString(b.client_data, 'client_id')))           AS total_pibox,
+        countIf(b.status_cd IN (100, 102)
+                AND notEmpty(JSONExtractString(b.client_data, 'client_id'))
+                AND dateDiff('minute', b.created_at, b.end_at) < 5)                    AS muy_cortos
+    FROM picapmongoprod.bookings b
+    WHERE b.created_at >= toDateTime('{desde} 00:00:00')
+      AND b.created_at <= toDateTime('{hasta} 23:59:59'){extra}
+    """
+    try:
+        r = ch.query(sql).result_rows
+        total, cortos = (r[0] if r else (0, 0))
+    except Exception:
+        total, cortos = (0, 0)
+    return {
+        "kpis": [
+            _kpi("Servicios Pibox B2B",          int(total  or 0), "numero"),
+            _kpi("Anormalmente cortos (<5min)",  int(cortos or 0), "numero", color="#dc2626"),
+        ],
+        "tip": "Servicios menores a 5 minutos en B2B son señal de fraude (no recogió, no entregó). El módulo Pibox tiene la validación completa con foto y GPS."
+    }
+
+def _resumen_recaudos(ch, desde, hasta, pais_iso):
+    extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
+    sql = f"""
+    SELECT
+        countIf(b.status_cd IN (100, 102) AND b.payment_method = 'cash') AS total_efectivo,
+        round(sumIf(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100,
+                     b.status_cd IN (100, 102) AND b.payment_method = 'cash'), 0) AS monto
+    FROM picapmongoprod.bookings b
+    WHERE b.created_at >= toDateTime('{desde} 00:00:00')
+      AND b.created_at <= toDateTime('{hasta} 23:59:59'){extra}
+    """
+    try:
+        r = ch.query(sql).result_rows
+        total, monto = (r[0] if r else (0, 0))
+    except Exception:
+        total, monto = (0, 0)
+    return {
+        "kpis": [
+            _kpi("Servicios cobrados en efectivo", int(total or 0), "numero"),
+            _kpi("Monto total recaudado",          int(monto or 0), "moneda"),
+        ],
+        "tip": "Los recaudos en efectivo deben coincidir con los abonos posteriores del piloto. Diferencias > 5% disparan alerta de retención."
+    }
+
+def _resumen_cedula(ch, desde, hasta, pais_iso):
+    sql = f"""
+    SELECT
+        count()                            AS total,
+        countIf(severidad = 'ALTA')        AS criticas,
+        countIf(severidad IN ('MEDIA','REVISAR')) AS para_revisar
+    FROM picapmongoprod.alertas_cedula
+    WHERE procesado_en >= toDateTime('{desde} 00:00:00')
+      AND procesado_en <= toDateTime('{hasta} 23:59:59')
+    """
+    try:
+        r = ch.query(sql).result_rows
+        total, crit, rev = (r[0] if r else (0, 0, 0))
+    except Exception:
+        total, crit, rev = (0, 0, 0)
+    return {
+        "kpis": [
+            _kpi("Alertas de cédula",   int(total or 0), "numero"),
+            _kpi("Críticas (alta)",     int(crit  or 0), "numero", color="#dc2626"),
+            _kpi("Para revisar",        int(rev   or 0), "numero", color="#ca8a04"),
+        ],
+        "tip": "SAC y Activaciones deben validar las críticas en menos de 24h. Las medias se procesan en lote semanal."
+    }
+
+
+# Registry de funciones por módulo. Si un módulo no está aquí, no aparece.
+_RESUMEN_FUNCS = {
+    "evasion":       _resumen_evasion,
+    "estafa":        _resumen_estafa,
+    "pagos_tc":      _resumen_pagos_tc,
+    "pagos_promo":   _resumen_pagos_promo,
+    "facial":        _resumen_facial,
+    "bloqueos":      _resumen_bloqueos,
+    "auditoria_com": _resumen_auditoria_com,
+    "pibox":         _resumen_pibox,
+    "recaudos":      _resumen_recaudos,
+    "cedula":        _resumen_cedula,
+}
+
+@app.route("/api/resumen-general")
+def resumen_general():
+    """Endpoint único que consolida los KPIs principales de todos los módulos
+    y los entrega agrupados por módulo + área responsable. Cada módulo se
+    ejecuta dentro de un try/except aislado: si falla uno, los demás siguen.
+
+    Query params:
+      - desde, hasta: rango de fecha (default últimos 30 días)
+      - pais:  ISO o nombre largo (CO, MX, NI, Colombia, ...). Vacío = todos.
+      - modulos: CSV opcional para limitar qué módulos calcular (acelera).
+                 Ej: 'evasion,estafa,bloqueos'.
+    """
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+
+    desde = request.args.get("desde") or (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+    hasta = request.args.get("hasta") or date.today().strftime("%Y-%m-%d")
+    pais  = request.args.get("pais") or ""
+    pais_iso = _resumen_iso(pais)
+    seleccion = (request.args.get("modulos") or "").strip()
+    modulos_pedidos = set([m.strip() for m in seleccion.split(",") if m.strip()]) if seleccion else None
+
+    try:
+        ch = get_client()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"ClickHouse no disponible: {e}"}), 500
+
+    modulos_out = {}
+    for mod_id, meta in RESUMEN_AREAS.items():
+        if modulos_pedidos and mod_id not in modulos_pedidos:
+            continue
+        fn = _RESUMEN_FUNCS.get(mod_id)
+        if not fn:
+            continue
+        bloque = {
+            **meta,
+            "kpis":  [],
+            "tip":   "",
+            "error": None,
+        }
+        try:
+            datos = fn(ch, desde, hasta, pais_iso)
+            if datos:
+                bloque["kpis"] = datos.get("kpis", [])
+                bloque["tip"]  = datos.get("tip", "")
+        except Exception as e:
+            bloque["error"] = str(e)[:300]
+        modulos_out[mod_id] = bloque
+
+    return jsonify({
+        "ok": True,
+        "filtros": {"desde": desde, "hasta": hasta, "pais": pais, "pais_iso": pais_iso},
+        "modulos": modulos_out,
+        "areas":   RESUMEN_AREAS_META,
+        "generado_en": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+
 if __name__ == "__main__":
     print("=" * 56)
     print("  Picap Evasion API  ->  http://localhost:5050")

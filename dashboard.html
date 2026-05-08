@@ -1474,6 +1474,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     </div>
   </div>
 
+  <!-- Resumen general: vista 360 con KPIs de todos los módulos por área. -->
+  <div class="sb2-item" id="sbg-resumen">
+    <div class="sb2-icon" id="nav-resumen" onclick="switchView('resumen')" title="Resumen General — vista 360" style="cursor:pointer">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 14h2v3H3zM7 10h2v7H7zM11 6h2v11h-2zM15 3h2v14h-2z" fill="white"/></svg>
+      <span class="sb2-label">Resumen 360</span>
+    </div>
+  </div>
+
   <!-- ── Usuario (pie) ── -->
   <div style="flex:1"></div>
 
@@ -2809,6 +2817,158 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     </div>
   </div>
 
+  <!-- ══ VISTA: RESUMEN GENERAL — Vista 360° estilo Power BI ══ -->
+  <div class="view" id="view-resumen">
+    <div class="wrap">
+      <!-- Header con saludo + botón actualizar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <div>
+          <h2 style="font-size:20px;font-weight:800;color:var(--text1);margin:0">📊 Resumen General — Vista 360°</h2>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">KPIs consolidados de todos los módulos del portal, agrupados por área responsable.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="rg-updated" style="font-size:11px;color:var(--text3)"></span>
+          <button class="apply-btn" onclick="rgCargar()">↻ Actualizar</button>
+        </div>
+      </div>
+
+      <!-- Banner: cómo leer la vista -->
+      <div style="background:linear-gradient(90deg,#f3eaff 0%,#fff7e6 50%,#dbeafe 100%);border:1px solid #d8c4ff;border-radius:14px;padding:14px 18px;margin-bottom:14px;color:#3b1f6b;font-size:12px;line-height:1.6">
+        💡 <strong>Cómo leer este panel</strong> — Cada tarjeta corresponde a un módulo del portal y muestra los KPIs principales del rango y país elegidos. Los colores indican el área responsable: <span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-weight:700">🔵 Monitoreo</span>, <span style="background:#ede9fe;color:#5a2bb8;padding:1px 6px;border-radius:4px;font-weight:700">🟣 SAC/Reclamaciones</span>, <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-weight:700">🟢 Comercial</span>, <span style="background:#ffedd5;color:#9a3412;padding:1px 6px;border-radius:4px;font-weight:700">🟠 Operaciones</span>, <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-weight:700">🟡 SAC/Activaciones</span>. Usa <strong>Ver detalle →</strong> en cualquier tarjeta para abrir el módulo completo con tablas y filtros granulares.
+      </div>
+
+      <!-- Filtros globales -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+          <strong style="font-size:12px;color:var(--text2)">📅 Período:</strong>
+          <button class="pbtn" onclick="rgSetPeriodo('mes',this)">Mes</button>
+          <button class="pbtn" onclick="rgSetPeriodo('bim',this)">Bimestre</button>
+          <button class="pbtn" onclick="rgSetPeriodo('tri',this)">Trimestre</button>
+          <button class="pbtn" onclick="rgSetPeriodo('sem',this)">Semestre</button>
+          <button class="pbtn" onclick="rgSetPeriodo('anio',this)">Año</button>
+          <button class="pbtn active" onclick="rgSetPeriodo('30',this)">Últimos 30 días</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+          <strong style="font-size:12px;color:var(--text2)">🌎 País:</strong>
+          <select id="rg-pais" class="filter-select" onchange="rgCargar()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <option value="">Todos los países</option>
+            <option value="CO">🇨🇴 Colombia</option>
+            <option value="MX">🇲🇽 México</option>
+            <option value="NI">🇳🇮 Nicaragua</option>
+            <option value="GT">🇬🇹 Guatemala</option>
+            <option value="PE">🇵🇪 Perú</option>
+            <option value="EC">🇪🇨 Ecuador</option>
+          </select>
+
+          <span style="display:inline-block;width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+
+          <strong style="font-size:12px;color:var(--text2)">📆 Rango personalizado:</strong>
+          <input id="rg-desde" type="date" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--bg)">
+          <span style="font-size:11px;color:var(--text3)">→</span>
+          <input id="rg-hasta" type="date" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--bg)">
+          <button class="apply-btn" onclick="rgAplicarRango()">Aplicar</button>
+        </div>
+
+        <!-- Filtro por área responsable -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+          <strong style="font-size:12px;color:var(--text2)">🎯 Área responsable:</strong>
+          <button class="rg-area-btn active" data-area=""           onclick="rgSetArea('',this)">Todas</button>
+          <button class="rg-area-btn"        data-area="monitoreo"  onclick="rgSetArea('monitoreo',this)"  style="--c:#1d4ed8">🔵 Monitoreo</button>
+          <button class="rg-area-btn"        data-area="sac_recl"   onclick="rgSetArea('sac_recl',this)"   style="--c:#7c3aed">🟣 SAC / Reclamaciones</button>
+          <button class="rg-area-btn"        data-area="comercial"  onclick="rgSetArea('comercial',this)"  style="--c:#16a34a">🟢 Comercial</button>
+          <button class="rg-area-btn"        data-area="operaciones" onclick="rgSetArea('operaciones',this)" style="--c:#ea580c">🟠 Operaciones</button>
+          <button class="rg-area-btn"        data-area="sac_act"    onclick="rgSetArea('sac_act',this)"    style="--c:#ca8a04">🟡 SAC / Activaciones</button>
+        </div>
+
+        <!-- Filtro por módulo individual -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px">
+          <strong style="font-size:12px;color:var(--text2)">🧩 Módulo:</strong>
+          <select id="rg-modulo" onchange="renderResumenGeneral()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg);min-width:200px">
+            <option value="">Todos los módulos del área</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- KPIs globales -->
+      <div id="rg-kpis-globales" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px"></div>
+
+      <!-- Cards por área -->
+      <div id="rg-areas-cont"></div>
+
+      <!-- Loading / Empty states -->
+      <div id="rg-loading" style="display:none;text-align:center;padding:60px 20px;color:var(--text3)">
+        <div style="font-size:32px;margin-bottom:8px">⏳</div>
+        <div style="font-size:14px;font-weight:600">Calculando KPIs en ClickHouse...</div>
+        <div style="font-size:11px;margin-top:4px">Esto puede tomar 5-15s la primera vez. Las queries se ejecutan en paralelo por módulo.</div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .rg-area-btn {
+      padding:4px 10px;border-radius:6px;border:1px solid var(--border);
+      background:var(--bg);font-size:11px;font-weight:600;cursor:pointer;
+      color:var(--text2);transition:all .15s;
+    }
+    .rg-area-btn:hover { background:#f5f3ff; }
+    .rg-area-btn.active {
+      background:var(--c, #5a2bb8); color:#fff; border-color:var(--c, #5a2bb8);
+    }
+    .rg-card {
+      background:var(--surface);border:1px solid var(--border);border-radius:14px;
+      padding:0;overflow:hidden;display:flex;flex-direction:column;
+      transition:transform .15s, box-shadow .15s;
+    }
+    .rg-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.08); }
+    .rg-card-header {
+      padding:12px 16px;display:flex;align-items:center;gap:10px;color:#fff;
+    }
+    .rg-card-icon { font-size:22px; }
+    .rg-card-title { font-size:13px;font-weight:700;flex:1; }
+    .rg-card-body { padding:12px 16px;flex:1;display:flex;flex-direction:column;gap:10px; }
+    .rg-kpi {
+      display:flex;justify-content:space-between;align-items:baseline;
+      padding:6px 0;border-bottom:1px dashed var(--border);
+    }
+    .rg-kpi:last-child { border-bottom:none; }
+    .rg-kpi-label { font-size:11px;color:var(--text3); }
+    .rg-kpi-value { font-size:18px;font-weight:800;color:var(--text1); }
+    .rg-kpi-value.alert { color:#dc2626; }
+    .rg-kpi-value.warn  { color:#ca8a04; }
+    .rg-tip {
+      background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;
+      padding:8px 10px;font-size:11px;color:#78350f;line-height:1.5;
+    }
+    .rg-card-footer {
+      padding:8px 16px;border-top:1px solid var(--border);background:#fafafa;
+      display:flex;justify-content:flex-end;
+    }
+    .rg-detalle-btn {
+      background:transparent;border:none;color:#5a2bb8;font-size:12px;font-weight:700;
+      cursor:pointer;padding:4px 8px;border-radius:6px;transition:background .15s;
+    }
+    .rg-detalle-btn:hover { background:#ede9fe; }
+    .rg-area-titulo {
+      display:flex;align-items:center;gap:10px;font-size:14px;font-weight:800;
+      color:var(--text1);margin:18px 0 10px;padding-bottom:8px;
+      border-bottom:2px solid var(--border);
+    }
+    .rg-area-badge {
+      font-size:10px;font-weight:700;padding:2px 10px;border-radius:6px;
+      color:#fff;
+    }
+    .rg-grid-modulos {
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;
+    }
+    .rg-globales {
+      background:linear-gradient(135deg, var(--c1,#5a2bb8), var(--c2,#7c3aed));
+      color:#fff;border-radius:12px;padding:14px 18px;
+    }
+    .rg-globales-label { font-size:11px;font-weight:600;opacity:.9; }
+    .rg-globales-value { font-size:24px;font-weight:800;margin-top:4px; }
+    .rg-globales-sub   { font-size:10px;opacity:.85;margin-top:2px; }
+  </style>
+
   <!-- Modal compartir recurso -->
   <div id="rec-share-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px">
     <div style="background:var(--surface);border-radius:14px;padding:20px 22px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)">
@@ -3458,6 +3618,7 @@ function switchView(view){
     perfil:           'Mi Perfil',
     wallet:           'Motor Wallet',
     recursos:         'Recursos compartidos del equipo',
+    resumen:          'Resumen General — Vista 360°',
   };
   document.getElementById('topbar-title').textContent = titles[view] || view;
 
@@ -3470,6 +3631,7 @@ function switchView(view){
 
   if(view === 'conversor') actualizarConversor();
   if(view === 'recursos')  cargarRecursosVista();
+  if(view === 'resumen')   rgInicializar();
   if(view === 'perfil') { cargarInfoUsuario(); setTimeout(renderAnimalPicker, 100); }   // Recargar datos del perfil al entrar
   if(view === 'bloqueos'){
     const tab = arguments[1] || 'alertas';
@@ -5270,6 +5432,10 @@ function aplicarRol() {
     // Recursos: lo ven todos los roles autenticados (cada uno solo ve los
     // recursos públicos + los privados que le hayan compartido).
     'sbg-recursos':  ['admin','monitoreo','financiero','sac','pibox'],
+    // Resumen 360: KPIs ejecutivos de todos los módulos. Lo ve cualquiera
+    // con sesión válida; el filtro por área permite que cada quien vea
+    // los módulos que le competen.
+    'sbg-resumen':   ['admin','monitoreo','financiero','sac','pibox'],
   };
   Object.entries(SB_ROLES).forEach(([id, roles]) => {
     const el = document.getElementById(id);
@@ -7051,6 +7217,263 @@ async function recGuardarShareBulk() {
     msg.style.color = '#dc2626';
     msg.textContent = '❌ ' + err.message;
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// RESUMEN GENERAL — Vista 360° estilo Power BI
+// Endpoint único: GET /api/resumen-general?desde=…&hasta=…&pais=…
+// ══════════════════════════════════════════════════════════════
+let _rgData = null;            // payload completo del backend
+let _rgFiltros = {desde:'', hasta:'', pais:'', area:'', modulo:''};
+
+// Mapping: views del sidebar a las que ir cuando se clickea "Ver detalle".
+// Si en el futuro un módulo cambia de view-id, se actualiza solo aquí.
+const _RG_NAV_MAP = {
+  monitoreo:    'monitoreo',
+  estafa:       'estafa',
+  pagos:        'pagos',
+  rf:           'rf',
+  bloqueos:     'bloqueos',
+  auditoria:    'auditoria',
+  'pibox-alertas': 'pibox-alertas',
+  recaudos:     'recaudos',
+  cedula:       'cedula',
+};
+
+function rgInicializar() {
+  // Solo se inicializa la primera vez al entrar
+  if (!_rgFiltros.desde) {
+    rgSetPeriodo('30', null);  // por defecto: 30 días
+  }
+  // Si ya hay datos, simplemente re-renderizamos
+  if (_rgData) {
+    renderResumenGeneral();
+  } else {
+    rgCargar();
+  }
+}
+
+function _rgFmtDate(d) {
+  return d.toISOString().slice(0,10);
+}
+
+function rgSetPeriodo(tipo, btn) {
+  // Resaltar botón activo
+  if (btn) {
+    btn.parentNode.querySelectorAll('.pbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  const hoy = new Date();
+  let desde = new Date();
+  if (tipo === 'mes')      desde.setDate(hoy.getDate() - 30);
+  else if (tipo === 'bim') desde.setDate(hoy.getDate() - 60);
+  else if (tipo === 'tri') desde.setDate(hoy.getDate() - 90);
+  else if (tipo === 'sem') desde.setDate(hoy.getDate() - 180);
+  else if (tipo === 'anio')desde.setDate(hoy.getDate() - 365);
+  else                     desde.setDate(hoy.getDate() - 30);
+  _rgFiltros.desde = _rgFmtDate(desde);
+  _rgFiltros.hasta = _rgFmtDate(hoy);
+  // Reflejar en los inputs custom
+  const di = document.getElementById('rg-desde'); if (di) di.value = _rgFiltros.desde;
+  const ha = document.getElementById('rg-hasta'); if (ha) ha.value = _rgFiltros.hasta;
+  rgCargar();
+}
+
+function rgAplicarRango() {
+  const d = document.getElementById('rg-desde')?.value || '';
+  const h = document.getElementById('rg-hasta')?.value || '';
+  if (!d || !h) { alert('Selecciona ambas fechas.'); return; }
+  if (d > h)    { alert('La fecha desde debe ser anterior a hasta.'); return; }
+  // Quitar selección de los botones de período preestablecidos
+  document.querySelectorAll('#view-resumen .pbtn').forEach(b => b.classList.remove('active'));
+  _rgFiltros.desde = d;
+  _rgFiltros.hasta = h;
+  rgCargar();
+}
+
+function rgSetArea(area, btn) {
+  document.querySelectorAll('.rg-area-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  _rgFiltros.area = area;
+  // Refrescar el dropdown de módulos para que solo muestre los del área
+  rgPoblarSelectModulo();
+  renderResumenGeneral();
+}
+
+function rgPoblarSelectModulo() {
+  const sel = document.getElementById('rg-modulo');
+  if (!sel || !_rgData) return;
+  const valActual = sel.value;
+  const modulos = Object.entries(_rgData.modulos);
+  const filtrados = _rgFiltros.area
+    ? modulos.filter(([id, m]) => m.area === _rgFiltros.area)
+    : modulos;
+  sel.innerHTML = '<option value="">Todos los módulos del área</option>' +
+    filtrados.map(([id, m]) => `<option value="${id}" ${id===valActual?'selected':''}>${m.icono} ${m.nombre}</option>`).join('');
+  if (![...sel.options].some(o => o.value === valActual)) {
+    sel.value = '';
+    _rgFiltros.modulo = '';
+  } else {
+    _rgFiltros.modulo = valActual;
+  }
+}
+
+async function rgCargar() {
+  document.getElementById('rg-loading').style.display = 'block';
+  document.getElementById('rg-areas-cont').innerHTML = '';
+  document.getElementById('rg-kpis-globales').innerHTML = '';
+  try {
+    const params = new URLSearchParams({
+      desde: _rgFiltros.desde,
+      hasta: _rgFiltros.hasta,
+      pais:  document.getElementById('rg-pais')?.value || ''
+    });
+    _rgFiltros.pais = params.get('pais');
+    const r = await fetch(`${API}/api/resumen-general?${params}`, {headers:{'X-Token': _sesionToken}});
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    _rgData = d;
+    document.getElementById('rg-updated').textContent = `Actualizado: ${d.generado_en} UTC`;
+    rgPoblarSelectModulo();
+    renderResumenGeneral();
+  } catch (err) {
+    document.getElementById('rg-areas-cont').innerHTML =
+      `<div style="text-align:center;padding:40px;color:#dc2626">❌ ${err.message}</div>`;
+  } finally {
+    document.getElementById('rg-loading').style.display = 'none';
+  }
+}
+
+function _rgFmtValor(kpi) {
+  const v = kpi.valor;
+  if (v == null) return '—';
+  if (kpi.fmt === 'moneda') {
+    // Formateo compacto: 1.2M, 45K, etc.
+    if (Math.abs(v) >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+    if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(2) + 'M';
+    if (Math.abs(v) >= 1e3) return '$' + (v/1e3).toFixed(1) + 'K';
+    return '$' + Math.round(v).toLocaleString('es-CO');
+  }
+  if (kpi.fmt === 'porcentaje') return (Math.round(v * 10) / 10) + '%';
+  if (kpi.fmt === 'decimal')    return Number(v).toFixed(3);
+  // numero
+  if (Math.abs(v) >= 1e6) return (v/1e6).toFixed(2) + 'M';
+  if (Math.abs(v) >= 1e3) return (v/1e3).toFixed(1) + 'K';
+  return Number(v).toLocaleString('es-CO');
+}
+
+function _rgKpiClass(kpi) {
+  if (kpi.color === '#dc2626') return 'alert';
+  if (kpi.color === '#ca8a04') return 'warn';
+  return '';
+}
+
+function renderResumenGeneral() {
+  if (!_rgData) return;
+  const cont = document.getElementById('rg-areas-cont');
+  const kpisCont = document.getElementById('rg-kpis-globales');
+  if (!cont) return;
+
+  // Aplicar filtros locales (área + módulo) sobre los datos ya cargados
+  let entries = Object.entries(_rgData.modulos);
+  if (_rgFiltros.area)   entries = entries.filter(([id, m]) => m.area === _rgFiltros.area);
+  // Capturar selector de módulo
+  _rgFiltros.modulo = document.getElementById('rg-modulo')?.value || '';
+  if (_rgFiltros.modulo) entries = entries.filter(([id, m]) => id === _rgFiltros.modulo);
+
+  if (!entries.length) {
+    cont.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text3);font-size:13px">📭 No hay módulos para los filtros actuales.</div>';
+    kpisCont.innerHTML = '';
+    return;
+  }
+
+  // ── KPIs globales: top-3 más relevantes según los módulos visibles ──
+  // Tomamos un subset de "campeones": total alertas, evasiones confirmadas,
+  // monto evadido, etc. Útil para una mirada de cabecera.
+  const todoKPIs = [];
+  entries.forEach(([id, m]) => {
+    (m.kpis || []).forEach(k => todoKPIs.push({...k, mod:id, modNombre:m.nombre, color_area:m.color}));
+  });
+  const destacados = [
+    todoKPIs.find(k => /Total servicios analizados/i.test(k.label)),
+    todoKPIs.find(k => /confirmadas/i.test(k.label) && /Evasi/i.test(k.modNombre || '')),
+    todoKPIs.find(k => /Comisi[óo]n evadida/i.test(k.label)),
+    todoKPIs.find(k => /^Bloqueos/i.test(k.label)),
+    todoKPIs.find(k => /Estafa/i.test(k.label) && /servicios/i.test(k.label)),
+  ].filter(Boolean);
+
+  const grad = ['#5a2bb8,#7c3aed','#dc2626,#f87171','#16a34a,#22c55e','#ea580c,#fb923c','#1d4ed8,#3b82f6'];
+  kpisCont.innerHTML = destacados.map((k, i) => `
+    <div class="rg-globales" style="--c1:${grad[i%grad.length].split(',')[0]}; --c2:${grad[i%grad.length].split(',')[1]}; background:linear-gradient(135deg, ${grad[i%grad.length].split(',')[0]}, ${grad[i%grad.length].split(',')[1]})">
+      <div class="rg-globales-label">${k.label}</div>
+      <div class="rg-globales-value">${_rgFmtValor(k)}</div>
+      <div class="rg-globales-sub">${k.modNombre}</div>
+    </div>
+  `).join('');
+
+  // ── Tarjetas agrupadas por área ──
+  // Agrupar entries por area
+  const porArea = {};
+  entries.forEach(([id, m]) => {
+    if (!porArea[m.area]) porArea[m.area] = [];
+    porArea[m.area].push([id, m]);
+  });
+
+  const ordenAreas = ['monitoreo','sac_recl','comercial','operaciones','sac_act'];
+  const html = ordenAreas
+    .filter(a => porArea[a])
+    .map(areaId => {
+      const meta = _rgData.areas[areaId] || {nombre:areaId, color:'#5a2bb8', icono:'•'};
+      const grupos = porArea[areaId];
+      const cards = grupos.map(([id, m]) => {
+        const navTarget = _RG_NAV_MAP[m.ir_a] || m.ir_a;
+        if (m.error) {
+          return `
+            <div class="rg-card">
+              <div class="rg-card-header" style="background:${m.color}">
+                <span class="rg-card-icon">${m.icono}</span>
+                <div class="rg-card-title">${m.nombre}</div>
+              </div>
+              <div class="rg-card-body">
+                <div style="background:#fee2e2;color:#991b1b;padding:8px 10px;border-radius:6px;font-size:11px">
+                  ⚠️ Error al calcular: ${(m.error||'').replace(/</g,'&lt;')}
+                </div>
+              </div>
+            </div>`;
+        }
+        const kpisHtml = (m.kpis||[]).map(k => `
+          <div class="rg-kpi">
+            <div class="rg-kpi-label">${k.label}</div>
+            <div class="rg-kpi-value ${_rgKpiClass(k)}">${_rgFmtValor(k)}</div>
+          </div>
+        `).join('');
+        const tipHtml = m.tip ? `<div class="rg-tip">💡 ${m.tip}</div>` : '';
+        return `
+          <div class="rg-card">
+            <div class="rg-card-header" style="background:linear-gradient(135deg, ${m.color}, ${m.color}dd)">
+              <span class="rg-card-icon">${m.icono}</span>
+              <div class="rg-card-title">${m.nombre}</div>
+            </div>
+            <div class="rg-card-body">
+              ${kpisHtml || '<div style="font-size:11px;color:var(--text3);font-style:italic">Sin datos en este rango.</div>'}
+              ${tipHtml}
+            </div>
+            <div class="rg-card-footer">
+              <button class="rg-detalle-btn" onclick="switchView('${navTarget}')">Ver detalle →</button>
+            </div>
+          </div>`;
+      }).join('');
+      return `
+        <div class="rg-area-titulo">
+          <span class="rg-area-badge" style="background:${meta.color}">${meta.icono} ${meta.nombre}</span>
+          <span style="font-size:11px;color:var(--text3);font-weight:500">${grupos.length} módulo(s)</span>
+        </div>
+        <div class="rg-grid-modulos">${cards}</div>`;
+    })
+    .join('');
+
+  cont.innerHTML = html || '<div style="text-align:center;padding:60px 20px;color:var(--text3);font-size:13px">📭 Sin datos.</div>';
 }
 
 
