@@ -1465,6 +1465,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     </div>
   </div>
 
+  <!-- Recursos: biblioteca interna (queries, links, notas). Lo ven todos
+       los roles autenticados, cada uno solo los públicos + los compartidos. -->
+  <div class="sb2-item" id="sbg-recursos">
+    <div class="sb2-icon" id="nav-recursos" onclick="switchView('recursos')" title="Recursos compartidos" style="cursor:pointer">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 4h8l4 4v8a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 4v4h4M6 11h7M6 14h5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span class="sb2-label">Recursos</span>
+    </div>
+  </div>
+
   <!-- ── Usuario (pie) ── -->
   <div style="flex:1"></div>
 
@@ -2727,7 +2736,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
             <div style="font-size:13px;font-weight:700;color:var(--text2)">📚 Recursos guardados</div>
-            <button class="apply-btn" onclick="cargarRecursos()" style="font-size:11px;padding:4px 10px">↻ Recargar</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="apply-btn" onclick="recAbrirShareBulk()" style="font-size:11px;padding:4px 10px;background:#7c3aed">📤 Compartir varios con un usuario...</button>
+              <button class="apply-btn" onclick="cargarRecursos()" style="font-size:11px;padding:4px 10px">↻ Recargar</button>
+            </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
             <select id="rec-filtro-tipo" onchange="renderRecursosLista()"
@@ -2749,6 +2761,50 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
             <div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Carga los recursos con ↻ Recargar.</div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ VISTA: RECURSOS (sidebar — visible para todos los roles) ══ -->
+  <div class="view" id="view-recursos">
+    <div class="wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+        <h2 style="font-size:18px;font-weight:700;color:var(--text1)">📚 Recursos compartidos</h2>
+        <button class="apply-btn" onclick="cargarRecursosVista()">↻ Actualizar</button>
+      </div>
+
+      <div style="background:linear-gradient(90deg,#fff7e6 0%,#f3eaff 100%);border:1px solid #d8c4ff;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#3b1f6b;line-height:1.5">
+        📚 <strong>Biblioteca de recursos del equipo</strong> — aquí encuentras las queries (ClickHouse, BigQuery, Snowflake…), enlaces de Drive/Sheets/Notion, archivos Excel y notas que se han marcado como públicos o que algún administrador te ha compartido directamente. Usa <strong>📋 Copiar</strong> para llevarte el SQL o el enlace al portapapeles. Si necesitas crear, editar o compartir nuevos recursos, pídele al administrador que lo haga desde el Panel Admin.
+      </div>
+
+      <!-- Filtros -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="recv-filtro-tipo" onchange="renderRecursosListaVista()"
+            style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <option value="">Todos los tipos</option>
+            <option value="query">🔍 Queries</option>
+            <option value="enlace">🔗 Enlaces</option>
+            <option value="excel">📊 Excel</option>
+            <option value="nota">📝 Notas</option>
+          </select>
+          <select id="recv-filtro-cat" onchange="renderRecursosListaVista()"
+            style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <option value="">Todas las categorías</option>
+          </select>
+          <select id="recv-filtro-vis" onchange="renderRecursosListaVista()"
+            style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <option value="">Públicos + compartidos conmigo</option>
+            <option value="compartido">Solo compartidos conmigo</option>
+            <option value="publico">Solo públicos</option>
+          </select>
+          <input id="recv-filtro-q" type="text" placeholder="🔎 Buscar título, tag, contenido..." oninput="renderRecursosListaVista()"
+            style="flex:1;min-width:200px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+        </div>
+      </div>
+
+      <div id="recv-lista">
+        <div style="text-align:center;padding:40px;color:var(--text3);font-size:13px">📭 Cargando recursos...</div>
       </div>
     </div>
   </div>
@@ -2782,12 +2838,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 
       <div style="margin-bottom:10px">
         <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Personas con acceso</div>
-        <div style="display:flex;gap:6px;margin-bottom:8px">
-          <input id="rec-share-email" type="email" placeholder="pepito_perez@pibox.app"
-            onkeydown="if(event.key==='Enter'){event.preventDefault(); recAgregarEmailLocal()}"
-            style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
-          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="recAgregarEmailLocal()">+ Agregar</button>
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <select id="rec-share-usuario"
+            style="flex:1;min-width:220px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <option value="">— Selecciona un usuario del portal —</option>
+          </select>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="recAgregarUsuarioLocal()">+ Agregar</button>
         </div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-style:italic">Solo se muestran usuarios activos registrados en el portal de monitoreo.</div>
         <div id="rec-share-lista" style="display:flex;flex-direction:column;gap:4px"></div>
         <div id="rec-share-empty" style="font-size:11px;color:var(--text3);font-style:italic;padding:6px 0">Sin correos compartidos.</div>
       </div>
@@ -2797,6 +2855,61 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <div style="display:flex;gap:8px">
           <button class="apply-btn" style="background:#9ca3af" onclick="recCerrarShare()">Cancelar</button>
           <button class="apply-btn" style="background:#16a34a" onclick="recGuardarShare()">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal compartir VARIOS recursos con UN usuario -->
+  <div id="rec-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px">
+    <div style="background:var(--surface);border-radius:14px;padding:20px 22px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--text1)">📤 Compartir varios recursos</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Selecciona un usuario del portal y los recursos que quieras compartirle de una vez.</div>
+        </div>
+        <button onclick="recCerrarShareBulk()" style="background:transparent;border:none;font-size:20px;color:var(--text3);cursor:pointer;line-height:1">✕</button>
+      </div>
+
+      <div style="background:#f9fafb;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">1. Persona del portal</div>
+        <select id="rec-bulk-usuario"
+          style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+          <option value="">— Selecciona un usuario —</option>
+        </select>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;font-style:italic">Solo aparecen usuarios activos del portal de monitoreo (con email registrado).</div>
+      </div>
+
+      <div style="background:#f9fafb;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600;color:var(--text2)">2. Recursos a compartir</div>
+          <div style="display:flex;gap:6px">
+            <button class="apply-btn" style="font-size:10px;padding:3px 8px;background:#0ea5e9" onclick="recBulkSeleccionarTodos(true)">✓ Todos</button>
+            <button class="apply-btn" style="font-size:10px;padding:3px 8px;background:#9ca3af" onclick="recBulkSeleccionarTodos(false)">✗ Ninguno</button>
+          </div>
+        </div>
+        <input id="rec-bulk-buscar" type="text" placeholder="🔎 Filtrar recursos..." oninput="recBulkRenderLista()"
+          style="width:100%;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg);margin-bottom:8px">
+        <div id="rec-bulk-lista" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg)">
+        </div>
+        <div id="rec-bulk-resumen" style="font-size:11px;color:var(--text3);margin-top:6px">0 seleccionados</div>
+      </div>
+
+      <div style="background:#fff7e6;border:1px solid #fed7aa;border-radius:10px;padding:10px 14px;margin-bottom:12px">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:#92400e;cursor:pointer">
+          <input type="checkbox" id="rec-bulk-forzar-privado" style="margin-top:2px">
+          <div>
+            <strong>Marcar como privados</strong> al compartir<br>
+            <span style="color:#7c2d12">Si se marca, los recursos públicos seleccionados se vuelven privados — solo el creador y los compartidos podrán verlos. Sin marcar, los públicos siguen siendo públicos.</span>
+          </div>
+        </label>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <span id="rec-bulk-msg" style="font-size:11px;color:#dc2626"></span>
+        <div style="display:flex;gap:8px">
+          <button class="apply-btn" style="background:#9ca3af" onclick="recCerrarShareBulk()">Cancelar</button>
+          <button class="apply-btn" style="background:#16a34a" onclick="recGuardarShareBulk()" id="rec-bulk-btn-guardar">💾 Compartir</button>
         </div>
       </div>
     </div>
@@ -3344,6 +3457,7 @@ function switchView(view){
     coming:           'Próximamente',
     perfil:           'Mi Perfil',
     wallet:           'Motor Wallet',
+    recursos:         'Recursos compartidos del equipo',
   };
   document.getElementById('topbar-title').textContent = titles[view] || view;
 
@@ -3355,6 +3469,7 @@ function switchView(view){
   else       document.getElementById('view-coming').classList.add('active');
 
   if(view === 'conversor') actualizarConversor();
+  if(view === 'recursos')  cargarRecursosVista();
   if(view === 'perfil') { cargarInfoUsuario(); setTimeout(renderAnimalPicker, 100); }   // Recargar datos del perfil al entrar
   if(view === 'bloqueos'){
     const tab = arguments[1] || 'alertas';
@@ -5152,6 +5267,9 @@ function aplicarRol() {
     'sbg-pibox':     ['admin','monitoreo','pibox'],
     'sbg-cashout':   ['admin','monitoreo'],
     'nav-rf':        ['admin','monitoreo','sac','financiero'],
+    // Recursos: lo ven todos los roles autenticados (cada uno solo ve los
+    // recursos públicos + los privados que le hayan compartido).
+    'sbg-recursos':  ['admin','monitoreo','financiero','sac','pibox'],
   };
   Object.entries(SB_ROLES).forEach(([id, roles]) => {
     const el = document.getElementById(id);
@@ -6289,6 +6407,42 @@ let _recCategorias = [];
 let _recYo = {usuario:'', email:'', rol:''};
 // Estado del modal de compartir (id del recurso + lista de emails actuales)
 let _recShareState = {id:'', titulo:'', emails:[], visibilidad:'publico'};
+// Cache de usuarios del portal (para los selectores). Lo cargamos
+// perezosamente al abrir cualquier modal de compartir.
+let _recUsuariosPortal = [];      // [{usuario, nombre, email, rol}, ...]
+let _recUsuariosPortalCargados = false;
+// Estado del modal "compartir varios"
+let _recBulkState = {seleccionados: new Set()};
+
+async function _recAsegurarUsuariosPortal(forzar) {
+  if (_recUsuariosPortalCargados && !forzar) return _recUsuariosPortal;
+  try {
+    const r = await fetch(`${API}/api/recursos/usuarios-portal`, {headers: {'X-Token': _sesionToken}});
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    _recUsuariosPortal = d.usuarios || [];
+    _recUsuariosPortalCargados = true;
+  } catch (err) {
+    console.warn('No se pudieron cargar usuarios del portal:', err);
+    _recUsuariosPortal = [];
+  }
+  return _recUsuariosPortal;
+}
+
+function _recPoblarSelectorUsuarios(selectId, excluirEmails) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const excluir = new Set((excluirEmails || []).map(e => (e||'').toLowerCase()));
+  const valActual = sel.value;
+  const opts = ['<option value="">— Selecciona un usuario del portal —</option>'];
+  _recUsuariosPortal.forEach(u => {
+    if (excluir.has((u.email||'').toLowerCase())) return;
+    const label = `${u.nombre} · ${u.email} · ${u.rol}`;
+    opts.push(`<option value="${u.email}">${label.replace(/</g,'&lt;')}</option>`);
+  });
+  sel.innerHTML = opts.join('');
+  if (valActual) sel.value = valActual;
+}
 
 function recOnTipoChange() {
   const tipo = document.getElementById('rec-tipo').value || 'query';
@@ -6551,9 +6705,133 @@ function renderRecursosLista() {
 }
 
 // ──────────────────────────────────────────────────────
+// VISTA "Recursos" del sidebar — accesible para todos los roles
+// (no solo admin). Muestra los recursos visibles para el usuario
+// (públicos + compartidos con su email) sin acciones de gestión.
+// ──────────────────────────────────────────────────────
+let _recVista = [];      // recursos cargados en la vista del sidebar
+let _recVistaCats = [];
+
+async function cargarRecursosVista() {
+  const cont = document.getElementById('recv-lista');
+  if (!cont) return;
+  cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Cargando...</div>';
+  try {
+    const r = await fetch(`${API}/api/recursos`, {headers: {'X-Token': _sesionToken}});
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    _recVista     = d.recursos || [];
+    _recVistaCats = d.categorias || [];
+    _recYo        = d.yo || _recYo;  // reusamos el mismo state global
+    // Categorías en filtro
+    const sel = document.getElementById('recv-filtro-cat');
+    if (sel) {
+      const valActual = sel.value;
+      sel.innerHTML = '<option value="">Todas las categorías</option>' +
+        _recVistaCats.map(c => `<option value="${(c||'').replace(/"/g,'&quot;')}" ${c===valActual?'selected':''}>${c}</option>`).join('');
+    }
+    renderRecursosListaVista();
+  } catch (err) {
+    cont.innerHTML = `<div style="text-align:center;padding:24px;color:var(--red);font-size:12px">❌ ${err.message}</div>`;
+  }
+}
+
+function renderRecursosListaVista() {
+  const cont = document.getElementById('recv-lista');
+  if (!cont) return;
+  const fTipo = (document.getElementById('recv-filtro-tipo')?.value || '').trim();
+  const fCat  = (document.getElementById('recv-filtro-cat')?.value  || '').trim();
+  const fVis  = (document.getElementById('recv-filtro-vis')?.value  || '').trim();
+  const fQ    = (document.getElementById('recv-filtro-q')?.value    || '').trim().toLowerCase();
+  const yoEmail = (_recYo?.email || '').toLowerCase();
+
+  let lista = _recVista.slice();
+  if (fTipo) lista = lista.filter(r => r.tipo === fTipo);
+  if (fCat)  lista = lista.filter(r => r.categoria === fCat);
+  if (fVis === 'compartido') {
+    lista = lista.filter(r => r.visibilidad === 'privado' &&
+                               (r.compartido_emails||[]).includes(yoEmail));
+  } else if (fVis === 'publico') {
+    lista = lista.filter(r => (r.visibilidad || 'publico') !== 'privado');
+  }
+  if (fQ) {
+    lista = lista.filter(r =>
+      (r.titulo||'').toLowerCase().includes(fQ) ||
+      (r.descripcion||'').toLowerCase().includes(fQ) ||
+      (r.tags||'').toLowerCase().includes(fQ) ||
+      (r.contenido||'').toLowerCase().includes(fQ) ||
+      (r.url||'').toLowerCase().includes(fQ) ||
+      (r.categoria||'').toLowerCase().includes(fQ)
+    );
+  }
+  if (!lista.length) {
+    cont.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-size:13px">📭 No tienes recursos asignados todavía.<br><span style="font-size:11px">Cuando un administrador comparta un recurso contigo, aparecerá aquí.</span></div>';
+    return;
+  }
+  // Reusamos los mismos colores y labels
+  const html = lista.map(r => {
+    const color = _REC_TIPO_COLOR[r.tipo] || '#6b7280';
+    const label = _REC_TIPO_LABEL[r.tipo] || r.tipo;
+    const subOpt = (_REC_SUBTIPOS[r.tipo] || []).find(o => o[0] === r.subtipo);
+    const subLabel = subOpt ? subOpt[1] : '';
+    const tagsHtml = r.tags
+      ? r.tags.split(',').map(t => t.trim()).filter(Boolean).map(t =>
+          `<span style="display:inline-block;background:#f3f4f6;color:#374151;padding:1px 6px;border-radius:4px;font-size:10px;margin-right:3px">#${t}</span>`
+        ).join('')
+      : '';
+    const urlHtml = r.url
+      ? `<div style="font-size:11px;margin-top:4px"><a href="${r.url.replace(/"/g,'&quot;')}" target="_blank" rel="noopener" style="color:${color};text-decoration:underline;word-break:break-all">🔗 ${(r.url||'').replace(/</g,'&lt;')}</a></div>`
+      : '';
+    const contenidoHtml = r.contenido
+      ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;color:var(--text3);font-weight:600">Ver contenido (${r.contenido.length} chars)</summary>
+           <pre style="background:#0d0d1a;color:#a78bfa;padding:10px 12px;border-radius:8px;font-size:11px;font-family:'Fira Code',monospace;line-height:1.5;overflow-x:auto;max-height:300px;margin-top:6px;white-space:pre-wrap;word-break:break-word">${(r.contenido||'').replace(/</g,'&lt;')}</pre>
+         </details>`
+      : '';
+    const compartidoConmigo = r.visibilidad === 'privado' && (r.compartido_emails||[]).includes(yoEmail);
+    const visBadge = compartidoConmigo
+      ? `<span title="Compartido específicamente contigo" style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">⭐ COMPARTIDO CONMIGO</span>`
+      : (r.visibilidad === 'privado'
+          ? `<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">🔒 PRIVADO</span>`
+          : `<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">🌐 PÚBLICO</span>`);
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+        <div style="flex:1;min-width:240px">
+          <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(r.titulo||'').replace(/</g,'&lt;')}
+            <span style="background:${color}22;color:${color};padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">${label}${subLabel?' · '+subLabel:''}</span>
+            ${r.categoria?`<span style="background:#ede9fe;color:#5a2bb8;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600;margin-left:4px">${(r.categoria||'').replace(/</g,'&lt;')}</span>`:''}
+            ${visBadge}
+          </div>
+          ${r.descripcion ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px">${(r.descripcion||'').replace(/</g,'&lt;')}</div>` : ''}
+          <div style="font-size:10px;color:var(--text3)">👤 ${r.creado_por||'—'} · 🕒 ${r.actualizado_en||r.creado_en||''}</div>
+          ${tagsHtml ? `<div style="margin-top:4px">${tagsHtml}</div>` : ''}
+          ${urlHtml}
+          ${contenidoHtml}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#0ea5e9" onclick="recCopiarVista('${r.id}')">📋 Copiar</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  cont.innerHTML = html;
+}
+
+function recCopiarVista(id) {
+  const r = _recVista.find(x => x.id === id);
+  if (!r) return;
+  const texto = r.tipo === 'enlace' ? (r.url || '') : (r.contenido || '');
+  if (!texto) { alert('No hay contenido para copiar'); return; }
+  navigator.clipboard.writeText(texto).then(
+    () => { _recToast('✓ Copiado al portapapeles'); },
+    () => { alert('No se pudo copiar'); }
+  );
+}
+
+
+// ──────────────────────────────────────────────────────
 // Modal: compartir un recurso con uno o más correos.
 // ──────────────────────────────────────────────────────
-function recAbrirShare(id) {
+async function recAbrirShare(id) {
   const r = _recursos.find(x => x.id === id);
   if (!r) return;
   _recShareState = {
@@ -6565,11 +6843,12 @@ function recAbrirShare(id) {
   document.getElementById('rec-share-titulo').textContent = `“${r.titulo||''}”`;
   document.getElementById('rec-share-vis-publico').checked = (_recShareState.visibilidad !== 'privado');
   document.getElementById('rec-share-vis-privado').checked = (_recShareState.visibilidad === 'privado');
-  document.getElementById('rec-share-email').value = '';
   document.getElementById('rec-share-msg').textContent = '';
-  _recRenderShareLista();
   document.getElementById('rec-share-modal').style.display = 'flex';
-  setTimeout(() => document.getElementById('rec-share-email').focus(), 50);
+  // Cargar usuarios del portal y poblar el selector (excluyendo los ya compartidos)
+  await _recAsegurarUsuariosPortal();
+  _recPoblarSelectorUsuarios('rec-share-usuario', _recShareState.emails);
+  _recRenderShareLista();
 }
 
 function recCerrarShare() {
@@ -6595,29 +6874,27 @@ function _recRenderShareLista() {
   `).join('');
 }
 
-function recAgregarEmailLocal() {
-  const inp = document.getElementById('rec-share-email');
+function recAgregarUsuarioLocal() {
+  const sel = document.getElementById('rec-share-usuario');
   const msg = document.getElementById('rec-share-msg');
-  const e = (inp.value || '').trim().toLowerCase();
+  const e = (sel?.value || '').trim().toLowerCase();
   msg.style.color = '#dc2626';
-  if (!e) { msg.textContent = 'Escribe un correo'; return; }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { msg.textContent = 'Correo inválido'; return; }
-  if (_recShareState.emails.includes(e)) { msg.textContent = 'Ese correo ya está en la lista'; return; }
+  if (!e) { msg.textContent = 'Selecciona un usuario del portal'; return; }
+  if (_recShareState.emails.includes(e)) { msg.textContent = 'Ese usuario ya tiene acceso'; return; }
   _recShareState.emails.push(e);
-  inp.value = '';
   msg.textContent = '';
-  // Si el admin agrega un email pero la visibilidad estaba pública, sugerimos
-  // pasarla a privada (compartir solo tiene sentido cuando es privado).
+  // Compartir solo tiene sentido si es privado: lo conmutamos automáticamente.
   if (_recShareState.visibilidad !== 'privado') {
     document.getElementById('rec-share-vis-privado').checked = true;
     _recShareState.visibilidad = 'privado';
   }
+  _recPoblarSelectorUsuarios('rec-share-usuario', _recShareState.emails);
   _recRenderShareLista();
-  inp.focus();
 }
 
 function recQuitarEmailLocal(idx) {
   _recShareState.emails.splice(idx, 1);
+  _recPoblarSelectorUsuarios('rec-share-usuario', _recShareState.emails);
   _recRenderShareLista();
 }
 
@@ -6640,6 +6917,136 @@ async function recGuardarShare() {
       recCerrarShare();
       cargarRecursos();
     }, 600);
+  } catch (err) {
+    msg.style.color = '#dc2626';
+    msg.textContent = '❌ ' + err.message;
+  }
+}
+
+// ──────────────────────────────────────────────────────
+// Modal: compartir VARIOS recursos a un solo usuario.
+// Útil cuando se quiere "darle el paquete completo" a alguien
+// (ej. todos los SQL de bloqueos, todos los Drives de KAM, etc.)
+// ──────────────────────────────────────────────────────
+async function recAbrirShareBulk() {
+  if (!_recursos || !_recursos.length) {
+    alert('Carga primero los recursos con ↻ Recargar.');
+    return;
+  }
+  _recBulkState = {seleccionados: new Set()};
+  document.getElementById('rec-bulk-buscar').value = '';
+  document.getElementById('rec-bulk-forzar-privado').checked = false;
+  document.getElementById('rec-bulk-msg').textContent = '';
+  document.getElementById('rec-bulk-modal').style.display = 'flex';
+  await _recAsegurarUsuariosPortal();
+  _recPoblarSelectorUsuarios('rec-bulk-usuario', []);
+  recBulkRenderLista();
+}
+
+function recCerrarShareBulk() {
+  document.getElementById('rec-bulk-modal').style.display = 'none';
+}
+
+function recBulkRenderLista() {
+  const cont = document.getElementById('rec-bulk-lista');
+  if (!cont) return;
+  const q = (document.getElementById('rec-bulk-buscar')?.value || '').trim().toLowerCase();
+  let lista = _recursos.slice();
+  if (q) {
+    lista = lista.filter(r =>
+      (r.titulo||'').toLowerCase().includes(q) ||
+      (r.categoria||'').toLowerCase().includes(q) ||
+      (r.tipo||'').toLowerCase().includes(q) ||
+      (r.tags||'').toLowerCase().includes(q)
+    );
+  }
+  if (!lista.length) {
+    cont.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text3);font-size:11px">Sin recursos para los filtros actuales.</div>';
+    _recBulkActualizarResumen();
+    return;
+  }
+  cont.innerHTML = lista.map(r => {
+    const checked = _recBulkState.seleccionados.has(r.id) ? 'checked' : '';
+    const color = _REC_TIPO_COLOR[r.tipo] || '#6b7280';
+    const label = _REC_TIPO_LABEL[r.tipo] || r.tipo;
+    const cat = r.categoria
+      ? `<span style="background:#ede9fe;color:#5a2bb8;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px">${(r.categoria||'').replace(/</g,'&lt;')}</span>`
+      : '';
+    return `
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;background:${checked?'#f5f3ff':'transparent'};border:1px solid ${checked?'#d8c4ff':'transparent'}">
+        <input type="checkbox" data-rid="${r.id}" ${checked} onchange="recBulkToggle(this)">
+        <span style="background:${color}22;color:${color};padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${label}</span>
+        <span style="font-size:12px;color:var(--text1);flex:1">${(r.titulo||'').replace(/</g,'&lt;')}</span>
+        ${cat}
+      </label>
+    `;
+  }).join('');
+  _recBulkActualizarResumen();
+}
+
+function recBulkToggle(el) {
+  const rid = el?.dataset?.rid;
+  if (!rid) return;
+  if (el.checked) _recBulkState.seleccionados.add(rid);
+  else            _recBulkState.seleccionados.delete(rid);
+  // Re-render para colorear el row seleccionado sin perder scroll
+  const parent = el.closest('label');
+  if (parent) {
+    parent.style.background = el.checked ? '#f5f3ff' : 'transparent';
+    parent.style.borderColor = el.checked ? '#d8c4ff' : 'transparent';
+  }
+  _recBulkActualizarResumen();
+}
+
+function recBulkSeleccionarTodos(todos) {
+  if (todos) {
+    // Solo los que están visibles según el filtro actual
+    document.querySelectorAll('#rec-bulk-lista input[type="checkbox"]').forEach(cb => {
+      if (cb.dataset.rid) _recBulkState.seleccionados.add(cb.dataset.rid);
+    });
+  } else {
+    _recBulkState.seleccionados.clear();
+  }
+  recBulkRenderLista();
+}
+
+function _recBulkActualizarResumen() {
+  const r = document.getElementById('rec-bulk-resumen');
+  if (r) r.textContent = `${_recBulkState.seleccionados.size} seleccionado(s)`;
+}
+
+async function recGuardarShareBulk() {
+  const msg = document.getElementById('rec-bulk-msg');
+  const sel = document.getElementById('rec-bulk-usuario');
+  const email = (sel?.value || '').trim().toLowerCase();
+  msg.style.color = '#dc2626';
+  if (!email) { msg.textContent = 'Selecciona un usuario del portal'; return; }
+  if (_recBulkState.seleccionados.size === 0) {
+    msg.textContent = 'Selecciona al menos un recurso'; return;
+  }
+  const forzarPrivado = !!document.getElementById('rec-bulk-forzar-privado').checked;
+  const recurso_ids = Array.from(_recBulkState.seleccionados);
+  msg.style.color = '#6b7280';
+  msg.textContent = 'Compartiendo...';
+  try {
+    const r = await fetch(`${API}/api/recursos/share-bulk`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Token': _sesionToken},
+      body: JSON.stringify({
+        email: email,
+        recurso_ids: recurso_ids,
+        accion: 'agregar',
+        forzar_privado: forzarPrivado
+      })
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    msg.style.color = '#16a34a';
+    msg.textContent = `✓ ${d.afectados} recurso(s) compartido(s) con ${d.destinatario?.nombre || email}`;
+    setTimeout(() => {
+      recCerrarShareBulk();
+      cargarRecursos();
+    }, 1200);
   } catch (err) {
     msg.style.color = '#dc2626';
     msg.textContent = '❌ ' + err.message;

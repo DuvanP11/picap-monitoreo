@@ -2363,6 +2363,128 @@ def recursos_delete(rid):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/recursos/usuarios-portal", methods=["GET"])
+def recursos_usuarios_portal():
+    """Lista los usuarios registrados del portal disponibles para compartir.
+    Cualquier admin puede consultarlo. Devuelve usuario, nombre, email y rol.
+    Excluye 'pendiente' (no puede recibir nada hasta ser aprobado) y al
+    propio admin (no tiene sentido auto-compartirse)."""
+    token = request.headers.get("X-Token","")
+    s = _verificar_sesion(None, token)
+    if not s or s.get("rol") != "admin":
+        return jsonify({"ok": False, "error":"Solo admins"}), 403
+    try:
+        ch = get_client()
+        rows = ch.query("""
+            SELECT usuario, nombre, email, rol
+            FROM picapmongoprod.dashboard_users FINAL
+            WHERE activo = 1 AND rol != 'pendiente'
+            ORDER BY nombre
+        """).result_rows
+        usuarios = []
+        for u, n, e, r in rows:
+            if u == s.get("usuario"): continue
+            if not e: continue  # sin email no se puede compartir
+            usuarios.append({
+                "usuario": u, "nombre": n or u,
+                "email":   (e or '').strip().lower(),
+                "rol":     r
+            })
+        return jsonify({"ok": True, "usuarios": usuarios})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/recursos/share-bulk", methods=["POST"])
+def recursos_share_bulk():
+    """Comparte (o deja de compartir) múltiples recursos con un mismo email.
+    Body: {
+      "email": "pepito_perez@pibox.app",   # debe pertenecer a un usuario activo
+      "recurso_ids": ["uuid1","uuid2", ...],
+      "accion": "agregar" | "quitar"        # default: agregar
+    }
+    Cuando se agrega y el recurso era 'publico', se mantiene público (no se
+    fuerza privado en bulk para evitar sorpresas). Si se prefiere privado se
+    pasa la flag opcional `forzar_privado: true`."""
+    token = request.headers.get("X-Token","")
+    s = _verificar_sesion(None, token)
+    if not s or s.get("rol") != "admin":
+        return jsonify({"ok": False, "error":"Solo admins"}), 403
+    data = request.get_json(silent=True) or {}
+    email_raw = (data.get("email") or "").strip().lower()
+    if not email_raw or '@' not in email_raw:
+        return jsonify({"ok": False, "error": "Email inválido"}), 400
+    rids = data.get("recurso_ids") or []
+    if not isinstance(rids, list) or not rids:
+        return jsonify({"ok": False, "error": "Debe enviar al menos un recurso_ids"}), 400
+    accion = (data.get("accion") or "agregar").lower()
+    if accion not in ("agregar", "quitar"):
+        return jsonify({"ok": False, "error": "Acción inválida"}), 400
+    forzar_privado = bool(data.get("forzar_privado"))
+    # Validar que el email pertenezca a un usuario activo del portal
+    try:
+        ch = get_client()
+        e_safe = email_raw.replace("'", "''")
+        urow = ch.query(
+            f"SELECT usuario, nombre FROM picapmongoprod.dashboard_users FINAL "
+            f"WHERE lower(email) = '{e_safe}' AND activo = 1 LIMIT 1"
+        ).result_rows
+        if not urow:
+            return jsonify({"ok": False,
+                            "error": f"No hay un usuario activo registrado con el correo {email_raw}"}), 404
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    # Validar UUIDs
+    for rid in rids:
+        if not isinstance(rid, str) or not all(c in '0123456789abcdef-' for c in rid.lower()):
+            return jsonify({"ok": False, "error": f"ID inválido: {rid}"}), 400
+    try:
+        _init_recursos_table()
+        ch = get_client()
+        ids_csv = ",".join([f"'{rid}'" for rid in rids])
+        cols = ["id","titulo","descripcion","tipo","subtipo","categoria",
+                "contenido","url","tags","creado_por","creado_en","activo",
+                "visibilidad","compartido_con"]
+        rows = ch.query(f"""
+            SELECT {', '.join(cols)}
+            FROM picapmongoprod.dashboard_recursos FINAL
+            WHERE id IN ({ids_csv})
+        """).result_rows
+        if not rows:
+            return jsonify({"ok": False, "error": "Ningún recurso encontrado"}), 404
+        ahora = datetime.utcnow()
+        afectados = 0
+        nuevos_inserts = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            actuales = _emails_compartidos(d.get('compartido_con',''))
+            if accion == "agregar":
+                if email_raw not in actuales:
+                    actuales.append(email_raw)
+                vis_final = 'privado' if forzar_privado else (d.get('visibilidad') or 'publico')
+            else:  # quitar
+                actuales = [x for x in actuales if x != email_raw]
+                vis_final = d.get('visibilidad') or 'publico'
+            comp_final = ','.join(actuales)[:2000]
+            nuevos_inserts.append([
+                d['id'], d['titulo'], d['descripcion'], d['tipo'], d['subtipo'],
+                d['categoria'], d['contenido'], d['url'], d['tags'],
+                d['creado_por'], d['creado_en'], ahora,
+                int(d['activo']) if d['activo'] is not None else 1,
+                (vis_final or 'publico').lower(), comp_final
+            ])
+            afectados += 1
+        if nuevos_inserts:
+            ch.insert("picapmongoprod.dashboard_recursos",
+                nuevos_inserts, column_names=_RECURSOS_INSERT_COLS)
+        return jsonify({"ok": True, "afectados": afectados,
+                        "destinatario": {"email": email_raw,
+                                         "usuario": urow[0][0],
+                                         "nombre":  urow[0][1]}})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/recursos/<rid>/share", methods=["POST"])
 def recursos_share(rid):
     """Define la lista completa de personas con acceso al recurso (cuando es privado).
