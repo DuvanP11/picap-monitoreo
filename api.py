@@ -1264,9 +1264,12 @@ def bloqueos():
         n_susp_30    = sum(1 for x in bloqueados if x.get('tipo_bloqueo') == 'SUSPENDIDO' and (x.get('dias_bloqueado_total') or 0) > 30)
         total        = len(alertas)
 
-        # Ordenar reactivados y bloqueados por días DESC
-        reactivados.sort(key=lambda x: x.get('dias_bloqueado_total') or 0, reverse=True)
-        bloqueados.sort(key=lambda x: x.get('dias_bloqueado_total') or 0, reverse=True)
+        # Ordenar por días DESC. Reactivados usan dias_bloqueo_real (la duración
+        # efectiva del bloqueo, que es la métrica que el frontend muestra).
+        # Bloqueados también usan dias_bloqueo_real (cae a today()-starts cuando
+        # siguen activos, equivalente a dias_bloqueado_total).
+        reactivados.sort(key=lambda x: x.get('dias_bloqueo_real') or x.get('dias_bloqueado_total') or 0, reverse=True)
+        bloqueados.sort(key=lambda x: x.get('dias_bloqueo_real') or x.get('dias_bloqueado_total') or 0, reverse=True)
 
         # Sample por sección: el frontend pinta tablas, así que entregamos
         # una muestra amplia (3000) suficiente para visualización. Los conteos
