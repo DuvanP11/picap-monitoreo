@@ -175,7 +175,10 @@ SELECT
     round(sumIf(comision_servicio,        nivel >= 2), 0) AS comision_evadida,
     round(sumIf(comision_mas_penalizacion, nivel = 3),  0) AS penalizacion_evadida,  -- solo confirmadas
     round(avgIf(minutos_entre_eventos,    nivel >= 2), 1) AS prom_minutos,
-    round(avgIf(distancia_cancel_destino, nivel >= 2), 1) AS prom_distancia
+    round(avgIf(distancia_cancel_destino, nivel >= 2), 1) AS prom_distancia,
+    -- Conteo de pilotos únicos (drivers) auditados y los que evadieron (nivel=3)
+    uniqExact(id_driver)                                 AS pilotos_auditados,
+    uniqExactIf(id_driver, nivel = 3)                    AS pilotos_evadieron
 FROM clasificado
 """
 
@@ -494,6 +497,9 @@ def cargar_datos(desde, hasta, pais=None, moneda=None):
                 "tasa_comision_pct": round(tasa_com * 100),  # 12, 10 o 15
                 "pais_filtro": pais or "",
                 "moneda_filtro": moneda or "",
+                # Conteos de pilotos (drivers únicos)
+                "pilotos_auditados": int(k.get("pilotos_auditados", 0) or 0),
+                "pilotos_evadieron": int(k.get("pilotos_evadieron", 0) or 0),
             },
             "operativo": {
                 "prom_minutos_evasion":   float(k.get("prom_minutos",   0) or 0),

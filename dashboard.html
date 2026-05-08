@@ -3424,19 +3424,57 @@ function setPeriod(days, btn){
   document.getElementById('d-from').value=currentDesde;
   document.getElementById('d-to').value=currentHasta;
   cargarResumen();
-  if(_walletCargado) cargarWallet();
+  _refrescarPanelesAuxiliares();
 }
 function applyCustom(){
   currentDesde=document.getElementById('d-from').value;
   currentHasta=document.getElementById('d-to').value;
   document.querySelectorAll('.pbtn').forEach(b=>b.classList.remove('active'));
   cargarResumen();
-  if(_walletCargado) cargarWallet();
+  _refrescarPanelesAuxiliares();
 }
-function refrescar(){ cargarResumen(); if(_walletCargado) cargarWallet(); }
+function refrescar(){
+  cargarResumen();
+  _refrescarPanelesAuxiliares();
+}
 
 // FILTROS
-function aplicarFiltros(){ cargarResumen(); }
+function aplicarFiltros(){
+  cargarResumen();
+  _refrescarPanelesAuxiliares();
+}
+
+// Sincroniza wallet y recuperación con los filtros del panel principal.
+// - wallet usa moneda (auto-deriva del país si no se especificó)
+// - recuperación usa país
+// Solo dispara fetch si el panel ya fue cargado al menos una vez (evita
+// hacer queries pesadas innecesariamente al inicio).
+function _refrescarPanelesAuxiliares(){
+  const pais   = document.getElementById('filtro-pais')?.value   || '';
+  const moneda = document.getElementById('filtro-moneda')?.value || '';
+  // Mapeo país → moneda por defecto (se usa cuando solo hay país)
+  const PAIS_A_MONEDA = {
+    'Colombia':'COP', 'Mexico':'MXN', 'Nicaragua':'NIO',
+    'Guatemala':'GTQ', 'Peru':'PEN', 'Ecuador':''
+  };
+  // Sincronizar dropdown del wallet con la moneda del filtro
+  const wMon = document.getElementById('wallet-moneda');
+  if (wMon) {
+    const monedaDeseada = moneda || PAIS_A_MONEDA[pais] || '';
+    if (wMon.value !== monedaDeseada) wMon.value = monedaDeseada;
+  }
+  // Sincronizar dropdown de recuperación con el país del filtro
+  const rPais = document.getElementById('rec-pais-select');
+  if (rPais && rPais.value !== pais) rPais.value = pais;
+
+  // Disparar recarga de los paneles que ya estén cargados
+  if (typeof _walletCargado !== 'undefined' && _walletCargado) {
+    if (typeof cargarWallet === 'function') cargarWallet();
+  }
+  if (typeof _recupLoaded !== 'undefined' && _recupLoaded) {
+    if (typeof cargarRecuperacion === 'function') cargarRecuperacion();
+  }
+}
 function limpiarFiltros(){
   document.getElementById('filtro-pais').value='';
   document.getElementById('filtro-moneda').value='';
@@ -3556,25 +3594,35 @@ function renderKPIs(k, op){
   // Penalidad viene calculada por ClickHouse directamente (comision_mas_penalizacion)
   const penalidad = k.penalizacion_evadida_cop || 0;
 
+  // KPIs principales del módulo. Antes había "Evasión probable" como
+  // categoría separada — se retiró por solicitud del operador. Ahora se
+  // muestran solo los conteos accionables (servicios, pilotos, dinero).
+  const pilAud  = k.pilotos_auditados || 0;
+  const pilEva  = k.pilotos_evadieron || 0;
+  const pctPil  = pilAud > 0 ? Math.round(pilEva / pilAud * 1000) / 10 : 0;
+
   const kpis = [
-    { label:'Total auditados',       value:fmtNum(k.total),
+    { label:'Total servicios auditados', value:fmtNum(k.total),
       sub:`${currentDesde} → ${currentHasta}`, cls:'', color:'#a78bfa',
       tip:'Servicios revisados por el robot en el rango de fechas seleccionado. Es la base sobre la que se calculan todas las demás métricas.' },
-    { label:'Evasión confirmada',    value:fmtNum(k.confirmadas),
+    { label:'Servicios con evasión confirmada', value:fmtNum(k.confirmadas),
       sub:'Ambas reglas activas', cls:'danger', color:'#ef4444',
       tip:'Servicios donde el conductor terminó el servicio fuera del destino Y muy rápido (menos del tiempo razonable). Los dos indicadores apuntan a evasión: alta certeza.' },
-    { label:'Evasión probable',      value:fmtNum(k.probables),
-      sub:'Una regla activa', cls:'warn', color:'#f59e0b',
-      tip:'Servicios donde solo una de las dos reglas se activó. Sospechoso pero no confirmado: requieren revisión manual o más datos.' },
-    { label:'Tasa de evasión',       value:k.tasa_evasion+'%',
-      sub:'Confirmadas + probables',
+    { label:'Pilotos auditados', value:fmtNum(pilAud),
+      sub:'Conductores únicos en el rango', cls:'', color:'#0ea5e9',
+      tip:'Cantidad de conductores únicos (driver_id distinct) cuyos servicios fueron analizados. Sirve para dimensionar la base sobre la que se evalúa.' },
+    { label:'Pilotos que evadieron', value:fmtNum(pilEva),
+      sub:`${pctPil}% de los pilotos auditados`, cls:'danger', color:'#dc2626',
+      tip:'Conductores únicos con al menos UN servicio clasificado como evasión confirmada. Un mismo piloto puede tener varias evasiones — aquí cuenta una sola vez.' },
+    { label:'Tasa de evasión', value:k.tasa_evasion+'%',
+      sub:'Confirmadas + probables sobre el total',
       cls:k.tasa_evasion>15?'danger':k.tasa_evasion>8?'warn':'ok',
       color:k.tasa_evasion>15?'#ef4444':k.tasa_evasion>8?'#f59e0b':'#22c55e',
       tip:'(Confirmadas + Probables) ÷ Total auditados. Verde <8% · Ámbar 8-15% · Rojo >15%. Sirve para comparar períodos.' },
     { label:'Comisión evadida est.', value:fmtCOP(k.comision_evadida_cop),
       sub:subComision, cls:'danger', color:'#dc2626',
       tip:'Dinero estimado que Picap dejó de cobrar por las evasiones confirmadas. Calculado como costo del servicio × tasa del país (Col 12%, Mex/Nic 10%, Gua/Per/Ecu 15%).' },
-    { label:'Penalidad confirmadas', value:fmtCOP(penalidad),
+    { label:'Penalidad confirmada', value:fmtCOP(penalidad),
       sub:'Comisión + 5% penalidad', cls:'purple', color:'#7c3aed',
       tip:'Lo que se debe cobrar al conductor: la comisión evadida + un 5% adicional como penalidad. Este es el monto que aparece en su wallet en negativo.' },
   ];
