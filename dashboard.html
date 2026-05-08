@@ -2498,6 +2498,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <div class="bloqueos-tab" id="admin-tab-console" onclick="switchAdminTab('console')">💻 Consola</div>
         <div class="bloqueos-tab" id="admin-tab-cal" onclick="switchAdminTab('cal')">📅 Calendario</div>
         <div class="bloqueos-tab" id="admin-tab-cron" onclick="switchAdminTab('cron')">🗓️ Cronograma</div>
+        <div class="bloqueos-tab" id="admin-tab-recursos" onclick="switchAdminTab('recursos')">📚 Recursos</div>
       </div>
       <!-- Panel usuarios -->
       <div id="admin-panel-users" class="admin-panel admin-panel-active">
@@ -2644,6 +2645,108 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
           </div>
           <div id="cron-lista">
             <div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Carga las tareas con ↻ Recargar.</div>
+          </div>
+        </div>
+      </div>
+      <!-- Panel recursos -->
+      <div id="admin-panel-recursos" class="admin-panel">
+        <div style="background:linear-gradient(90deg,#fff7e6 0%,#f3eaff 100%);border:1px solid #d8c4ff;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#3b1f6b;line-height:1.5">
+          📚 <strong>Biblioteca de recursos</strong> — guarda <strong>queries</strong> (ClickHouse, BigQuery, Snowflake…), <strong>enlaces</strong> (Drive, Sheets, páginas), <strong>archivos Excel</strong> y <strong>notas</strong> categorizadas. Cualquier miembro del equipo puede consultar; solo admins pueden crear, editar o eliminar.
+        </div>
+
+        <!-- Formulario crear/editar recurso -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:10px" id="rec-form-title">➕ Nuevo recurso</div>
+          <input type="hidden" id="rec-edit-id" value="">
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">Título *</label>
+              <input id="rec-titulo" type="text" placeholder="Ej: Query bloqueos vigentes Colombia"
+                style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">Categoría</label>
+              <input id="rec-categoria" list="rec-categoria-list" type="text" placeholder="Ej: Bloqueos / KAM / Pagos"
+                style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+              <datalist id="rec-categoria-list"></datalist>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">Tipo *</label>
+              <select id="rec-tipo" onchange="recOnTipoChange()"
+                style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+                <option value="query">🔍 Query SQL</option>
+                <option value="enlace">🔗 Enlace</option>
+                <option value="excel">📊 Excel / CSV</option>
+                <option value="nota">📝 Nota</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">Subtipo</label>
+              <select id="rec-subtipo"
+                style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">Descripción / contexto breve</label>
+            <input id="rec-descripcion" type="text" placeholder="¿Para qué sirve y cuándo usarlo?"
+              style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+          </div>
+
+          <div style="margin-bottom:10px" id="rec-grupo-url">
+            <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">URL (Drive, Sheet, web)</label>
+            <input id="rec-url" type="text" placeholder="https://docs.google.com/..."
+              style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg);font-family:monospace">
+          </div>
+
+          <div style="margin-bottom:10px" id="rec-grupo-contenido">
+            <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px" id="rec-contenido-label">Contenido (SQL)</label>
+            <textarea id="rec-contenido" rows="8" placeholder="SELECT ... FROM ... WHERE ..."
+              style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px;background:var(--bg);font-family:'Fira Code',monospace;line-height:1.5;resize:vertical"></textarea>
+          </div>
+
+          <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">Tags (separados por coma)</label>
+            <input id="rec-tags" type="text" placeholder="bloqueos, fraude, pilotos"
+              style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="apply-btn" onclick="recGuardar()" style="background:#16a34a">💾 Guardar</button>
+            <button class="apply-btn" onclick="recLimpiarForm()" id="rec-cancelar" style="display:none;background:#9ca3af">✖ Cancelar</button>
+            <span id="rec-form-msg" style="font-size:11px;color:#dc2626"></span>
+          </div>
+        </div>
+
+        <!-- Filtros + lista -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:13px;font-weight:700;color:var(--text2)">📚 Recursos guardados</div>
+            <button class="apply-btn" onclick="cargarRecursos()" style="font-size:11px;padding:4px 10px">↻ Recargar</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <select id="rec-filtro-tipo" onchange="renderRecursosLista()"
+              style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+              <option value="">Todos los tipos</option>
+              <option value="query">🔍 Queries</option>
+              <option value="enlace">🔗 Enlaces</option>
+              <option value="excel">📊 Excel</option>
+              <option value="nota">📝 Notas</option>
+            </select>
+            <select id="rec-filtro-cat" onchange="renderRecursosLista()"
+              style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+              <option value="">Todas las categorías</option>
+            </select>
+            <input id="rec-filtro-q" type="text" placeholder="🔎 Buscar título, tag, contenido..." oninput="renderRecursosLista()"
+              style="flex:1;min-width:200px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+          </div>
+          <div id="rec-lista">
+            <div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Carga los recursos con ↻ Recargar.</div>
           </div>
         </div>
       </div>
@@ -5716,16 +5819,17 @@ async function doRegister() {
 // ADMIN PANEL
 // ══════════════════════════════════════════════════════════════
 function switchAdminTab(tab) {
-  ['users','console','cal','cron'].forEach(t => {
+  ['users','console','cal','cron','recursos'].forEach(t => {
     document.getElementById(`admin-tab-${t}`)?.classList.remove('active');
     // Usar clase admin-panel-active en lugar de active para no colisionar
     document.getElementById(`admin-panel-${t}`)?.classList.remove('admin-panel-active');
   });
   document.getElementById(`admin-tab-${tab}`)?.classList.add('active');
   document.getElementById(`admin-panel-${tab}`)?.classList.add('admin-panel-active');
-  if(tab==='cal')   setTimeout(renderCalendario, 50);
-  if(tab==='users') cargarUsuarios();
-  if(tab==='cron')  cargarCronograma();
+  if(tab==='cal')      setTimeout(renderCalendario, 50);
+  if(tab==='users')    cargarUsuarios();
+  if(tab==='cron')     cargarCronograma();
+  if(tab==='recursos') cargarRecursos();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -5897,21 +6001,30 @@ function renderCronogramaLista() {
     const activoBadge = t.activo === 1
       ? '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">● ACTIVO</span>'
       : '<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">○ PAUSADO</span>';
+    const hecho = !!t.hecho_en_periodo_actual;
+    const periodoLabel = _cronPeriodoLabel(t.frecuencia);
+    const hechoBadge = hecho
+      ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">✓ HECHO ${periodoLabel.toUpperCase()}</span>`
+      : '';
     const ultEjec = t.ultima_ejecucion
       ? `<span style="font-size:10px;color:var(--text3)">Última ejecución: ${t.ultima_ejecucion}</span>`
       : '<span style="font-size:10px;color:var(--text3)">Nunca ejecutada</span>';
     const desc = t.descripcion
       ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;white-space:pre-wrap">${(t.descripcion||'').replace(/</g,'&lt;')}</div>`
       : '';
+    const btnHecho = hecho
+      ? `<button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#a78bfa" onclick="cronMarcarHecho('${t.id}', false)" title="Volver a permitir disparo en este período">↺ Desmarcar</button>`
+      : `<button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#16a34a" onclick="cronMarcarHecho('${t.id}', true)" title="Marca la tarea como completada en ${periodoLabel}; no volverá a dispararse hasta el próximo período">✓ Marcar hecho</button>`;
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
         <div style="flex:1;min-width:240px">
-          <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(t.titulo||'').replace(/</g,'&lt;')} ${activoBadge}</div>
+          <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(t.titulo||'').replace(/</g,'&lt;')} ${activoBadge} ${hechoBadge}</div>
           <div style="font-size:12px;color:var(--text2);margin-bottom:4px">⏰ <strong style="font-family:monospace">${t.hora}</strong> · ${freqHtml}</div>
           <div style="font-size:11px;color:var(--text3)">📧 ${t.email} · ${ultEjec}</div>
           ${desc}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${btnHecho}
           <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#0ea5e9" onclick="cronTest('${t.id}')">🧪 Probar</button>
           <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="cronEditar('${t.id}')">✎ Editar</button>
           <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:${t.activo===1?'#9ca3af':'#16a34a'}" onclick="cronToggleActivo('${t.id}', ${t.activo===1?0:1})">${t.activo===1?'⏸ Pausar':'▶ Activar'}</button>
@@ -6063,6 +6176,34 @@ async function cronEliminar(id, titulo) {
   }
 }
 
+// Etiqueta humana del período actual según la frecuencia.
+function _cronPeriodoLabel(freq) {
+  const f = (freq || 'semanal').toLowerCase();
+  if (f === 'diaria')     return 'hoy';
+  if (f === 'semanal')    return 'esta semana';
+  if (f === 'mensual')    return 'este mes';
+  if (f === 'trimestral') return 'este trimestre';
+  if (f === 'semestral')  return 'este semestre';
+  if (f === 'anual')      return 'este año';
+  if (f === 'unica')      return 'hoy';
+  return 'este período';
+}
+
+async function cronMarcarHecho(id, hecho) {
+  try {
+    const r = await fetch(`${API}/api/cronograma/${encodeURIComponent(id)}/marcar-hecho`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-Token': _sesionToken},
+      body: JSON.stringify({hecho: !!hecho})
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    cargarCronograma();
+  } catch (err) {
+    alert('❌ Error: ' + err.message);
+  }
+}
+
 async function cronTest(id) {
   if (!confirm('¿Enviar email de prueba ahora? El destinatario recibirá un correo inmediatamente.')) return;
   try {
@@ -6076,6 +6217,272 @@ async function cronTest(id) {
   } catch (err) {
     alert('❌ Error: ' + err.message);
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// ADMIN — RECURSOS (queries, enlaces, excel, notas)
+// ══════════════════════════════════════════════════════════════
+const _REC_SUBTIPOS = {
+  query:  [['clickhouse','ClickHouse'],['bigquery','BigQuery'],['snowflake','Snowflake'],
+           ['mysql','MySQL'],['postgres','PostgreSQL'],['sql_server','SQL Server'],
+           ['otro_query','Otro']],
+  enlace: [['drive','Google Drive'],['sheets','Google Sheets'],['docs','Google Docs'],
+           ['notion','Notion'],['confluence','Confluence'],['web','Página web'],
+           ['otro_enlace','Otro']],
+  excel:  [['excel_local','Excel local'],['excel_drive','Excel en Drive'],['csv','CSV']],
+  nota:   [['nota','Nota libre'],['procedimiento','Procedimiento'],['contacto','Contacto']]
+};
+const _REC_TIPO_LABEL  = {query:'🔍 Query', enlace:'🔗 Enlace', excel:'📊 Excel', nota:'📝 Nota'};
+const _REC_TIPO_COLOR  = {query:'#0e7490', enlace:'#1d4ed8', excel:'#047857', nota:'#b45309'};
+let _recursos = [];
+let _recCategorias = [];
+
+function recOnTipoChange() {
+  const tipo = document.getElementById('rec-tipo').value || 'query';
+  const sel  = document.getElementById('rec-subtipo');
+  const opts = _REC_SUBTIPOS[tipo] || [];
+  sel.innerHTML = '<option value="">— Sin especificar —</option>' +
+    opts.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  // Mostrar/ocultar campos según el tipo
+  const grpUrl       = document.getElementById('rec-grupo-url');
+  const grpContenido = document.getElementById('rec-grupo-contenido');
+  const lblContenido = document.getElementById('rec-contenido-label');
+  if (tipo === 'query') {
+    grpUrl.style.display = 'none';
+    grpContenido.style.display = '';
+    lblContenido.textContent = 'Contenido (SQL)';
+    document.getElementById('rec-contenido').placeholder = 'SELECT ... FROM ... WHERE ...';
+  } else if (tipo === 'enlace') {
+    grpUrl.style.display = '';
+    grpContenido.style.display = '';
+    lblContenido.textContent = 'Notas adicionales (opcional)';
+    document.getElementById('rec-contenido').placeholder = 'Permisos, observaciones, contexto...';
+  } else if (tipo === 'excel') {
+    grpUrl.style.display = '';
+    grpContenido.style.display = '';
+    lblContenido.textContent = 'Notas / instrucciones (opcional)';
+    document.getElementById('rec-contenido').placeholder = 'Cómo usar el archivo, qué hojas mirar, etc.';
+  } else { // nota
+    grpUrl.style.display = '';
+    grpContenido.style.display = '';
+    lblContenido.textContent = 'Contenido de la nota *';
+    document.getElementById('rec-contenido').placeholder = 'Escribe la nota, procedimiento o información...';
+  }
+}
+
+function recLimpiarForm() {
+  document.getElementById('rec-edit-id').value = '';
+  document.getElementById('rec-titulo').value = '';
+  document.getElementById('rec-categoria').value = '';
+  document.getElementById('rec-tipo').value = 'query';
+  document.getElementById('rec-descripcion').value = '';
+  document.getElementById('rec-url').value = '';
+  document.getElementById('rec-contenido').value = '';
+  document.getElementById('rec-tags').value = '';
+  document.getElementById('rec-form-title').textContent = '➕ Nuevo recurso';
+  document.getElementById('rec-cancelar').style.display = 'none';
+  document.getElementById('rec-form-msg').textContent = '';
+  recOnTipoChange();
+}
+
+async function recGuardar() {
+  const id          = document.getElementById('rec-edit-id').value;
+  const titulo      = document.getElementById('rec-titulo').value.trim();
+  const categoria   = document.getElementById('rec-categoria').value.trim();
+  const tipo        = document.getElementById('rec-tipo').value;
+  const subtipo     = document.getElementById('rec-subtipo').value;
+  const descripcion = document.getElementById('rec-descripcion').value.trim();
+  const url         = document.getElementById('rec-url').value.trim();
+  const contenido   = document.getElementById('rec-contenido').value;
+  const tags        = document.getElementById('rec-tags').value.trim();
+  const msg         = document.getElementById('rec-form-msg');
+
+  if (!titulo) { msg.style.color='#dc2626'; msg.textContent='El título es obligatorio'; return; }
+  if (tipo === 'query' && !contenido.trim()) {
+    msg.style.color='#dc2626'; msg.textContent='El SQL no puede estar vacío'; return;
+  }
+  if (tipo === 'enlace' && !url) {
+    msg.style.color='#dc2626'; msg.textContent='La URL es obligatoria para enlaces'; return;
+  }
+  if (tipo === 'nota' && !contenido.trim()) {
+    msg.style.color='#dc2626'; msg.textContent='La nota no puede estar vacía'; return;
+  }
+
+  msg.style.color = '#6b7280';
+  msg.textContent = 'Guardando...';
+  try {
+    const url_api = id ? `${API}/api/recursos/${encodeURIComponent(id)}` : `${API}/api/recursos`;
+    const method  = id ? 'PUT' : 'POST';
+    const body = {titulo, categoria, tipo, subtipo, descripcion, url, contenido, tags};
+    const r = await fetch(url_api, {
+      method, headers: {'Content-Type':'application/json','X-Token': _sesionToken},
+      body: JSON.stringify(body)
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    msg.style.color = '#16a34a';
+    msg.textContent = id ? '✓ Recurso actualizado' : '✓ Recurso guardado';
+    recLimpiarForm();
+    cargarRecursos();
+  } catch (err) {
+    msg.style.color = '#dc2626';
+    msg.textContent = '❌ ' + err.message;
+  }
+}
+
+function recEditar(id) {
+  const r = _recursos.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('rec-edit-id').value     = r.id;
+  document.getElementById('rec-titulo').value      = r.titulo || '';
+  document.getElementById('rec-categoria').value   = r.categoria || '';
+  document.getElementById('rec-tipo').value        = r.tipo || 'query';
+  recOnTipoChange();
+  document.getElementById('rec-subtipo').value     = r.subtipo || '';
+  document.getElementById('rec-descripcion').value = r.descripcion || '';
+  document.getElementById('rec-url').value         = r.url || '';
+  document.getElementById('rec-contenido').value   = r.contenido || '';
+  document.getElementById('rec-tags').value        = r.tags || '';
+  document.getElementById('rec-form-title').textContent = '✎ Editando recurso';
+  document.getElementById('rec-cancelar').style.display = '';
+  document.getElementById('rec-form-msg').textContent = '';
+  document.getElementById('admin-panel-recursos').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function recEliminar(id, titulo) {
+  if (!confirm(`¿Eliminar el recurso "${titulo}"?\nEsta acción no se puede deshacer.`)) return;
+  try {
+    const r = await fetch(`${API}/api/recursos/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: {'X-Token': _sesionToken}
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    cargarRecursos();
+  } catch (err) {
+    alert('❌ Error: ' + err.message);
+  }
+}
+
+function recCopiar(id) {
+  const r = _recursos.find(x => x.id === id);
+  if (!r) return;
+  const texto = r.tipo === 'enlace' ? (r.url || '') : (r.contenido || '');
+  if (!texto) { alert('No hay contenido para copiar'); return; }
+  navigator.clipboard.writeText(texto).then(
+    () => { _recToast('✓ Copiado al portapapeles'); },
+    () => { alert('No se pudo copiar'); }
+  );
+}
+
+function _recToast(msg) {
+  let t = document.getElementById('_rec-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_rec-toast';
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#16a34a;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9999;transition:opacity .3s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._h);
+  t._h = setTimeout(() => { t.style.opacity = '0'; }, 1800);
+}
+
+async function cargarRecursos() {
+  const cont = document.getElementById('rec-lista');
+  if (!cont) return;
+  cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Cargando...</div>';
+  try {
+    const r = await fetch(`${API}/api/recursos`, {headers: {'X-Token': _sesionToken}});
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    _recursos     = d.recursos || [];
+    _recCategorias = d.categorias || [];
+    // Datalist para autocompletar categoría en el formulario
+    const dl = document.getElementById('rec-categoria-list');
+    if (dl) dl.innerHTML = _recCategorias.map(c => `<option value="${(c||'').replace(/"/g,'&quot;')}">`).join('');
+    // Filtro de categorías
+    const sel = document.getElementById('rec-filtro-cat');
+    const valActual = sel.value;
+    sel.innerHTML = '<option value="">Todas las categorías</option>' +
+      _recCategorias.map(c => `<option value="${(c||'').replace(/"/g,'&quot;')}" ${c===valActual?'selected':''}>${c}</option>`).join('');
+    // Asegurar que el subtipo del formulario esté inicializado
+    if (!document.getElementById('rec-subtipo').options.length) recOnTipoChange();
+    renderRecursosLista();
+  } catch (err) {
+    cont.innerHTML = `<div style="text-align:center;padding:24px;color:var(--red);font-size:12px">❌ ${err.message}</div>`;
+  }
+}
+
+function renderRecursosLista() {
+  const cont = document.getElementById('rec-lista');
+  if (!cont) return;
+  const fTipo = (document.getElementById('rec-filtro-tipo')?.value || '').trim();
+  const fCat  = (document.getElementById('rec-filtro-cat')?.value  || '').trim();
+  const fQ    = (document.getElementById('rec-filtro-q')?.value    || '').trim().toLowerCase();
+
+  let lista = _recursos.slice();
+  if (fTipo) lista = lista.filter(r => r.tipo === fTipo);
+  if (fCat)  lista = lista.filter(r => r.categoria === fCat);
+  if (fQ) {
+    lista = lista.filter(r =>
+      (r.titulo||'').toLowerCase().includes(fQ) ||
+      (r.descripcion||'').toLowerCase().includes(fQ) ||
+      (r.tags||'').toLowerCase().includes(fQ) ||
+      (r.contenido||'').toLowerCase().includes(fQ) ||
+      (r.url||'').toLowerCase().includes(fQ) ||
+      (r.categoria||'').toLowerCase().includes(fQ)
+    );
+  }
+
+  if (!lista.length) {
+    cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">📭 No hay recursos que coincidan con los filtros.</div>';
+    return;
+  }
+
+  const html = lista.map(r => {
+    const color = _REC_TIPO_COLOR[r.tipo] || '#6b7280';
+    const label = _REC_TIPO_LABEL[r.tipo] || r.tipo;
+    const subOpt = (_REC_SUBTIPOS[r.tipo] || []).find(o => o[0] === r.subtipo);
+    const subLabel = subOpt ? subOpt[1] : '';
+    const tagsHtml = r.tags
+      ? r.tags.split(',').map(t => t.trim()).filter(Boolean).map(t =>
+          `<span style="display:inline-block;background:#f3f4f6;color:#374151;padding:1px 6px;border-radius:4px;font-size:10px;margin-right:3px">#${t}</span>`
+        ).join('')
+      : '';
+    const urlHtml = r.url
+      ? `<div style="font-size:11px;margin-top:4px"><a href="${r.url.replace(/"/g,'&quot;')}" target="_blank" rel="noopener" style="color:${color};text-decoration:underline;word-break:break-all">🔗 ${(r.url||'').replace(/</g,'&lt;')}</a></div>`
+      : '';
+    const contenidoHtml = r.contenido
+      ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;color:var(--text3);font-weight:600">Ver contenido (${r.contenido.length} chars)</summary>
+           <pre style="background:#0d0d1a;color:#a78bfa;padding:10px 12px;border-radius:8px;font-size:11px;font-family:'Fira Code',monospace;line-height:1.5;overflow-x:auto;max-height:300px;margin-top:6px;white-space:pre-wrap;word-break:break-word">${(r.contenido||'').replace(/</g,'&lt;')}</pre>
+         </details>`
+      : '';
+    const tituloEsc = (r.titulo||'').replace(/'/g,'').replace(/"/g,'');
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+        <div style="flex:1;min-width:240px">
+          <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(r.titulo||'').replace(/</g,'&lt;')}
+            <span style="background:${color}22;color:${color};padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">${label}${subLabel?' · '+subLabel:''}</span>
+            ${r.categoria?`<span style="background:#ede9fe;color:#5a2bb8;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600;margin-left:4px">${(r.categoria||'').replace(/</g,'&lt;')}</span>`:''}
+          </div>
+          ${r.descripcion ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px">${(r.descripcion||'').replace(/</g,'&lt;')}</div>` : ''}
+          <div style="font-size:10px;color:var(--text3)">👤 ${r.creado_por||'—'} · 🕒 ${r.actualizado_en||r.creado_en||''}</div>
+          ${tagsHtml ? `<div style="margin-top:4px">${tagsHtml}</div>` : ''}
+          ${urlHtml}
+          ${contenidoHtml}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#0ea5e9" onclick="recCopiar('${r.id}')">📋 Copiar</button>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="recEditar('${r.id}')">✎ Editar</button>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#dc2626" onclick="recEliminar('${r.id}', '${tituloEsc}')">🗑 Eliminar</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  cont.innerHTML = html;
 }
 
 

@@ -1522,11 +1522,29 @@ def _init_cronograma_table():
             "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS dia_mes UInt8 DEFAULT 0",
             "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS mes_referencia UInt8 DEFAULT 0",
             "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS fecha_ejecucion String DEFAULT ''",
+            # marcado_hecho_periodo: guarda el período actual (YYYY-MM, YYYY-W##, etc.)
+            # cuando el usuario marca la tarea como hecha. Mientras coincida con el
+            # período actual, el scheduler la salta. Al cambiar de período se vuelve
+            # a habilitar automáticamente.
+            "ALTER TABLE picapmongoprod.cronograma_tareas ADD COLUMN IF NOT EXISTS marcado_hecho_periodo String DEFAULT ''",
         ]:
             try: ch.command(ddl)
             except Exception as _e: print(f"[cronograma] migrate skip: {_e}")
     except Exception as e:
         print(f"[cronograma] Error creando tabla: {e}")
+
+def _periodo_actual(freq, ahora):
+    """Identificador único del período actual según la frecuencia. Sirve para
+    saber 'esta tarea ya fue marcada como hecha en este mes/semana/etc'."""
+    f = (freq or 'semanal').lower()
+    if f == 'diaria':     return ahora.strftime('%Y-%m-%d')
+    if f == 'semanal':    return ahora.strftime('%G-W%V')                  # ISO week
+    if f == 'mensual':    return ahora.strftime('%Y-%m')
+    if f == 'trimestral': return f"{ahora.year}-Q{(ahora.month - 1) // 3 + 1}"
+    if f == 'semestral':  return f"{ahora.year}-S{1 if ahora.month <= 6 else 2}"
+    if f == 'anual':      return ahora.strftime('%Y')
+    if f == 'unica':      return ahora.strftime('%Y-%m-%d')
+    return ahora.strftime('%Y-%m-%d')
 
 def _cronograma_debe_disparar(tarea, ahora):
     """True si la tarea debe ejecutarse en este momento, según su frecuencia.
@@ -1534,6 +1552,13 @@ def _cronograma_debe_disparar(tarea, ahora):
     freq = (tarea.get('frecuencia') or 'semanal').lower()
     if freq not in _FREQ_VALIDAS:
         freq = 'semanal'
+
+    # Si el usuario marcó la tarea como "hecha" para este período, saltarla.
+    # Cuando cambie el período (ej. de Octubre a Noviembre), el campo deja de
+    # coincidir y la tarea vuelve a poder dispararse automáticamente.
+    marcado = (tarea.get('marcado_hecho_periodo') or '').strip()
+    if marcado and marcado == _periodo_actual(freq, ahora):
+        return False
     dia_mes  = int(tarea.get('dia_mes') or 0)
     mes_ref  = int(tarea.get('mes_referencia') or 0)
     fecha_ej = (tarea.get('fecha_ejecucion') or '').strip()
@@ -1833,12 +1858,14 @@ def cronograma_list():
         r = ch.query("""
             SELECT id, titulo, descripcion, dias_semana, hora, email, creado_por,
                    activo, ultima_ejecucion, creado_en, actualizado_en,
-                   frecuencia, dia_mes, mes_referencia, fecha_ejecucion
+                   frecuencia, dia_mes, mes_referencia, fecha_ejecucion,
+                   marcado_hecho_periodo
             FROM picapmongoprod.cronograma_tareas FINAL
             ORDER BY hora, titulo
         """)
         cols = r.column_names
         tareas = []
+        ahora = datetime.now()
         for row in r.result_rows:
             t = dict(zip(cols, row))
             t['activo']         = int(t.get('activo', 0) or 0)
@@ -1847,6 +1874,10 @@ def cronograma_list():
             t['frecuencia']     = (t.get('frecuencia') or 'semanal') or 'semanal'
             t['creado_en']      = str(t.get('creado_en', ''))[:19]
             t['actualizado_en'] = str(t.get('actualizado_en', ''))[:19]
+            # ¿está marcada como hecha en el período actual?
+            mhp = (t.get('marcado_hecho_periodo') or '').strip()
+            t['marcado_hecho_periodo'] = mhp
+            t['hecho_en_periodo_actual'] = bool(mhp and mhp == _periodo_actual(t['frecuencia'], ahora))
             tareas.append(t)
         return jsonify({"ok": True, "tareas": tareas})
     except Exception as e:
@@ -1855,7 +1886,8 @@ def cronograma_list():
 _CRON_INSERT_COLS = ["id","titulo","descripcion","dias_semana","hora","email",
                      "creado_por","activo","ultima_ejecucion",
                      "creado_en","actualizado_en",
-                     "frecuencia","dia_mes","mes_referencia","fecha_ejecucion"]
+                     "frecuencia","dia_mes","mes_referencia","fecha_ejecucion",
+                     "marcado_hecho_periodo"]
 
 @app.route("/api/cronograma", methods=["POST"])
 def cronograma_create():
@@ -1931,6 +1963,49 @@ def cronograma_delete(tid):
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+@app.route("/api/cronograma/<tid>/marcar-hecho", methods=["POST"])
+def cronograma_marcar_hecho(tid):
+    """Marca/desmarca una tarea como hecha en el período actual.
+    Body opcional: {"hecho": true|false}. Default true.
+    Cuando hecho=true, almacena el período actual en marcado_hecho_periodo;
+    cuando hecho=false, lo limpia (vuelve a estar disponible inmediatamente)."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    if not all(c in '0123456789abcdef-' for c in tid.lower()):
+        return jsonify({"ok": False, "error": "ID inválido"}), 400
+    data = request.get_json(silent=True) or {}
+    hecho = bool(data.get('hecho', True))
+    try:
+        ch = get_client()
+        # Leer la tarea actual completa
+        cols = ["titulo","descripcion","dias_semana","hora","email","creado_por",
+                "activo","ultima_ejecucion","creado_en","frecuencia",
+                "dia_mes","mes_referencia","fecha_ejecucion"]
+        r = ch.query(f"""
+            SELECT {', '.join(cols)}
+            FROM picapmongoprod.cronograma_tareas FINAL
+            WHERE id = '{tid}' LIMIT 1
+        """).result_rows
+        if not r:
+            return jsonify({"ok": False, "error": "Tarea no encontrada"}), 404
+        row = dict(zip(cols, r[0]))
+        nuevo_marcado = _periodo_actual(row['frecuencia'], datetime.now()) if hecho else ''
+        # Insert con mismo id para ReplacingMergeTree
+        ch.insert("picapmongoprod.cronograma_tareas",
+            [[tid, row['titulo'], row['descripcion'], row['dias_semana'],
+              row['hora'], row['email'], row['creado_por'],
+              row['activo'], row['ultima_ejecucion'],
+              row['creado_en'], datetime.utcnow(),
+              row['frecuencia'], row['dia_mes'],
+              row['mes_referencia'], row['fecha_ejecucion'],
+              nuevo_marcado]],
+            column_names=_CRON_INSERT_COLS + ['marcado_hecho_periodo'])
+        return jsonify({"ok": True, "marcado_hecho_periodo": nuevo_marcado})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route("/api/cronograma/<tid>/test", methods=["POST"])
 def cronograma_test(tid):
     """Envía un email de prueba inmediato con la tarea. Solo admin."""
@@ -1991,6 +2066,214 @@ def _validar_dias(dias):
     valid = set(_DIAS_ABREV)
     parts = [p.strip() for p in dias.split(',') if p.strip()]
     return bool(parts) and all(p in valid for p in parts)
+
+
+# ══════════════════════════════════════════════════════════════
+# MÓDULO RECURSOS — biblioteca interna del equipo
+# Permite guardar queries (ClickHouse, BigQuery, Snowflake), enlaces
+# (Drive, Sheets, páginas web), notas y archivos Excel categorizados.
+# Solo admins pueden crear/editar/eliminar; cualquier sesión válida lee.
+# ══════════════════════════════════════════════════════════════
+_RECURSOS_TIPOS    = {'query', 'enlace', 'excel', 'nota'}
+_RECURSOS_SUBTIPOS = {
+    # query
+    'clickhouse','bigquery','snowflake','mysql','postgres','sql_server','otro_query',
+    # enlace
+    'drive','sheets','docs','notion','confluence','web','otro_enlace',
+    # excel
+    'excel_local','excel_drive','csv',
+    # nota
+    'nota','procedimiento','contacto'
+}
+
+_RECURSOS_TABLE = """
+CREATE TABLE IF NOT EXISTS picapmongoprod.dashboard_recursos (
+    id              String,
+    titulo          String,
+    descripcion     String,
+    tipo            String,             -- query | enlace | excel | nota
+    subtipo         String,             -- clickhouse | bigquery | drive | sheets | ...
+    categoria       String,             -- libre, definida por el usuario (ej: "Bloqueos", "KAM")
+    contenido       String,             -- cuerpo del recurso (SQL, texto, comentario)
+    url             String,             -- enlace si aplica (drive, sheet, página)
+    tags            String,             -- separado por comas, busqueda libre
+    creado_por      String,
+    creado_en       DateTime DEFAULT now(),
+    actualizado_en  DateTime DEFAULT now(),
+    activo          UInt8    DEFAULT 1
+) ENGINE = ReplacingMergeTree(actualizado_en)
+ORDER BY (id)
+"""
+
+_RECURSOS_INSERT_COLS = ["id","titulo","descripcion","tipo","subtipo","categoria",
+                         "contenido","url","tags","creado_por","creado_en",
+                         "actualizado_en","activo"]
+
+def _init_recursos_table():
+    try:
+        ch = get_client()
+        ch.command(_RECURSOS_TABLE)
+    except Exception as e:
+        print(f"[recursos] Error creando tabla: {e}")
+
+def _recurso_normalizar(data):
+    """Normaliza payload entrante. Devuelve (dict, error)."""
+    titulo = (data.get('titulo') or '').strip()
+    if not titulo:
+        return None, "El título es obligatorio"
+    tipo = (data.get('tipo') or '').strip().lower()
+    if tipo not in _RECURSOS_TIPOS:
+        return None, f"Tipo inválido. Usa: {', '.join(sorted(_RECURSOS_TIPOS))}"
+    subtipo = (data.get('subtipo') or '').strip().lower()
+    # subtipo es opcional pero, si viene, debe ser válido
+    if subtipo and subtipo not in _RECURSOS_SUBTIPOS:
+        return None, f"Subtipo inválido. Usa uno de: {', '.join(sorted(_RECURSOS_SUBTIPOS))}"
+    return {
+        'titulo':      titulo[:200],
+        'descripcion': (data.get('descripcion') or '').strip()[:2000],
+        'tipo':        tipo,
+        'subtipo':     subtipo,
+        'categoria':   (data.get('categoria') or '').strip()[:100],
+        'contenido':   (data.get('contenido') or ''),  # sin tope: queries grandes
+        'url':         (data.get('url') or '').strip()[:1000],
+        'tags':        (data.get('tags') or '').strip()[:500],
+    }, None
+
+
+@app.route("/api/recursos", methods=["GET"])
+def recursos_list():
+    """Lista todos los recursos activos. Cualquier sesión válida puede leer."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    try:
+        _init_recursos_table()
+        ch = get_client()
+        # Filtros opcionales
+        tipo  = (request.args.get('tipo') or '').strip().lower()
+        cat   = (request.args.get('categoria') or '').strip()
+        q     = (request.args.get('q') or '').strip()
+
+        where = ["activo = 1"]
+        if tipo and tipo in _RECURSOS_TIPOS:
+            where.append(f"tipo = '{tipo}'")
+        if cat:
+            cat_safe = cat.replace("'", "''")
+            where.append(f"categoria = '{cat_safe}'")
+        if q:
+            q_safe = q.replace("'", "''").lower()
+            where.append(
+                f"(positionCaseInsensitive(titulo,'{q_safe}')>0 "
+                f"OR positionCaseInsensitive(descripcion,'{q_safe}')>0 "
+                f"OR positionCaseInsensitive(tags,'{q_safe}')>0 "
+                f"OR positionCaseInsensitive(contenido,'{q_safe}')>0)"
+            )
+
+        rows = ch.query(f"""
+            SELECT id, titulo, descripcion, tipo, subtipo, categoria,
+                   contenido, url, tags, creado_por,
+                   creado_en, actualizado_en, activo
+            FROM picapmongoprod.dashboard_recursos FINAL
+            WHERE {' AND '.join(where)}
+            ORDER BY actualizado_en DESC
+            LIMIT 1000
+        """).result_rows
+        cols = ["id","titulo","descripcion","tipo","subtipo","categoria",
+                "contenido","url","tags","creado_por","creado_en",
+                "actualizado_en","activo"]
+        recursos = []
+        cats = set()
+        for r in rows:
+            d = dict(zip(cols, r))
+            d['creado_en']      = d['creado_en'].strftime("%Y-%m-%d %H:%M") if d['creado_en'] else ''
+            d['actualizado_en'] = d['actualizado_en'].strftime("%Y-%m-%d %H:%M") if d['actualizado_en'] else ''
+            d['activo']         = int(d['activo'])
+            if d['categoria']: cats.add(d['categoria'])
+            recursos.append(d)
+        return jsonify({"ok": True, "recursos": recursos, "categorias": sorted(cats)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/recursos", methods=["POST"])
+def recursos_create():
+    """Crea un recurso nuevo. Solo admins."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    data = request.get_json(silent=True) or {}
+    norm, err = _recurso_normalizar(data)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    try:
+        _init_recursos_table()
+        ch = get_client()
+        rid = str(uuid.uuid4())
+        ahora = datetime.utcnow()
+        ch.insert("picapmongoprod.dashboard_recursos",
+            [[rid, norm['titulo'], norm['descripcion'], norm['tipo'], norm['subtipo'],
+              norm['categoria'], norm['contenido'], norm['url'], norm['tags'],
+              s.get('usuario',''), ahora, ahora, 1]],
+            column_names=_RECURSOS_INSERT_COLS)
+        return jsonify({"ok": True, "id": rid})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/recursos/<rid>", methods=["PUT"])
+def recursos_update(rid):
+    """Edita un recurso existente. Solo admins."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    if not all(c in '0123456789abcdef-' for c in rid.lower()):
+        return jsonify({"ok": False, "error": "ID inválido"}), 400
+    data = request.get_json(silent=True) or {}
+    norm, err = _recurso_normalizar(data)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    try:
+        _init_recursos_table()
+        ch = get_client()
+        # Conservamos creado_en y creado_por del registro original
+        r = ch.query(f"""
+            SELECT creado_por, creado_en, activo
+            FROM picapmongoprod.dashboard_recursos FINAL
+            WHERE id = '{rid}' LIMIT 1
+        """).result_rows
+        if not r:
+            return jsonify({"ok": False, "error": "Recurso no encontrado"}), 404
+        creado_por, creado_en, activo = r[0]
+        ahora = datetime.utcnow()
+        ch.insert("picapmongoprod.dashboard_recursos",
+            [[rid, norm['titulo'], norm['descripcion'], norm['tipo'], norm['subtipo'],
+              norm['categoria'], norm['contenido'], norm['url'], norm['tags'],
+              creado_por or s.get('usuario',''),
+              creado_en, ahora, int(activo) if activo is not None else 1]],
+            column_names=_RECURSOS_INSERT_COLS)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/recursos/<rid>", methods=["DELETE"])
+def recursos_delete(rid):
+    """Elimina un recurso (hard-delete via DELETE WHERE)."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    if not all(c in '0123456789abcdef-' for c in rid.lower()):
+        return jsonify({"ok": False, "error": "ID inválido"}), 400
+    try:
+        ch = get_client()
+        ch.command(f"ALTER TABLE picapmongoprod.dashboard_recursos DELETE WHERE id = '{rid}'")
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ══════════════════════════════════════════════════════════════
