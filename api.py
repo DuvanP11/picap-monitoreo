@@ -867,7 +867,6 @@ WITH ultimos_ps AS (
         ends_at     AS ends_block_p,
         passenger_id,
         created_at,
-        updated_at,
         ROW_NUMBER() OVER (
             PARTITION BY passenger_id
             ORDER BY created_at DESC NULLS LAST
@@ -881,7 +880,6 @@ ultimos_ds AS (
         ends_at     AS ends_block_d,
         driver_id,
         created_at,
-        updated_at,
         ROW_NUMBER() OVER (
             PARTITION BY driver_id
             ORDER BY created_at DESC NULLS LAST
@@ -934,48 +932,35 @@ SELECT
         ps.created_at, ds.created_at
     )), today()) AS dias_bloqueado_total,
     -- ── DÍAS REALES BLOQUEADO ────────────────────────────────────
-    -- Calcula la duración EFECTIVA del bloqueo. La fecha de fin real es la
-    -- fecha en que el admin reactivó la cuenta — esto se aproxima por:
-    --   • `updated_at` del registro de suspensión (si difiere de created_at,
-    --     el registro fue tocado al reactivar)
-    --   • si no, `passengers.updated_at` (cuando se cambió suspended=false)
-    -- Para cuentas que SIGUEN bloqueadas, usa today() como fin.
-    -- Selecciona la suspensión correcta según tipo (PILOTO=driver, USUARIO=passenger).
-    --
-    -- Nota: ends_at de las tablas de suspensión es la fecha PROGRAMADA de fin
-    -- (ej: 30 días planeados), NO la fecha real de reactivación. Por eso NO
-    -- la usamos aquí — daba números engañosos.
+    -- Para cuentas reactivadas estimamos la fecha de reactivación con
+    -- `ends_at` (cuando el admin la usa para cerrar el bloqueo); si está
+    -- vacío o mayor a hoy, usamos `today()` como fin.
+    -- Para cuentas aún bloqueadas, contamos hasta hoy.
     multiIf(
-        -- PILOTO actualmente reactivado (suspended/expelled = false)
+        -- PILOTO con starts_block_d definido
         p.driver_enrollment_status_cd = 3
-            AND ds.starts_block_d IS NOT NULL
-            AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0','')
-            AND lower(ifNull(toString(p.expelled),'')) != 'true',
+            AND ds.starts_block_d IS NOT NULL,
         greatest(0, dateDiff('day',
             toDate(ds.starts_block_d),
-            toDate(coalesce(
-                -- Fecha de reactivación: updated_at de la suspensión si fue
-                -- modificada después de creada, sino updated_at del passenger
-                if(ds.updated_at > ds.created_at, ds.updated_at, NULL),
-                p.updated_at,
-                today()
+            -- Fecha de fin: ends_at si fue cerrada antes de hoy; sino, hoy
+            toDate(if(
+                ds.ends_block_d IS NOT NULL AND toDate(ds.ends_block_d) <= today(),
+                ds.ends_block_d,
+                toDateTime(today())
             ))
         )),
-        -- USUARIO actualmente reactivado
+        -- USUARIO con starts_block_p definido
         (p.driver_enrollment_status_cd != 3 OR p.driver_enrollment_status_cd IS NULL)
-            AND ps.starts_block_p IS NOT NULL
-            AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
-            AND lower(ifNull(toString(p.expelled),'')) != 'true',
+            AND ps.starts_block_p IS NOT NULL,
         greatest(0, dateDiff('day',
             toDate(ps.starts_block_p),
-            toDate(coalesce(
-                if(ps.updated_at > ps.created_at, ps.updated_at, NULL),
-                p.updated_at,
-                today()
+            toDate(if(
+                ps.ends_block_p IS NOT NULL AND toDate(ps.ends_block_p) <= today(),
+                ps.ends_block_p,
+                toDateTime(today())
             ))
         )),
-        -- Fallback (cuenta aún bloqueada o expulsada): días desde la
-        -- suspensión más reciente hasta HOY
+        -- Fallback: días desde la suspensión más reciente hasta hoy
         dateDiff('day', toDate(coalesce(
             if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
                greatest(ps.created_at, ds.created_at), NULL),
