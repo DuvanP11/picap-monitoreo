@@ -4335,14 +4335,24 @@ function renderBloqueos(data){
   renderStatsPanel(data.stats_bloqueados, 'blq-stats-bloqueados');
 
   // ── PANEL REACTIVACIONES ───────────────────────────────────
+  // En "Días bloqueado" preferimos `dias_bloqueo_real` (ends_block - starts_block)
+  // que muestra cuánto duró el bloqueo realmente — más útil que "días desde susp"
+  // para una cuenta que ya está reactivada. Si no hay ends_block, usamos el
+  // total como fallback.
   const COLS_REACT = [
     {k:'nombre',          l:'Nombre'},
     {k:'id_usuario',      l:'Id',                  fn: v => `<span class="blq-id">${v||'—'}</span>`},
     {k:'tipo_usuario',    l:'Tipo',                 fn: v => blqTipoBadge(v)},
     {k:'pais_nombre',     l:'País'},
     {k:'ciudad',          l:'Ciudad'},
-    {k:'fecha_ultima_suspension', l:'Última suspensión'},
-    {k:'dias_bloqueado_total',    l:'Días desde susp.', fn:(v,row)=> blqDias(v, row.alerta_30dias)},
+    {k:'fecha_ultima_suspension', l:'Inicio susp.'},
+    {k:'dias_bloqueo_real', l:'Días bloqueado',
+       fn:(v,row)=> {
+         // Si tenemos dias_bloqueo_real lo usamos; si no, fallback a total
+         const dias = (v != null && v !== '') ? Number(v) : Number(row.dias_bloqueado_total||0);
+         return blqDias(dias, dias > 30);
+       }
+    },
     {k:'esta_activo',     l:'Estado actual',        fn: v => blqEstadoBadge(v)},
     {k:'motivo_mapeado',  l:'Motivo',               fn: v => blqMotivo(v)},
   ];

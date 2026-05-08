@@ -931,6 +931,30 @@ SELECT
            greatest(ps.created_at, ds.created_at), NULL),
         ps.created_at, ds.created_at
     )), today()) AS dias_bloqueado_total,
+    -- ── DÍAS REALES BLOQUEADO ────────────────────────────────────
+    -- Para reactivaciones: muestra cuánto duró efectivamente el bloqueo
+    -- (ends_block − starts_block). Para bloqueos activos: días desde que
+    -- empezó hasta hoy. Si no hay ends_block, cae al fallback de hoy.
+    -- Selecciona la suspensión correcta según tipo_usuario (PILOTO usa
+    -- driver_suspensions, USUARIO usa passenger_suspensions).
+    multiIf(
+        -- PILOTO con suspensión cerrada (ends_at definido)
+        p.driver_enrollment_status_cd = 3
+            AND ds.starts_block_d IS NOT NULL
+            AND ds.ends_block_d IS NOT NULL,
+        greatest(0, dateDiff('day', toDate(ds.starts_block_d), toDate(ds.ends_block_d))),
+        -- USUARIO con suspensión cerrada
+        (p.driver_enrollment_status_cd != 3 OR p.driver_enrollment_status_cd IS NULL)
+            AND ps.starts_block_p IS NOT NULL
+            AND ps.ends_block_p IS NOT NULL,
+        greatest(0, dateDiff('day', toDate(ps.starts_block_p), toDate(ps.ends_block_p))),
+        -- Fallback: días desde la suspensión más reciente hasta hoy
+        dateDiff('day', toDate(coalesce(
+            if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
+               greatest(ps.created_at, ds.created_at), NULL),
+            ps.created_at, ds.created_at
+        )), today())
+    ) AS dias_bloqueo_real,
     -- estado_suspension: expulsados son PERMANENTE, suspendidos evalúan 30 días
     CASE
         WHEN lower(ifNull(toString(p.expelled),'')) = 'true' THEN 'Permanente (expulsión)'
