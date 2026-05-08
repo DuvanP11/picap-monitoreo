@@ -7553,28 +7553,39 @@ def _resumen_evasion(ch, desde, hasta, pais_iso):
     }
 
 def _resumen_estafa(ch, desde, hasta, pais_iso):
-    """Cuenta bookings con motivo de cancelación de estafa (codes 21, 13)
-    o tipo Mensajería. Es la misma lógica del módulo /api/estafa."""
+    """Cuenta bookings con motivo de cancelación de estafa (codes 21, 13).
+    Devuelve total revisados, estafa por código, y % por categoría."""
     extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
     sql = f"""
     SELECT
         count()                                                            AS total_serv,
-        countIf(toInt64OrZero(b.cancelation_reason_cd) IN (21, 13))        AS estafa_serv
+        countIf(b.status_cd IN (100, 102))                                 AS finalizados,
+        countIf(toInt64OrZero(b.cancelation_reason_cd) IN (21, 13))        AS estafa_total,
+        countIf(toInt64OrZero(b.cancelation_reason_cd) = 21)               AS estafa_pasajero,
+        countIf(toInt64OrZero(b.cancelation_reason_cd) = 13)               AS estafa_sistema
     FROM picapmongoprod.bookings b
     WHERE b.created_at >= toDateTime('{desde} 00:00:00')
       AND b.created_at <= toDateTime('{hasta} 23:59:59'){extra}
     """
     r = ch.query(sql).result_rows
-    total, est = (r[0] if r else (0, 0))
-    total = int(total or 0); est = int(est or 0)
-    pct = round(est / total * 100, 2) if total else 0
+    if not r:
+        return {"kpis": [], "tip": ""}
+    total, fin, est, est_p, est_s = r[0]
+    total = int(total or 0); fin = int(fin or 0); est = int(est or 0)
+    est_p = int(est_p or 0); est_s = int(est_s or 0)
+    pct      = round(est / total * 100, 2) if total else 0
+    pct_p    = round(est_p / est * 100, 1) if est else 0
+    pct_s    = round(est_s / est * 100, 1) if est else 0
+    pct_ok   = round(fin / total * 100, 1) if total else 0
     return {
         "kpis": [
-            _kpi("Total servicios del período", total, "numero"),
-            _kpi("Servicios cancelados por estafa", est, "numero", color="#dc2626"),
-            _kpi("Tasa de estafa", pct, "porcentaje"),
+            _kpi("Total servicios revisados", total, "numero"),
+            _kpi("Servicios finalizados OK",   fin,  "numero", sub=f"{pct_ok}% del total"),
+            _kpi("Estafa total",               est,  "numero", color="#dc2626", sub=f"{pct}% del total"),
+            _kpi("• Estafa pasajero (cod 21)", est_p,"numero", color="#dc2626", sub=f"{pct_p}% de estafas"),
+            _kpi("• Estafa sistema (cod 13)",  est_s,"numero", color="#dc2626", sub=f"{pct_s}% de estafas"),
         ],
-        "tip": "Detección por código de cancelación (21=estafa de pasajero, 13=estafa por sistema). Tasa esperada < 0,5%; si supera 1% conviene revisar zonas o pilotos concretos en el módulo Estafa."
+        "tip": "Cód 21: el pasajero declaró estafa. Cód 13: el sistema detectó patrón. Tasa de estafa esperada < 0,5%; si supera 1% conviene revisar zonas o pilotos concretos en el módulo Estafa."
     }
 
 def _resumen_pagos_tc(ch, desde, hasta, pais_iso):
@@ -7628,32 +7639,39 @@ def _resumen_pagos_promo(ch, desde, hasta, pais_iso):
     }
 
 def _resumen_facial(ch, desde, hasta, pais_iso):
-    """Alertas RF — total y desglose por nivel de la tabla alertas_reconocimiento.
-    Esta tabla la genera el robot de RF localmente y la persiste; siempre existe
-    en producción. Si por algún motivo no, devolvemos ceros."""
+    """Alertas RF — total, desglose por nivel + porcentajes y similitud máxima."""
     try:
         sql = f"""
         SELECT
             count()                                AS total,
             countIf(nivel='ALERTA')                AS alerta,
             countIf(nivel='REVISAR')               AS revisar,
-            round(max(similitud), 4)               AS sim_max
+            countIf(nivel='POSIBLE')               AS posible,
+            round(max(similitud), 4)               AS sim_max,
+            round(avg(similitud), 4)               AS sim_avg
         FROM picapmongoprod.alertas_reconocimiento
         WHERE procesado_en >= toDateTime('{desde} 00:00:00')
           AND procesado_en <= toDateTime('{hasta} 23:59:59')
         """
         r = ch.query(sql).result_rows
-        total, alerta, revisar, sim = (r[0] if r else (0, 0, 0, 0))
+        total, alerta, revisar, posible, sim_max, sim_avg = (r[0] if r else (0, 0, 0, 0, 0, 0))
     except Exception:
-        total, alerta, revisar, sim = (0, 0, 0, 0)
+        total, alerta, revisar, posible, sim_max, sim_avg = (0, 0, 0, 0, 0, 0)
+    total = int(total or 0); alerta = int(alerta or 0)
+    revisar = int(revisar or 0); posible = int(posible or 0)
+    pct_a = round(alerta / total * 100, 2) if total else 0
+    pct_r = round(revisar / total * 100, 2) if total else 0
+    pct_p = round(posible / total * 100, 2) if total else 0
     return {
         "kpis": [
-            _kpi("Total comparaciones",       int(total   or 0), "numero"),
-            _kpi("Alertas (alta confianza)",  int(alerta  or 0), "numero", color="#dc2626"),
-            _kpi("Para revisar",              int(revisar or 0), "numero", color="#ca8a04"),
-            _kpi("Similitud máxima",          float(sim    or 0), "decimal"),
+            _kpi("Total comparaciones",       total, "numero"),
+            _kpi("Alertas (alta confianza)",  alerta, "numero", color="#dc2626", sub=f"{pct_a}% del total"),
+            _kpi("Para revisar manual",       revisar, "numero", color="#ca8a04", sub=f"{pct_r}% del total"),
+            _kpi("Posibles coincidencias",    posible, "numero", sub=f"{pct_p}% del total"),
+            _kpi("Similitud máxima",          float(sim_max or 0), "decimal"),
+            _kpi("Similitud promedio",        float(sim_avg or 0), "decimal"),
         ],
-        "tip": "Similitud > 0.96 ≈ misma persona con alta confianza. Entre 0.85 y 0.96 sugiere revisión manual antes de bloquear."
+        "tip": "Similitud > 0.96 ≈ misma persona con alta confianza (alerta). Entre 0.85 y 0.96 sugiere revisión manual. Tasa esperada de alertas ≈ 1-3%; si sube indica que un mismo rostro está creando varias cuentas."
     }
 
 def _resumen_bloqueos(ch, desde, hasta, pais_iso):
@@ -7706,107 +7724,179 @@ def _resumen_bloqueos(ch, desde, hasta, pais_iso):
     }
 
 def _resumen_auditoria_com(ch, desde, hasta, pais_iso):
-    """Servicios B2B con company_id — los que pasan por auditoría comercial."""
-    extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
-    sql = f"""
-    SELECT
-        count()                                            AS total,
-        round(sum(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100), 0) AS monto,
-        uniqExact(b.company_id)                            AS empresas
-    FROM picapmongoprod.bookings b
-    WHERE b.created_at >= toDateTime('{desde} 00:00:00')
-      AND b.created_at <= toDateTime('{hasta} 23:59:59')
-      AND b.status_cd IN (100, 102)
-      AND b.company_id IS NOT NULL AND b.company_id != ''{extra}
-    """
-    r = ch.query(sql).result_rows
-    total, monto, emp = (r[0] if r else (0, 0, 0))
-    return {
-        "kpis": [
-            _kpi("Servicios B2B finalizados",  int(total or 0), "numero"),
-            _kpi("Monto facturado",            int(monto or 0), "moneda"),
-            _kpi("Empresas activas",           int(emp   or 0), "numero"),
-        ],
-        "tip": "Las auditorías comerciales revisan que los servicios facturados a clientes B2B cumplan tarifa y SLA. Detalle completo en el módulo Auditorías."
-    }
-
-def _resumen_pibox(ch, desde, hasta, pais_iso):
-    """Pibox B2B — bookings con company_id, detectando los anormalmente cortos
-    (señal de fraude: no recogió/no entregó)."""
+    """Servicios B2B con company_id — pasan por auditoría comercial.
+    Como 'alerta' usamos: servicios sin evento de finalización (event_cd=24)
+    en el rango — son los que el módulo Auditorías marca para revisar SLA."""
     extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
     sql = f"""
     SELECT
         count()                                                                  AS total,
-        countIf(dateDiff('minute', b.created_at, b.end_at) < 5)                  AS muy_cortos,
-        round(sum(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100), 0) AS monto
+        countIf(b.events LIKE '%"event_cd":24%')                                  AS finalizados_ok,
+        countIf(NOT (b.events LIKE '%"event_cd":24%'))                            AS sin_finalizar,
+        round(sum(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100), 0) AS monto,
+        uniqExact(b.company_id)                                                   AS empresas
     FROM picapmongoprod.bookings b
     WHERE b.created_at >= toDateTime('{desde} 00:00:00')
       AND b.created_at <= toDateTime('{hasta} 23:59:59')
-      AND b.status_cd IN (100, 102)
-      AND b.company_id IS NOT NULL AND b.company_id != ''
-      AND b.end_at IS NOT NULL{extra}
+      AND b.status_cd IN (4, 100, 102, 107, 108)
+      AND b.company_id IS NOT NULL AND b.company_id != ''{extra}
     """
     r = ch.query(sql).result_rows
-    total, cortos, monto = (r[0] if r else (0, 0, 0))
+    total, ok, sin_fin, monto, emp = (r[0] if r else (0, 0, 0, 0, 0))
+    total = int(total or 0); ok = int(ok or 0); sin_fin = int(sin_fin or 0)
+    pct_ok    = round(ok / total * 100, 1) if total else 0
+    pct_alert = round(sin_fin / total * 100, 1) if total else 0
     return {
         "kpis": [
-            _kpi("Servicios Pibox B2B",          int(total  or 0), "numero"),
-            _kpi("Anormalmente cortos (<5min)",  int(cortos or 0), "numero", color="#dc2626"),
-            _kpi("Monto facturado",              int(monto  or 0), "moneda"),
+            _kpi("Empresas auditadas",         int(emp or 0), "numero"),
+            _kpi("Servicios B2B totales",      total, "numero"),
+            _kpi("Finalizados correctamente",  ok,    "numero",                  sub=f"{pct_ok}% del total"),
+            _kpi("Alertas (sin finalizar)",    sin_fin, "numero", color="#dc2626", sub=f"{pct_alert}% del total"),
+            _kpi("Monto facturado",            int(monto or 0), "moneda"),
         ],
-        "tip": "Servicios menores a 5 minutos en B2B son señal de fraude (no recogió, no entregó). El módulo Pibox tiene la validación completa con foto y GPS."
+        "tip": "Las auditorías comerciales revisan que los servicios facturados cumplan tarifa y SLA. Las 'alertas' aquí son servicios sin evento de finalización registrado (event_cd 24). Detalle completo y tarifa por empresa en el módulo Auditorías."
+    }
+
+def _resumen_pibox(ch, desde, hasta, pais_iso):
+    """Pibox B2B — bookings con company_id, detectando los anormalmente cortos
+    (señal de fraude: no recogió/no entregó). El tiempo de servicio se mide
+    entre evento 'recogido' (event_cd=22) y 'finalizado' (event_cd=24).
+    Si no hay evento 24, usamos updated_at como aproximación."""
+    extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
+    sql = f"""
+    WITH base AS (
+        SELECT
+            b._id,
+            b.company_id,
+            toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100 AS monto,
+            parseDateTimeBestEffortOrNull(
+                extract(COALESCE(b.events,''), 'event_cd":22.*?created_at":"([^"]+)')
+            ) AS ev_recogido,
+            parseDateTimeBestEffortOrNull(
+                extract(COALESCE(b.events,''), 'event_cd":24.*?created_at":"([^"]+)')
+            ) AS ev_finalizado,
+            b.updated_at
+        FROM picapmongoprod.bookings b
+        WHERE b.created_at >= toDateTime('{desde} 00:00:00')
+          AND b.created_at <= toDateTime('{hasta} 23:59:59')
+          AND b.status_cd IN (4, 107, 108)
+          AND b.company_id IS NOT NULL AND b.company_id != ''{extra}
+    )
+    SELECT
+        count() AS total,
+        countIf(
+            ev_recogido IS NOT NULL AND
+            dateDiff('minute', ev_recogido, ifNull(ev_finalizado, updated_at)) < 5
+        ) AS muy_cortos,
+        countIf(ev_recogido IS NULL OR ev_finalizado IS NULL) AS sin_eventos,
+        round(sum(monto), 0) AS monto_total
+    FROM base
+    """
+    r = ch.query(sql).result_rows
+    total, cortos, sin_ev, monto = (r[0] if r else (0, 0, 0, 0))
+    total = int(total or 0); cortos = int(cortos or 0); sin_ev = int(sin_ev or 0)
+    pct_cortos = round(cortos / total * 100, 2) if total else 0
+    pct_sin    = round(sin_ev / total * 100, 2) if total else 0
+    return {
+        "kpis": [
+            _kpi("Servicios Pibox B2B totales",   total, "numero"),
+            _kpi("Anormalmente cortos (<5 min)",  cortos, "numero", color="#dc2626", sub=f"{pct_cortos}% del total"),
+            _kpi("Sin evento de inicio/fin",       sin_ev, "numero", color="#ca8a04", sub=f"{pct_sin}% del total"),
+            _kpi("Monto facturado",                int(monto or 0), "moneda"),
+        ],
+        "tip": "Servicios menores a 5 minutos en B2B son señal de fraude (el piloto no recogió ni entregó realmente). El módulo Pibox valida también con foto y GPS para confirmar."
     }
 
 def _resumen_recaudos(ch, desde, hasta, pais_iso):
-    """Recaudos — wallet_account_transactions tipo CounterDeliveryTransaction.
-    Es la misma fuente del módulo /api/recaudos."""
+    """Recaudos — replica simplificada de /api/recaudos.
+    Clasifica cada booking según balance_neto:
+      • balance = 0           → Correcto
+      • balance > 0           → Pagado de más (Picap debe al piloto)
+      • balance < 0           → Debe dinero (piloto debe a Picap)
+      • muchas tx con balance ≈ 0 → Revisar
+    """
     sql = f"""
+    WITH agregado AS (
+        SELECT
+            booking_id,
+            sumIf(toFloat64OrNull(JSONExtractString(amount,'cents'))/100,
+                  toFloat64OrNull(JSONExtractString(amount,'cents')) < 0) AS suma_neg,
+            sumIf(toFloat64OrNull(JSONExtractString(amount,'cents'))/100,
+                  toFloat64OrNull(JSONExtractString(amount,'cents')) > 0) AS suma_pos,
+            countIf(toFloat64OrNull(JSONExtractString(amount,'cents')) < 0) AS cnt_neg,
+            countIf(toFloat64OrNull(JSONExtractString(amount,'cents')) > 0) AS cnt_pos,
+            count() AS cnt_total
+        FROM picapmongoprod.wallet_account_transactions
+        WHERE _type = 'WalletAccountCounterDeliveryTransaction'
+          AND created_at >= toDateTime('{desde} 00:00:00')
+          AND created_at <= toDateTime('{hasta} 23:59:59')
+        GROUP BY booking_id
+    )
     SELECT
-        countDistinct(booking_id)                                                AS bookings,
-        round(sumIf(abs(toFloat64OrNull(JSONExtractString(amount,'cents'))/100),
-                    toFloat64OrNull(JSONExtractString(amount,'cents')) < 0), 0) AS abonado,
-        round(sumIf(toFloat64OrNull(JSONExtractString(amount,'cents'))/100,
-                    toFloat64OrNull(JSONExtractString(amount,'cents')) > 0), 0) AS recaudado
-    FROM picapmongoprod.wallet_account_transactions
-    WHERE _type = 'WalletAccountCounterDeliveryTransaction'
-      AND created_at >= toDateTime('{desde} 00:00:00')
-      AND created_at <= toDateTime('{hasta} 23:59:59')
+        count() AS total,
+        countIf(cnt_pos > 0 AND cnt_neg > 0
+                AND abs(suma_pos + suma_neg) < 0.01
+                AND cnt_total > 2)                                              AS revisar,
+        countIf(NOT (cnt_pos > 0 AND cnt_neg > 0
+                     AND abs(suma_pos + suma_neg) < 0.01
+                     AND cnt_total > 2)
+                AND (suma_pos + suma_neg) = 0)                                  AS correcto,
+        countIf(NOT (cnt_pos > 0 AND cnt_neg > 0
+                     AND abs(suma_pos + suma_neg) < 0.01
+                     AND cnt_total > 2)
+                AND (suma_pos + suma_neg) > 0)                                  AS pagado_demas,
+        countIf(NOT (cnt_pos > 0 AND cnt_neg > 0
+                     AND abs(suma_pos + suma_neg) < 0.01
+                     AND cnt_total > 2)
+                AND (suma_pos + suma_neg) < 0)                                  AS debe,
+        round(sumIf(suma_pos + suma_neg, (suma_pos + suma_neg) > 0), 0)         AS valor_pagado_demas,
+        round(sumIf(abs(suma_pos + suma_neg), (suma_pos + suma_neg) < 0), 0)    AS valor_debe
+    FROM agregado
     """
     r = ch.query(sql).result_rows
-    bk, abo, rec = (r[0] if r else (0, 0, 0))
+    total, rev, ok, demas, debe, v_demas, v_debe = (r[0] if r else (0,0,0,0,0,0,0))
+    total = int(total or 0); rev=int(rev or 0); ok=int(ok or 0)
+    demas=int(demas or 0); debe=int(debe or 0)
+    pct_ok    = round(ok    / total * 100, 1) if total else 0
+    pct_demas = round(demas / total * 100, 1) if total else 0
+    pct_debe  = round(debe  / total * 100, 1) if total else 0
+    pct_rev   = round(rev   / total * 100, 1) if total else 0
+    alertas   = demas + debe + rev  # cualquier balance ≠ 0 es una alerta
+    pct_alert = round(alertas / total * 100, 1) if total else 0
     return {
         "kpis": [
-            _kpi("Bookings con recaudo",     int(bk  or 0), "numero"),
-            _kpi("Total recaudado piloto",   int(rec or 0), "moneda"),
-            _kpi("Total abonado a Picap",    int(abo or 0), "moneda"),
+            _kpi("Bookings auditados",          total,   "numero"),
+            _kpi("Correctos (balance = 0)",     ok,      "numero", sub=f"{pct_ok}% del total"),
+            _kpi("Total con alertas",           alertas, "numero", color="#dc2626", sub=f"{pct_alert}% del total"),
+            _kpi("• Pagado de más (Picap debe)", demas,  "numero", color="#ca8a04", sub=f"{pct_demas}% · ${int(v_demas or 0):,}"),
+            _kpi("• Debe dinero (piloto debe)",  debe,   "numero", color="#dc2626", sub=f"{pct_debe}% · ${int(v_debe or 0):,}"),
+            _kpi("• Revisar manual",             rev,    "numero", color="#ca8a04", sub=f"{pct_rev}% del total"),
         ],
-        "tip": "Los recaudos en efectivo deben coincidir con los abonos posteriores del piloto. El módulo Recaudos clasifica cada booking en Correcto / Pagado de más / Debe / Revisar."
+        "tip": "Cada booking con recaudo tiene transacciones positivas (recaudo del cliente) y negativas (abono al piloto). Si la suma neta es 0 está correcto; si > 0 Picap le debe al piloto, si < 0 el piloto debe pagar a Picap. Los 'Revisar' son casos atípicos con muchas transacciones."
     }
 
 def _resumen_cedula(ch, desde, hasta, pais_iso):
-    """Alertas de cédula — la tabla puede no existir en todos los entornos.
-    Devolvemos 0 silenciosamente si no existe."""
+    """Alertas de cédula — reutiliza la query oficial _Q_CEDULA_AGG que ya
+    funciona en el módulo Cédula. Las alertas son cuando la cédula del
+    Rekognition (foto) != cédula extraída de antecedentes policiales."""
+    filtro_pais = f"AND p.g_country = '{pais_iso}'" if pais_iso else ""
     try:
-        sql = f"""
-        SELECT
-            count()                                          AS total,
-            countIf(severidad = 'ALTA')                      AS criticas,
-            countIf(severidad IN ('MEDIA','REVISAR'))        AS para_revisar
-        FROM picapmongoprod.alertas_cedula
-        WHERE procesado_en >= toDateTime('{desde} 00:00:00')
-          AND procesado_en <= toDateTime('{hasta} 23:59:59')
-        """
-        r = ch.query(sql).result_rows
-        total, crit, rev = (r[0] if r else (0, 0, 0))
+        sql = _Q_CEDULA_AGG.format(desde=desde, hasta=hasta, filtro_pais=filtro_pais)
+        rows = ch.query(sql).result_rows
+        total   = sum(int(r[1] or 0) for r in rows)   # total_dia
+        alertas = sum(int(r[2] or 0) for r in rows)   # alertas_dia
     except Exception:
-        total, crit, rev = (0, 0, 0)
+        total, alertas = 0, 0
+    ok = max(0, total - alertas)
+    pct_a  = round(alertas / total * 100, 2) if total else 0
+    pct_ok = round(ok / total * 100, 1) if total else 0
     return {
         "kpis": [
-            _kpi("Alertas de cédula",   int(total or 0), "numero"),
-            _kpi("Críticas (alta)",     int(crit  or 0), "numero", color="#dc2626"),
-            _kpi("Para revisar",        int(rev   or 0), "numero", color="#ca8a04"),
+            _kpi("Cuentas con cédula validada", total,   "numero"),
+            _kpi("Coinciden (foto = registro)",  ok,     "numero",                  sub=f"{pct_ok}% del total"),
+            _kpi("Alertas (no coinciden)",       alertas, "numero", color="#dc2626", sub=f"{pct_a}% del total"),
         ],
-        "tip": "SAC y Activaciones deben validar las críticas en menos de 24h. Las medias se procesan en lote semanal."
+        "tip": "Compara la cédula extraída con OCR de la foto vs la cédula registrada en antecedentes policiales. Una diferencia indica suplantación o cuenta falsa. SAC + Activaciones deben validar las alertas en menos de 24h."
     }
 
 

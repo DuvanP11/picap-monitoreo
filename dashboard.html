@@ -7442,12 +7442,19 @@ function renderResumenGeneral() {
               </div>
             </div>`;
         }
-        const kpisHtml = (m.kpis||[]).map(k => `
-          <div class="rg-kpi">
-            <div class="rg-kpi-label">${k.label}</div>
-            <div class="rg-kpi-value ${_rgKpiClass(k)}">${_rgFmtValor(k)}</div>
-          </div>
-        `).join('');
+        const kpisHtml = (m.kpis||[]).map(k => {
+          const subHtml = k.sub
+            ? `<div style="font-size:10px;color:var(--text3);text-align:right;margin-top:-2px">${(k.sub||'').replace(/</g,'&lt;')}</div>`
+            : '';
+          return `
+            <div class="rg-kpi">
+              <div class="rg-kpi-label">${k.label}</div>
+              <div style="text-align:right">
+                <div class="rg-kpi-value ${_rgKpiClass(k)}">${_rgFmtValor(k)}</div>
+                ${subHtml}
+              </div>
+            </div>`;
+        }).join('');
         const tipHtml = m.tip ? `<div class="rg-tip">💡 ${m.tip}</div>` : '';
         return `
           <div class="rg-card">
