@@ -2100,21 +2100,71 @@ CREATE TABLE IF NOT EXISTS picapmongoprod.dashboard_recursos (
     creado_por      String,
     creado_en       DateTime DEFAULT now(),
     actualizado_en  DateTime DEFAULT now(),
-    activo          UInt8    DEFAULT 1
+    activo          UInt8    DEFAULT 1,
+    visibilidad     String   DEFAULT 'publico',   -- publico | privado
+    compartido_con  String   DEFAULT ''           -- emails separados por coma, en minúscula
 ) ENGINE = ReplacingMergeTree(actualizado_en)
 ORDER BY (id)
 """
 
 _RECURSOS_INSERT_COLS = ["id","titulo","descripcion","tipo","subtipo","categoria",
                          "contenido","url","tags","creado_por","creado_en",
-                         "actualizado_en","activo"]
+                         "actualizado_en","activo","visibilidad","compartido_con"]
 
 def _init_recursos_table():
     try:
         ch = get_client()
         ch.command(_RECURSOS_TABLE)
+        # Migración idempotente: agrega las columnas de compartir si la tabla
+        # se creó antes de existir el feature. Si ya existen, no hace nada.
+        for ddl in [
+            "ALTER TABLE picapmongoprod.dashboard_recursos ADD COLUMN IF NOT EXISTS visibilidad String DEFAULT 'publico'",
+            "ALTER TABLE picapmongoprod.dashboard_recursos ADD COLUMN IF NOT EXISTS compartido_con String DEFAULT ''",
+        ]:
+            try: ch.command(ddl)
+            except Exception as _e: print(f"[recursos] migrate skip: {_e}")
     except Exception as e:
         print(f"[recursos] Error creando tabla: {e}")
+
+def _obtener_email_usuario(usuario):
+    """Resuelve el email actual de un usuario consultando dashboard_users.
+    Devuelve string vacío si no encontrado. Cacheable a futuro si se vuelve
+    crítico, hoy se invoca solo al listar/compartir."""
+    if not usuario: return ''
+    try:
+        ch = get_client()
+        u_safe = usuario.replace("'", "''")
+        r = ch.query(
+            f"SELECT email FROM picapmongoprod.dashboard_users FINAL "
+            f"WHERE usuario = '{u_safe}' LIMIT 1"
+        ).result_rows
+        return (r[0][0] or '').strip().lower() if r else ''
+    except Exception:
+        return ''
+
+def _emails_compartidos(s):
+    """Convierte el string `compartido_con` (csv) en lista limpia, lowercase, sin duplicados."""
+    if not s: return []
+    out = []
+    seen = set()
+    for raw in s.split(','):
+        e = (raw or '').strip().lower()
+        if e and e not in seen:
+            out.append(e); seen.add(e)
+    return out
+
+def _puede_ver_recurso(recurso, sesion, email_actual):
+    """Reglas de visibilidad:
+       - admin: ve todo (para poder gestionar)
+       - visibilidad 'publico' (o vacío): cualquier sesión válida
+       - visibilidad 'privado': solo creador (por usuario) + emails compartidos
+    """
+    if not sesion: return False
+    if sesion.get('rol') == 'admin': return True
+    vis = (recurso.get('visibilidad') or 'publico').lower()
+    if vis != 'privado': return True
+    if recurso.get('creado_por') == sesion.get('usuario'): return True
+    return bool(email_actual) and email_actual in _emails_compartidos(recurso.get('compartido_con',''))
 
 def _recurso_normalizar(data):
     """Normaliza payload entrante. Devuelve (dict, error)."""
@@ -2128,21 +2178,36 @@ def _recurso_normalizar(data):
     # subtipo es opcional pero, si viene, debe ser válido
     if subtipo and subtipo not in _RECURSOS_SUBTIPOS:
         return None, f"Subtipo inválido. Usa uno de: {', '.join(sorted(_RECURSOS_SUBTIPOS))}"
+    vis = (data.get('visibilidad') or 'publico').strip().lower()
+    if vis not in ('publico','privado'):
+        vis = 'publico'
+    # compartido_con: acepta lista o string CSV; se almacena como CSV en minúsculas
+    raw = data.get('compartido_con')
+    if isinstance(raw, list):
+        emails = ','.join([str(x) for x in raw])
+    else:
+        emails = str(raw or '')
+    compartidos = ','.join(_emails_compartidos(emails))[:2000]
     return {
-        'titulo':      titulo[:200],
-        'descripcion': (data.get('descripcion') or '').strip()[:2000],
-        'tipo':        tipo,
-        'subtipo':     subtipo,
-        'categoria':   (data.get('categoria') or '').strip()[:100],
-        'contenido':   (data.get('contenido') or ''),  # sin tope: queries grandes
-        'url':         (data.get('url') or '').strip()[:1000],
-        'tags':        (data.get('tags') or '').strip()[:500],
+        'titulo':         titulo[:200],
+        'descripcion':    (data.get('descripcion') or '').strip()[:2000],
+        'tipo':           tipo,
+        'subtipo':        subtipo,
+        'categoria':      (data.get('categoria') or '').strip()[:100],
+        'contenido':      (data.get('contenido') or ''),  # sin tope: queries grandes
+        'url':            (data.get('url') or '').strip()[:1000],
+        'tags':           (data.get('tags') or '').strip()[:500],
+        'visibilidad':    vis,
+        'compartido_con': compartidos,
     }, None
 
 
 @app.route("/api/recursos", methods=["GET"])
 def recursos_list():
-    """Lista todos los recursos activos. Cualquier sesión válida puede leer."""
+    """Lista recursos activos visibles para la sesión actual.
+       - admin: ve todo
+       - resto: ve los públicos + los privados donde sea creador o esté
+                listado en compartido_con (por email)."""
     token = request.headers.get("X-Token", "")
     s = _verificar_sesion(None, token)
     if not s:
@@ -2173,7 +2238,8 @@ def recursos_list():
         rows = ch.query(f"""
             SELECT id, titulo, descripcion, tipo, subtipo, categoria,
                    contenido, url, tags, creado_por,
-                   creado_en, actualizado_en, activo
+                   creado_en, actualizado_en, activo,
+                   visibilidad, compartido_con
             FROM picapmongoprod.dashboard_recursos FINAL
             WHERE {' AND '.join(where)}
             ORDER BY actualizado_en DESC
@@ -2181,7 +2247,9 @@ def recursos_list():
         """).result_rows
         cols = ["id","titulo","descripcion","tipo","subtipo","categoria",
                 "contenido","url","tags","creado_por","creado_en",
-                "actualizado_en","activo"]
+                "actualizado_en","activo","visibilidad","compartido_con"]
+        # Email del usuario actual (para chequear privados compartidos)
+        email_actual = _obtener_email_usuario(s.get('usuario',''))
         recursos = []
         cats = set()
         for r in rows:
@@ -2189,9 +2257,21 @@ def recursos_list():
             d['creado_en']      = d['creado_en'].strftime("%Y-%m-%d %H:%M") if d['creado_en'] else ''
             d['actualizado_en'] = d['actualizado_en'].strftime("%Y-%m-%d %H:%M") if d['actualizado_en'] else ''
             d['activo']         = int(d['activo'])
+            d['visibilidad']    = (d.get('visibilidad') or 'publico').lower() or 'publico'
+            d['compartido_con'] = d.get('compartido_con') or ''
+            if not _puede_ver_recurso(d, s, email_actual):
+                continue
+            # Lista limpia para el frontend
+            d['compartido_emails'] = _emails_compartidos(d['compartido_con'])
+            d['es_propio']         = (d['creado_por'] == s.get('usuario'))
             if d['categoria']: cats.add(d['categoria'])
             recursos.append(d)
-        return jsonify({"ok": True, "recursos": recursos, "categorias": sorted(cats)})
+        return jsonify({
+            "ok": True,
+            "recursos": recursos,
+            "categorias": sorted(cats),
+            "yo": {"usuario": s.get('usuario'), "email": email_actual, "rol": s.get('rol')}
+        })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -2215,7 +2295,8 @@ def recursos_create():
         ch.insert("picapmongoprod.dashboard_recursos",
             [[rid, norm['titulo'], norm['descripcion'], norm['tipo'], norm['subtipo'],
               norm['categoria'], norm['contenido'], norm['url'], norm['tags'],
-              s.get('usuario',''), ahora, ahora, 1]],
+              s.get('usuario',''), ahora, ahora, 1,
+              norm['visibilidad'], norm['compartido_con']]],
             column_names=_RECURSOS_INSERT_COLS)
         return jsonify({"ok": True, "id": rid})
     except Exception as e:
@@ -2238,21 +2319,27 @@ def recursos_update(rid):
     try:
         _init_recursos_table()
         ch = get_client()
-        # Conservamos creado_en y creado_por del registro original
+        # Conservamos creado_en, creado_por y los campos de compartir si el
+        # cliente no los envía (la edición del formulario no los toca).
         r = ch.query(f"""
-            SELECT creado_por, creado_en, activo
+            SELECT creado_por, creado_en, activo, visibilidad, compartido_con
             FROM picapmongoprod.dashboard_recursos FINAL
             WHERE id = '{rid}' LIMIT 1
         """).result_rows
         if not r:
             return jsonify({"ok": False, "error": "Recurso no encontrado"}), 404
-        creado_por, creado_en, activo = r[0]
+        creado_por, creado_en, activo, vis_db, comp_db = r[0]
+        # Si el payload no envió visibilidad/compartido_con, preservar lo que
+        # ya estaba en BD (para que editar el contenido no reabra el acceso).
+        vis_final  = norm['visibilidad']    if 'visibilidad'    in (data or {}) else (vis_db or 'publico')
+        comp_final = norm['compartido_con'] if 'compartido_con' in (data or {}) else (comp_db or '')
         ahora = datetime.utcnow()
         ch.insert("picapmongoprod.dashboard_recursos",
             [[rid, norm['titulo'], norm['descripcion'], norm['tipo'], norm['subtipo'],
               norm['categoria'], norm['contenido'], norm['url'], norm['tags'],
               creado_por or s.get('usuario',''),
-              creado_en, ahora, int(activo) if activo is not None else 1]],
+              creado_en, ahora, int(activo) if activo is not None else 1,
+              vis_final, comp_final]],
             column_names=_RECURSOS_INSERT_COLS)
         return jsonify({"ok": True})
     except Exception as e:
@@ -2272,6 +2359,67 @@ def recursos_delete(rid):
         ch = get_client()
         ch.command(f"ALTER TABLE picapmongoprod.dashboard_recursos DELETE WHERE id = '{rid}'")
         return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/recursos/<rid>/share", methods=["POST"])
+def recursos_share(rid):
+    """Define la lista completa de personas con acceso al recurso (cuando es privado).
+    Body: {"visibilidad": "publico"|"privado", "emails": ["a@x.com", ...]}.
+    Solo admins. Si visibilidad=publico, los emails compartidos se preservan
+    pero no son necesarios (cualquier sesión válida ya ve el recurso).
+    Si el email no existe en dashboard_users, igual se acepta — cuando esa
+    persona se registre con ese mail, automáticamente verá el recurso."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get('rol') != 'admin':
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    if not all(c in '0123456789abcdef-' for c in rid.lower()):
+        return jsonify({"ok": False, "error": "ID inválido"}), 400
+    data = request.get_json(silent=True) or {}
+    vis = (data.get('visibilidad') or 'privado').strip().lower()
+    if vis not in ('publico','privado'):
+        vis = 'privado'
+    raw_emails = data.get('emails') or []
+    if isinstance(raw_emails, str):
+        raw_emails = [e for e in raw_emails.split(',')]
+    # Validación básica de formato de email
+    emails_validos = []
+    invalidos = []
+    for e in raw_emails:
+        e2 = (e or '').strip().lower()
+        if not e2: continue
+        if '@' in e2 and '.' in e2.split('@')[-1] and len(e2) <= 254:
+            emails_validos.append(e2)
+        else:
+            invalidos.append(e)
+    if invalidos:
+        return jsonify({"ok": False, "error": f"Emails inválidos: {', '.join(invalidos)}"}), 400
+    compartidos_csv = ','.join(_emails_compartidos(','.join(emails_validos)))[:2000]
+    try:
+        _init_recursos_table()
+        ch = get_client()
+        cols = ["titulo","descripcion","tipo","subtipo","categoria","contenido","url",
+                "tags","creado_por","creado_en","activo"]
+        r = ch.query(f"""
+            SELECT {', '.join(cols)}
+            FROM picapmongoprod.dashboard_recursos FINAL
+            WHERE id = '{rid}' LIMIT 1
+        """).result_rows
+        if not r:
+            return jsonify({"ok": False, "error": "Recurso no encontrado"}), 404
+        row = dict(zip(cols, r[0]))
+        ahora = datetime.utcnow()
+        ch.insert("picapmongoprod.dashboard_recursos",
+            [[rid, row['titulo'], row['descripcion'], row['tipo'], row['subtipo'],
+              row['categoria'], row['contenido'], row['url'], row['tags'],
+              row['creado_por'], row['creado_en'], ahora,
+              int(row['activo']) if row['activo'] is not None else 1,
+              vis, compartidos_csv]],
+            column_names=_RECURSOS_INSERT_COLS)
+        return jsonify({"ok": True, "visibilidad": vis,
+                        "compartido_con": _emails_compartidos(compartidos_csv)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 

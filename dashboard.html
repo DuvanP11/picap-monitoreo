@@ -2753,6 +2753,55 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     </div>
   </div>
 
+  <!-- Modal compartir recurso -->
+  <div id="rec-share-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px">
+    <div style="background:var(--surface);border-radius:14px;padding:20px 22px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--text1)">🔗 Compartir recurso</div>
+          <div id="rec-share-titulo" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
+        </div>
+        <button onclick="recCerrarShare()" style="background:transparent;border:none;font-size:20px;color:var(--text3);cursor:pointer;line-height:1">✕</button>
+      </div>
+
+      <div style="background:#f9fafb;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Visibilidad</div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text2);margin-bottom:6px;cursor:pointer">
+          <input type="radio" name="rec-share-vis" value="publico" id="rec-share-vis-publico" style="margin-top:2px">
+          <div>
+            <strong>🌐 Público</strong> — cualquier persona con sesión válida puede verlo.
+          </div>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text2);cursor:pointer">
+          <input type="radio" name="rec-share-vis" value="privado" id="rec-share-vis-privado" style="margin-top:2px">
+          <div>
+            <strong>🔒 Privado</strong> — solo el creador y los correos listados abajo.
+          </div>
+        </label>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Personas con acceso</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input id="rec-share-email" type="email" placeholder="pepito_perez@pibox.app"
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); recAgregarEmailLocal()}"
+            style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="recAgregarEmailLocal()">+ Agregar</button>
+        </div>
+        <div id="rec-share-lista" style="display:flex;flex-direction:column;gap:4px"></div>
+        <div id="rec-share-empty" style="font-size:11px;color:var(--text3);font-style:italic;padding:6px 0">Sin correos compartidos.</div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <span id="rec-share-msg" style="font-size:11px;color:#dc2626"></span>
+        <div style="display:flex;gap:8px">
+          <button class="apply-btn" style="background:#9ca3af" onclick="recCerrarShare()">Cancelar</button>
+          <button class="apply-btn" style="background:#16a34a" onclick="recGuardarShare()">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- ══ VISTA: PAGOS — Tarjeta de Crédito + PromoCode ══ -->
   <div class="view" id="view-pagos">
@@ -6237,6 +6286,9 @@ const _REC_TIPO_LABEL  = {query:'🔍 Query', enlace:'🔗 Enlace', excel:'📊 
 const _REC_TIPO_COLOR  = {query:'#0e7490', enlace:'#1d4ed8', excel:'#047857', nota:'#b45309'};
 let _recursos = [];
 let _recCategorias = [];
+let _recYo = {usuario:'', email:'', rol:''};
+// Estado del modal de compartir (id del recurso + lista de emails actuales)
+let _recShareState = {id:'', titulo:'', emails:[], visibilidad:'publico'};
 
 function recOnTipoChange() {
   const tipo = document.getElementById('rec-tipo').value || 'query';
@@ -6400,6 +6452,7 @@ async function cargarRecursos() {
     if (!d.ok) throw new Error(d.error || 'Error');
     _recursos     = d.recursos || [];
     _recCategorias = d.categorias || [];
+    _recYo        = d.yo || {usuario:'', email:'', rol:''};
     // Datalist para autocompletar categoría en el formulario
     const dl = document.getElementById('rec-categoria-list');
     if (dl) dl.innerHTML = _recCategorias.map(c => `<option value="${(c||'').replace(/"/g,'&quot;')}">`).join('');
@@ -6461,28 +6514,136 @@ function renderRecursosLista() {
          </details>`
       : '';
     const tituloEsc = (r.titulo||'').replace(/'/g,'').replace(/"/g,'');
+    const esAdmin = _recYo && _recYo.rol === 'admin';
+    const visBadge = (r.visibilidad === 'privado')
+      ? `<span title="${(r.compartido_emails||[]).length} persona(s) con acceso" style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">🔒 PRIVADO</span>`
+      : `<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">🌐 PÚBLICO</span>`;
+    const compartidosHtml = (r.compartido_emails && r.compartido_emails.length)
+      ? `<div style="font-size:10px;color:var(--text3);margin-top:4px">🔗 Compartido con: ${r.compartido_emails.map(e => `<span style="background:#ede9fe;color:#5a2bb8;padding:1px 6px;border-radius:4px;margin-right:3px">${(e||'').replace(/</g,'&lt;')}</span>`).join('')}</div>`
+      : '';
+    const btnsAdmin = esAdmin ? `
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#7c3aed" onclick="recAbrirShare('${r.id}')">🔗 Compartir</button>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="recEditar('${r.id}')">✎ Editar</button>
+          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#dc2626" onclick="recEliminar('${r.id}', '${tituloEsc}')">🗑 Eliminar</button>` : '';
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
         <div style="flex:1;min-width:240px">
           <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(r.titulo||'').replace(/</g,'&lt;')}
             <span style="background:${color}22;color:${color};padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px">${label}${subLabel?' · '+subLabel:''}</span>
             ${r.categoria?`<span style="background:#ede9fe;color:#5a2bb8;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600;margin-left:4px">${(r.categoria||'').replace(/</g,'&lt;')}</span>`:''}
+            ${visBadge}
           </div>
           ${r.descripcion ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px">${(r.descripcion||'').replace(/</g,'&lt;')}</div>` : ''}
           <div style="font-size:10px;color:var(--text3)">👤 ${r.creado_por||'—'} · 🕒 ${r.actualizado_en||r.creado_en||''}</div>
           ${tagsHtml ? `<div style="margin-top:4px">${tagsHtml}</div>` : ''}
+          ${compartidosHtml}
           ${urlHtml}
           ${contenidoHtml}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#0ea5e9" onclick="recCopiar('${r.id}')">📋 Copiar</button>
-          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="recEditar('${r.id}')">✎ Editar</button>
-          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#dc2626" onclick="recEliminar('${r.id}', '${tituloEsc}')">🗑 Eliminar</button>
+          ${btnsAdmin}
         </div>
       </div>
     </div>`;
   }).join('');
   cont.innerHTML = html;
+}
+
+// ──────────────────────────────────────────────────────
+// Modal: compartir un recurso con uno o más correos.
+// ──────────────────────────────────────────────────────
+function recAbrirShare(id) {
+  const r = _recursos.find(x => x.id === id);
+  if (!r) return;
+  _recShareState = {
+    id: r.id,
+    titulo: r.titulo || '',
+    emails: (r.compartido_emails || []).slice(),
+    visibilidad: r.visibilidad || 'publico'
+  };
+  document.getElementById('rec-share-titulo').textContent = `“${r.titulo||''}”`;
+  document.getElementById('rec-share-vis-publico').checked = (_recShareState.visibilidad !== 'privado');
+  document.getElementById('rec-share-vis-privado').checked = (_recShareState.visibilidad === 'privado');
+  document.getElementById('rec-share-email').value = '';
+  document.getElementById('rec-share-msg').textContent = '';
+  _recRenderShareLista();
+  document.getElementById('rec-share-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('rec-share-email').focus(), 50);
+}
+
+function recCerrarShare() {
+  document.getElementById('rec-share-modal').style.display = 'none';
+}
+
+function _recRenderShareLista() {
+  const cont  = document.getElementById('rec-share-lista');
+  const empty = document.getElementById('rec-share-empty');
+  if (!cont) return;
+  if (!_recShareState.emails.length) {
+    cont.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  cont.innerHTML = _recShareState.emails.map((e, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;background:#ede9fe;border-radius:6px;padding:5px 10px">
+      <span style="font-size:12px;color:#3b1f6b;font-family:monospace">${(e||'').replace(/</g,'&lt;')}</span>
+      <button onclick="recQuitarEmailLocal(${i})" title="Quitar acceso"
+        style="background:transparent;border:none;color:#7c2d12;cursor:pointer;font-size:14px;line-height:1">✕</button>
+    </div>
+  `).join('');
+}
+
+function recAgregarEmailLocal() {
+  const inp = document.getElementById('rec-share-email');
+  const msg = document.getElementById('rec-share-msg');
+  const e = (inp.value || '').trim().toLowerCase();
+  msg.style.color = '#dc2626';
+  if (!e) { msg.textContent = 'Escribe un correo'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { msg.textContent = 'Correo inválido'; return; }
+  if (_recShareState.emails.includes(e)) { msg.textContent = 'Ese correo ya está en la lista'; return; }
+  _recShareState.emails.push(e);
+  inp.value = '';
+  msg.textContent = '';
+  // Si el admin agrega un email pero la visibilidad estaba pública, sugerimos
+  // pasarla a privada (compartir solo tiene sentido cuando es privado).
+  if (_recShareState.visibilidad !== 'privado') {
+    document.getElementById('rec-share-vis-privado').checked = true;
+    _recShareState.visibilidad = 'privado';
+  }
+  _recRenderShareLista();
+  inp.focus();
+}
+
+function recQuitarEmailLocal(idx) {
+  _recShareState.emails.splice(idx, 1);
+  _recRenderShareLista();
+}
+
+async function recGuardarShare() {
+  const msg = document.getElementById('rec-share-msg');
+  const vis = document.querySelector('input[name="rec-share-vis"]:checked')?.value || 'publico';
+  msg.style.color = '#6b7280';
+  msg.textContent = 'Guardando...';
+  try {
+    const r = await fetch(`${API}/api/recursos/${encodeURIComponent(_recShareState.id)}/share`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Token': _sesionToken},
+      body: JSON.stringify({visibilidad: vis, emails: _recShareState.emails})
+    });
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    msg.style.color = '#16a34a';
+    msg.textContent = '✓ Acceso actualizado';
+    setTimeout(() => {
+      recCerrarShare();
+      cargarRecursos();
+    }, 600);
+  } catch (err) {
+    msg.style.color = '#dc2626';
+    msg.textContent = '❌ ' + err.message;
+  }
 }
 
 
