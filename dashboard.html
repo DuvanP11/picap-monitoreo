@@ -117,11 +117,16 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .apply-btn:hover{background:var(--purple2);}
 
 /* ── KPI GRID ─────────────────────────────── */
-.kpi-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:18px;}
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;position:relative;overflow:hidden;}
-.kpi-label{font-size:11px;color:var(--text2);margin-bottom:7px;line-height:1.35;}
-.kpi-value{font-size:26px;font-weight:700;line-height:1;}
-.kpi-sub{font-size:11px;color:var(--text3);margin-top:5px;}
+/* Las KPIs se agrupan en secciones visuales: Volumen | Pilotos | Dinero.
+   En desktop muestra todas en una fila (7 cols); en medio se acomoda a 3+2+2 vía auto-fit. */
+.kpi-grid{display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;}
+.kpi-section{flex:1;min-width:240px;background:var(--surface2);border-radius:var(--radius);padding:10px 12px 12px;}
+.kpi-section-title{font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:5px;}
+.kpi-section-cards{display:grid;gap:8px;}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 14px;position:relative;overflow:hidden;}
+.kpi-label{font-size:11px;color:var(--text2);margin-bottom:6px;line-height:1.35;display:flex;align-items:center;gap:4px;}
+.kpi-value{font-size:24px;font-weight:700;line-height:1;}
+.kpi-sub{font-size:10px;color:var(--text3);margin-top:4px;line-height:1.3;}
 .kpi-accent{position:absolute;bottom:0;left:0;height:3px;width:100%;}
 .kpi.danger .kpi-value{color:var(--red);}
 .kpi.warn   .kpi-value{color:var(--amber);}
@@ -1630,8 +1635,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
             </div>
             <div style="font-size:11px;color:var(--text3);margin-top:4px;line-height:1.45">
               ¿Cuántos conductores con evasión <strong>ya pagaron</strong> y cuántos siguen <strong>en deuda</strong>?
-              Aquí ves cuánto dinero se ha recuperado de las penalidades cobradas.
-              <span style="color:#5a2bb8" title="La penalidad = comisión evadida + 5%. Se carga al wallet del conductor en negativo y se descuenta de sus próximos cobros.">ⓘ ¿Cómo funciona?</span>
+              <strong style="color:#16a34a">Este panel muestra TODOS los evasores</strong> (no solo el top 10).
+              <span style="color:#5a2bb8;cursor:help" title="La penalidad = comisión evadida + 5%. Se carga al wallet del conductor en negativo y se descuenta de sus próximos cobros.">ⓘ ¿Cómo funciona?</span>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -1662,9 +1667,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
               📈 Recuperación de Penalidades — Top 10 Evasores
             </div>
             <div style="font-size:11px;color:var(--text3);margin-top:4px;line-height:1.45">
-              Para los 10 conductores con más evasiones: <strong>cuánto debían</strong>, <strong>cuánto ya pagaron</strong> y el <strong>% recuperado</strong>.
-              Útil para priorizar gestiones de cobro.
-              <em>Cambia con el rango de fechas y el país.</em>
+              Para los <strong>10 conductores con más evasiones</strong>: cuánto debían, cuánto ya pagaron y el % recuperado.
+              <span style="color:#5a2bb8">⚠ Estos totales son del top 10 únicamente</span> — para ver TODOS los evasores ve al panel <strong>Estado de cobros en Wallet</strong>.
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
@@ -3650,45 +3654,60 @@ function renderKPIs(k, op){
   // Penalidad viene calculada por ClickHouse directamente (comision_mas_penalizacion)
   const penalidad = k.penalizacion_evadida_cop || 0;
 
-  // KPIs principales del módulo. Antes había "Evasión probable" como
-  // categoría separada — se retiró por solicitud del operador. Ahora se
-  // muestran solo los conteos accionables (servicios, pilotos, dinero).
+  // KPIs agrupados en 3 secciones visuales: Volumen, Pilotos, Dinero.
+  // Etiquetas cortas y directas. Cada KPI tiene un tooltip (?) con explicación.
   const pilAud  = k.pilotos_auditados || 0;
   const pilEva  = k.pilotos_evadieron || 0;
   const pctPil  = pilAud > 0 ? Math.round(pilEva / pilAud * 1000) / 10 : 0;
 
-  const kpis = [
-    { label:'Total servicios auditados', value:fmtNum(k.total),
-      sub:`${currentDesde} → ${currentHasta}`, cls:'', color:'#a78bfa',
-      tip:'Servicios revisados por el robot en el rango de fechas seleccionado. Es la base sobre la que se calculan todas las demás métricas.' },
-    { label:'Servicios con evasión confirmada', value:fmtNum(k.confirmadas),
+  const kpiCard = (k) => `
+    <div class="kpi ${k.cls||''}" title="${k.tip||''}">
+      <div class="kpi-label">${k.label}<span style="display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;background:#cbd5e1;color:#fff;font-size:8px;font-weight:700;cursor:help" title="${k.tip||''}">?</span></div>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-sub">${k.sub||''}</div>
+      <div class="kpi-accent" style="background:${k.color}"></div>
+    </div>`;
+
+  const seccion = (titulo, cards) => `
+    <div class="kpi-section">
+      <div class="kpi-section-title">${titulo}</div>
+      <div class="kpi-section-cards" style="grid-template-columns:repeat(${cards.length},minmax(0,1fr))">${cards.map(kpiCard).join('')}</div>
+    </div>`;
+
+  const grupoVolumen = [
+    { label:'Servicios auditados', value:fmtNum(k.total),
+      sub:`${currentDesde} → ${currentHasta}`, color:'#a78bfa',
+      tip:'Total de servicios revisados por el robot en el rango. Es la base sobre la que se calculan las demás métricas.' },
+    { label:'Con evasión confirmada', value:fmtNum(k.confirmadas),
       sub:'Ambas reglas activas', cls:'danger', color:'#ef4444',
-      tip:'Servicios donde el conductor terminó el servicio fuera del destino Y muy rápido (menos del tiempo razonable). Los dos indicadores apuntan a evasión: alta certeza.' },
-    { label:'Pilotos auditados', value:fmtNum(pilAud),
-      sub:'Conductores únicos en el rango', cls:'', color:'#0ea5e9',
-      tip:'Cantidad de conductores únicos (driver_id distinct) cuyos servicios fueron analizados. Sirve para dimensionar la base sobre la que se evalúa.' },
-    { label:'Pilotos que evadieron', value:fmtNum(pilEva),
-      sub:`${pctPil}% de los pilotos auditados`, cls:'danger', color:'#dc2626',
-      tip:'Conductores únicos con al menos UN servicio clasificado como evasión confirmada. Un mismo piloto puede tener varias evasiones — aquí cuenta una sola vez.' },
+      tip:'Servicios donde el conductor terminó fuera del destino Y muy rápido. Los dos indicadores apuntan a evasión: alta certeza.' },
     { label:'Tasa de evasión', value:k.tasa_evasion+'%',
-      sub:'Confirmadas + probables sobre el total',
+      sub:'Confirmadas + probables / total',
       cls:k.tasa_evasion>15?'danger':k.tasa_evasion>8?'warn':'ok',
       color:k.tasa_evasion>15?'#ef4444':k.tasa_evasion>8?'#f59e0b':'#22c55e',
-      tip:'(Confirmadas + Probables) ÷ Total auditados. Verde <8% · Ámbar 8-15% · Rojo >15%. Sirve para comparar períodos.' },
-    { label:'Comisión evadida est.', value:fmtCOP(k.comision_evadida_cop),
-      sub:subComision, cls:'danger', color:'#dc2626',
-      tip:'Dinero estimado que Picap dejó de cobrar por las evasiones confirmadas. Calculado como costo del servicio × tasa del país (Col 12%, Mex/Nic 10%, Gua/Per/Ecu 15%).' },
-    { label:'Penalidad confirmada', value:fmtCOP(penalidad),
-      sub:'Comisión + 5% penalidad', cls:'purple', color:'#7c3aed',
-      tip:'Lo que se debe cobrar al conductor: la comisión evadida + un 5% adicional como penalidad. Este es el monto que aparece en su wallet en negativo.' },
+      tip:'(Confirmadas + Probables) ÷ Total auditados. Verde <8% · Ámbar 8-15% · Rojo >15%.' },
   ];
-  document.getElementById('kpi-grid').innerHTML = kpis.map(k=>`
-    <div class="kpi ${k.cls}" title="${k.tip||''}">
-      <div class="kpi-label">${k.label} <span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:#cbd5e1;color:#fff;font-size:9px;font-weight:700;margin-left:4px;cursor:help" title="${k.tip||''}">?</span></div>
-      <div class="kpi-value">${k.value}</div>
-      <div class="kpi-sub">${k.sub}</div>
-      <div class="kpi-accent" style="background:${k.color}"></div>
-    </div>`).join('');
+  const grupoPilotos = [
+    { label:'Pilotos auditados', value:fmtNum(pilAud),
+      sub:'Conductores únicos del rango', color:'#0ea5e9',
+      tip:'Cantidad de conductores únicos (driver_id distinct) cuyos servicios fueron analizados. Sirve para dimensionar la base.' },
+    { label:'Pilotos con evasión', value:fmtNum(pilEva),
+      sub:`${pctPil}% de los auditados`, cls:'danger', color:'#dc2626',
+      tip:'Conductores únicos con al menos UN servicio confirmado como evasión. Un mismo piloto cuenta una sola vez aunque tenga varias evasiones.' },
+  ];
+  const grupoDinero = [
+    { label:'Comisión evadida', value:fmtCOP(k.comision_evadida_cop),
+      sub:subComision, cls:'danger', color:'#dc2626',
+      tip:'Dinero estimado que Picap dejó de cobrar. Costo × tasa del país (Col 12%, Mex/Nic 10%, Gua/Per/Ecu 15%).' },
+    { label:'Penalidad a cobrar', value:fmtCOP(penalidad),
+      sub:'Comisión + 5% penalidad', cls:'purple', color:'#7c3aed',
+      tip:'Lo que se debe cobrar al conductor: comisión evadida + 5% de penalidad. Es el monto que aparece en su wallet en negativo.' },
+  ];
+
+  document.getElementById('kpi-grid').innerHTML =
+    seccion('📊 Volumen',  grupoVolumen) +
+    seccion('👤 Pilotos',  grupoPilotos) +
+    seccion('💰 Dinero',   grupoDinero);
 }
 
 function renderVBars(k){
