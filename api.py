@@ -252,10 +252,13 @@ confirmados AS (
     SELECT
         e.booking_id,
         e.driver_id,
+        -- "Penalidad esperada" = comisión × 1.05 (incluye la penalidad del 5%).
+        -- Antes solo era costo × tasa, lo cual hacía que los totales del wallet
+        -- no cuadraran con el KPI 'Penalidad a cobrar' del panel principal.
         multiIf(
-            e.pais = 'Colombia',             e.costo_estimado * 0.12,
-            e.pais IN ('Mexico','Nicaragua'), e.costo_estimado * 0.10,
-            e.costo_estimado * 0.15
+            e.pais = 'Colombia',             e.costo_estimado * 0.12 * 1.05,
+            e.pais IN ('Mexico','Nicaragua'), e.costo_estimado * 0.10 * 1.05,
+            e.costo_estimado * 0.15 * 1.05
         ) AS comision_esperada
     FROM evasores e
     WHERE e.minutos > 5
@@ -702,14 +705,17 @@ cobros AS (
 )
 SELECT
     c.driver_id,
-    round(sum(multiIf(c.g_country='CO', c.costo_est*0.12,
-                      c.g_country IN ('MX','NI'), c.costo_est*0.10,
-                      c.costo_est*0.15)), 0)          AS penalidad_conf,
-    round(sum(ifNull(w.cobrado, 0)), 0)               AS pagado,
-    round(sum(multiIf(c.g_country='CO', c.costo_est*0.12,
-                      c.g_country IN ('MX','NI'), c.costo_est*0.10,
-                      c.costo_est*0.15))
-          - sum(ifNull(w.cobrado, 0)), 0)             AS deuda
+    -- Penalidad = comisión × 1.05 (incluye 5% por penalidad).
+    -- Antes era solo costo × tasa, lo que generaba números más bajos
+    -- que el KPI 'Penalidad a cobrar' del panel principal.
+    round(sum(multiIf(c.g_country='CO', c.costo_est*0.12*1.05,
+                      c.g_country IN ('MX','NI'), c.costo_est*0.10*1.05,
+                      c.costo_est*0.15*1.05)), 0)          AS penalidad_conf,
+    round(sum(ifNull(w.cobrado, 0)), 0)                    AS pagado,
+    round(sum(multiIf(c.g_country='CO', c.costo_est*0.12*1.05,
+                      c.g_country IN ('MX','NI'), c.costo_est*0.10*1.05,
+                      c.costo_est*0.15*1.05))
+          - sum(ifNull(w.cobrado, 0)), 0)                  AS deuda
 FROM confirmados c
 LEFT JOIN cobros w ON c.booking_id = w.booking_id
 GROUP BY c.driver_id
@@ -751,7 +757,9 @@ SELECT
     id_driver,
     any(name_driver)                          AS nombre,
     countIf(nivel = 3)                        AS conf,
-    round(sum(comision_servicio), 0)          AS penalidad_total
+    -- Usar comision_mas_penalizacion (incluye 5%) para que el total cuadre
+    -- con el KPI 'Penalidad a cobrar' del panel principal.
+    round(sum(comision_mas_penalizacion), 0)  AS penalidad_total
 FROM clasificado
 WHERE nivel = 3
 GROUP BY id_driver
