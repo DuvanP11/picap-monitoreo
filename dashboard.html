@@ -3474,9 +3474,12 @@ async function cargarResumen(){
     if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
-    // Si está cargando en background: esperar con poll de /api/status
-    // SIN llamar cargarResumen de nuevo (evita loop)
-    if(data.loading && !data.updated_at) {
+    // Cuando el cache del servidor NO coincide con el rango/filtros pedidos,
+    // el backend devuelve `stale: true`. En ese caso el body de respuesta
+    // NO refleja lo solicitado (son datos de otro rango) — debemos esperar
+    // a que termine la recarga y volver a pedir. Antes el frontend
+    // renderizaba esos datos viejos como si fueran válidos: bug conocido.
+    if (data.stale || (data.loading && !data.updated_at)) {
       _resetOverlay();
       _esperarCargaYRenderizar(pais, moneda);
       return;
@@ -3489,30 +3492,35 @@ async function cargarResumen(){
   finally { _resetOverlay(); }
 }
 
-// Poll de /api/status cada 4s sin disparar nueva carga
-// Cuando el servidor termina, hace UN solo fetch de /api/resumen
+// Poll cada 4s pidiendo /api/resumen directamente. Si el server responde
+// stale:true, sigue esperando. Cuando finalmente devuelve datos del rango
+// solicitado (stale:false), los renderiza.
 async function _esperarCargaYRenderizar(pais, moneda) {
+  showOverlay("Recalculando para el nuevo rango...");
   let intentos = 0;
   const _poll = setInterval(async () => {
     intentos++;
     try {
-      const st = await fetch(`${API}/api/status`);
-      const d  = await st.json();
-      if(!d.loading && d.updated_at) {
+      let url = `${API}/api/resumen?desde=${currentDesde}&hasta=${currentHasta}`;
+      if (pais)   url += `&pais=${encodeURIComponent(pais)}`;
+      if (moneda) url += `&moneda=${encodeURIComponent(moneda)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      // Datos listos para el rango actual: stale=false y updated_at presente
+      if (!data.stale && data.updated_at) {
         clearInterval(_poll);
-        // Ahora sí pedir los datos — el caché ya está listo
-        let url = `${API}/api/resumen?desde=${currentDesde}&hasta=${currentHasta}`;
-        if(pais)   url += `&pais=${encodeURIComponent(pais)}`;
-        if(moneda) url += `&moneda=${encodeURIComponent(moneda)}`;
-        const resp = await fetch(url);
-        const data = await resp.json();
+        hideOverlay();
         _resumenCache = data;
         _lastKpis = data.kpis || null;
         renderDashboard(data);
         setStatusOk(data.updated_at);
       }
-    } catch(e) { /* ignorar errores de poll */ }
-    if(intentos > 30) clearInterval(_poll); // max 2 minutos
+    } catch (e) { /* ignorar errores de poll */ }
+    if (intentos > 30) {  // máx 2 minutos
+      clearInterval(_poll);
+      hideOverlay();
+      setStatusError("La carga está tardando demasiado. Refresca la página.");
+    }
   }, 4000);
 }
 

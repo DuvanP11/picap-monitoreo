@@ -626,29 +626,42 @@ def resumen():
     pais   = request.args.get("pais")
     moneda = request.args.get("moneda")
 
-    # Recargar si cambió el rango O los filtros
-    filtros_cambiaron = (
-        pais   != (_cache.get("resumen") or {}).get("kpis", {}).get("pais_filtro",   "") or
-        moneda != (_cache.get("resumen") or {}).get("kpis", {}).get("moneda_filtro", "")
-    )
-    if (_necesita_recarga(desde, hasta) or filtros_cambiaron) and not _cache.get("loading"):
-        # Disparar en background SOLO si no hay ya una carga en curso
+    # Determinar si el cache actual corresponde al rango/filtros pedidos
+    cache_kpis    = (_cache.get("resumen") or {}).get("kpis", {})
+    cache_pais    = cache_kpis.get("pais_filtro",   "") or ""
+    cache_moneda  = cache_kpis.get("moneda_filtro", "") or ""
+    rango_match = (desde and hasta and
+                   desde == _cache.get("desde") and
+                   hasta == _cache.get("hasta") and
+                   (pais or "")   == cache_pais and
+                   (moneda or "") == cache_moneda)
+
+    # Si el cache NO coincide con la petición, disparar recarga
+    if not rango_match and not _cache.get("loading"):
         threading.Thread(
             target=cargar_datos,
             args=(desde or _cache["desde"], hasta or _cache["hasta"], pais or None, moneda or None),
             daemon=True
         ).start()
-    if _cache["resumen"] is None:
+
+    # Si el cache no está listo o no coincide con lo pedido → indicar loading
+    # para que el frontend espere (con poll a /api/status) y re-pida cuando termine.
+    if _cache["resumen"] is None or not rango_match:
         return jsonify({
             "loading": True,
-            "kpis": {"total":0,"confirmadas":0,"probables":0,"ok":0,"tasa_evasion":0,"comision_evadida_cop":0,"sin_gps":0},
+            "stale":   True,                 # indica que la respuesta NO refleja el rango pedido
+            "kpis":      {"total":0,"confirmadas":0,"probables":0,"ok":0,"tasa_evasion":0,"comision_evadida_cop":0,"sin_gps":0},
             "operativo": {"prom_minutos_evasion":0,"prom_distancia_evasion":0},
-            "funnel": {"total":0,"flag_tiempo":0,"flag_distancia":0,"confirmadas":0},
+            "funnel":    {"total":0,"flag_tiempo":0,"flag_distancia":0,"confirmadas":0},
             "ciudades": [], "top_drivers": [], "tendencia": [],
         }), 200
+
     return jsonify(limpiar_nan({
         "updated_at": _cache["updated_at"].isoformat() if _cache["updated_at"] else None,
         "loading": _cache["loading"],
+        "stale":   False,
+        "cache_desde":  _cache.get("desde"),
+        "cache_hasta":  _cache.get("hasta"),
         **_cache["resumen"],
     }))
 
