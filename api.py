@@ -949,13 +949,15 @@ SELECT
         greatest(0, dateDiff('day',
             toDate(ds.starts_block_d),
             -- Fecha de fin del bloqueo: updated_at SOLO si:
-            --   • es posterior a starts_at (no antes del inicio)
+            --   • es posterior a starts_at en TIMESTAMP (no solo fecha)
             --   • no está en el futuro
             --   • la cuenta está reactivada (suspended=false, expelled=false)
+            -- Comparamos DateTime (no toDate), así una reactivación
+            -- a las pocas horas el mismo día también cuenta.
             if(
                 ds.reactivado_en_d IS NOT NULL
-                AND toDate(ds.reactivado_en_d) > toDate(ds.starts_block_d)
-                AND toDate(ds.reactivado_en_d) <= today()
+                AND ds.reactivado_en_d > ds.starts_block_d
+                AND ds.reactivado_en_d <= now()
                 AND lower(ifNull(toString(p.expelled),'')) != 'true'
                 AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
                 AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0',''),
@@ -969,8 +971,8 @@ SELECT
             toDate(ps.starts_block_p),
             if(
                 ps.reactivado_en_p IS NOT NULL
-                AND toDate(ps.reactivado_en_p) > toDate(ps.starts_block_p)
-                AND toDate(ps.reactivado_en_p) <= today()
+                AND ps.reactivado_en_p > ps.starts_block_p
+                AND ps.reactivado_en_p <= now()
                 AND lower(ifNull(toString(p.expelled),'')) != 'true'
                 AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
                 AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0',''),
