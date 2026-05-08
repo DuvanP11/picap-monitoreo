@@ -3834,9 +3834,10 @@ function renderDrivers(drivers){
       '<div class="driver-rank" style="background:'+rankBg+';color:'+rankColor+'">'+medal+'#'+(i+1)+'</div>'+
       '<div class="driver-name">'+(d.nombre||'—')+'</div>'+
       '<div class="driver-badges">'+
-        '<span class="badge-conf" title="Evasiones confirmadas en el período">'+d.conf+' conf.</span>'+
-        '<span class="badge-prob" title="Evasiones probables (una sola regla activa)">'+d.prob+' prob.</span>'+
-        (totalConfPeriodo>0 ? '<span class="badge-tend" style="background:#ede9fe;color:#5a2bb8" title="Porcentaje de las evasiones confirmadas que representa este conductor">'+pctTxt+' del total</span>' : '')+
+        // Solo mostramos evasiones CONFIRMADAS — las probables se ocultan a
+        // pedido del operador para que el ranking sea inequívoco.
+        '<span class="badge-conf" title="Evasiones confirmadas en el período (ambas reglas activas)">'+d.conf+' evasiones confirmadas</span>'+
+        (totalConfPeriodo>0 ? '<span class="badge-tend" style="background:#ede9fe;color:#5a2bb8" title="Porcentaje del total de evasiones confirmadas que representa este conductor">'+pctTxt+' del total</span>' : '')+
         tend+
       '</div>'+
       '<div class="driver-id" title="Click en la tarjeta para copiar este ID">'+d.id+'</div>'+
@@ -5488,15 +5489,34 @@ function renderRecuperacion(data) {
     return (v<0?'-':'')+'$'+Math.round(n);
   };
 
-  // KPIs resumen
+  // KPIs resumen — el total de evasiones confirmadas se calcula sumando
+  // las del top 10 (cada conductor trae su `conf` que ya es solo confirmadas).
   const pct = r.pct_recuperado || 0;
-  const kpis = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">'+
-    '<div class="kpi"><div class="kpi-label">Total penalidad confirmada</div>'+
-      '<div class="kpi-value" style="color:var(--text1)">'+ fmtMon(r.total_penalidad) +'</div></div>'+
-    '<div class="kpi"><div class="kpi-label">Total pagado</div>'+
-      '<div class="kpi-value" style="color:#22c55e">'+ fmtMon(r.total_pagado) +'</div></div>'+
-    '<div class="kpi"><div class="kpi-label">Deuda pendiente</div>'+
-      '<div class="kpi-value" style="color:#ef4444">'+ fmtMon(r.total_deuda) +'</div></div>'+
+  const totalEvasionesTop = top.reduce((s, d) => s + (Number(d.conf) || 0), 0);
+
+  const aviso = '<div style="background:#f5f3ff;border:1px solid #d8c4ff;color:#5a2bb8;padding:8px 12px;border-radius:8px;font-size:11px;margin-bottom:12px;line-height:1.5">'+
+    '⚠ <strong>Estos totales corresponden únicamente al Top 10 evasores</strong> que se muestra abajo. '+
+    'Los conteos son sobre <strong>evasiones CONFIRMADAS</strong> (no probables). '+
+    'Para ver el universo completo, ve al panel <strong>Estado de cobros en Wallet</strong>.'+
+  '</div>';
+
+  const kpis = '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px;">'+
+    '<div class="kpi" title="Suma de evasiones confirmadas de los 10 conductores con más infracciones">'+
+      '<div class="kpi-label">Evasiones confirmadas</div>'+
+      '<div class="kpi-value" style="color:#5a2bb8">'+ totalEvasionesTop.toLocaleString('es-CO') +'</div>'+
+      '<div class="kpi-sub">Solo del top 10</div></div>'+
+    '<div class="kpi" title="Suma de la penalidad confirmada (comisión + 5%) que se debe cobrar al top 10">'+
+      '<div class="kpi-label">Penalidad total</div>'+
+      '<div class="kpi-value" style="color:var(--text1)">'+ fmtMon(r.total_penalidad) +'</div>'+
+      '<div class="kpi-sub">Lo que deben en total</div></div>'+
+    '<div class="kpi" title="Suma de lo cobrado vía wallet a estos 10 conductores">'+
+      '<div class="kpi-label">Total pagado</div>'+
+      '<div class="kpi-value" style="color:#22c55e">'+ fmtMon(r.total_pagado) +'</div>'+
+      '<div class="kpi-sub">Lo que ya pagaron</div></div>'+
+    '<div class="kpi" title="Diferencia entre penalidad y pagado: lo que falta por recuperar">'+
+      '<div class="kpi-label">Deuda actual</div>'+
+      '<div class="kpi-value" style="color:#ef4444">'+ fmtMon(r.total_deuda) +'</div>'+
+      '<div class="kpi-sub">Pendiente de cobro</div></div>'+
     '<div class="kpi"><div class="kpi-label">% Recuperado</div>'+
       '<div class="kpi-value" style="color:'+(pct>=50?'#22c55e':pct>=25?'#f59e0b':'#ef4444')+'">'+pct+'%</div>'+
       '<div style="height:4px;background:var(--border);border-radius:2px;margin-top:6px;">'+
@@ -5532,7 +5552,7 @@ function renderRecuperacion(data) {
       '<thead><tr style="border-bottom:2px solid var(--border);">'+
         '<th style="padding:8px 4px;text-align:left;color:var(--text3);font-size:11px">#</th>'+
         '<th style="padding:8px 4px;text-align:left;color:var(--text3);font-size:11px">Conductor</th>'+
-        '<th style="padding:8px 4px;text-align:center;color:var(--text3);font-size:11px">Evasiones</th>'+
+        '<th style="padding:8px 4px;text-align:center;color:var(--text3);font-size:11px" title="Cantidad de evasiones CONFIRMADAS (ambas reglas activas) en el rango. No incluye probables.">Evasiones confirmadas</th>'+
         '<th style="padding:8px 4px;text-align:right;color:var(--text3);font-size:11px">Penalidad</th>'+
         '<th style="padding:8px 4px;text-align:right;color:var(--text3);font-size:11px">Pagado</th>'+
         '<th style="padding:8px 4px;text-align:right;color:var(--text3);font-size:11px">Deuda</th>'+
@@ -5560,7 +5580,7 @@ function renderRecuperacion(data) {
     '</div>';
   }
 
-  content.innerHTML = kpis + tabla + tendHtml;
+  content.innerHTML = aviso + kpis + tabla + tendHtml;
 }
 
 // Verificar sesión al iniciar
