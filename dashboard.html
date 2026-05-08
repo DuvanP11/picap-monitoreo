@@ -4374,20 +4374,140 @@ function renderBloqueos(data){
 }
 
 
+// Tabla genérica con sort por columna (click en header) y filtro de texto.
+// Cada llamada genera un id único y guarda su estado en window._blqTables[id]
+// para que los clicks puedan re-renderizar sin perder los datos.
+window._blqTables = window._blqTables || {};
+
 function renderBlqTabla(rows, cols){
   if(!rows.length) return '<div class="blq-loading">No hay registros en este período.</div>';
-  const thead = cols.map(c => `<th>${c.l}</th>`).join('');
+  const tid = '_blqt_' + Math.random().toString(36).slice(2, 10);
+  window._blqTables[tid] = { rows: rows, cols: cols, sortKey: null, sortDir: -1, filter: '' };
+  return `<div id="${tid}" class="blq-tabla-wrap">${_blqTablaInner(tid)}</div>`;
+}
+
+function _blqTablaInner(tid) {
+  const s = window._blqTables[tid];
+  if (!s) return '';
+  let rows = s.rows;
+  const cols = s.cols;
+  const filterRaw = (s.filter || '').trim();
+
+  // Filtro: busca en TODOS los campos del row
+  if (filterRaw) {
+    const f = filterRaw.toLowerCase();
+    rows = rows.filter(r => {
+      for (const c of cols) {
+        const v = r[c.k];
+        if (v != null && String(v).toLowerCase().includes(f)) return true;
+      }
+      // También buscar en campos no-mostrados pero útiles
+      for (const k of ['nombre','id_usuario','tipo_usuario','pais_nombre','ciudad','motivo_mapeado']) {
+        const v = r[k];
+        if (v != null && String(v).toLowerCase().includes(f)) return true;
+      }
+      return false;
+    });
+  }
+
+  // Sort
+  if (s.sortKey) {
+    rows = [...rows].sort((a, b) => {
+      let av = a[s.sortKey];
+      let bv = b[s.sortKey];
+      if (av == null) av = '';
+      if (bv == null) bv = '';
+      const an = Number(av), bn = Number(bv);
+      const numeric = !isNaN(an) && !isNaN(bn) && av !== '' && bv !== '';
+      let cmp;
+      if (numeric) cmp = an - bn;
+      else cmp = String(av).localeCompare(String(bv), 'es', { numeric: true, sensitivity: 'base' });
+      return cmp * s.sortDir;
+    });
+  }
+
+  // Header con sort visual
+  const thead = cols.map(c => {
+    const isActive = s.sortKey === c.k;
+    const arrow = isActive ? (s.sortDir === -1 ? ' ▼' : ' ▲') : ' <span style="opacity:.3;font-size:9px">↕</span>';
+    const activeStyle = isActive ? 'background:#5a2bb8;color:#fff' : '';
+    return `<th style="cursor:pointer;user-select:none;${activeStyle}"
+              onclick="blqSortToggle('${tid}', '${c.k}')"
+              title="Ordenar por ${c.l}">${c.l}${arrow}</th>`;
+  }).join('');
+
+  // Body
   const tbody = rows.map(row => {
     const trClass = row.alerta_30dias ? ' class="alerta-30"' : '';
     const tds = cols.map(c => {
       const val = row[c.k];
-      // fn puede recibir (valor, fila_completa) para acceder a otros campos
       const display = c.fn ? c.fn(val, row) : (val !== null && val !== undefined && val !== '' ? val : '—');
       return `<td>${display}</td>`;
     }).join('');
     return `<tr${trClass}>${tds}</tr>`;
   }).join('');
-  return `<div class="blq-wrap"><table class="blq-table"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table></div>`;
+
+  // Barra de filtro encima de la tabla
+  const totalCargados = s.rows.length;
+  const totalMostrados = rows.length;
+  const subtitulo = (totalMostrados === totalCargados)
+    ? `${totalMostrados.toLocaleString('es-CO')} registros`
+    : `${totalMostrados.toLocaleString('es-CO')} de ${totalCargados.toLocaleString('es-CO')} (filtrados)`;
+  const sortInfo = s.sortKey
+    ? ` · orden: <strong>${(cols.find(c=>c.k===s.sortKey)?.l)||s.sortKey}</strong> ${s.sortDir===-1?'↓':'↑'} <a href="#" onclick="blqSortClear('${tid}');return false;" style="color:#dc2626;text-decoration:none">✕</a>`
+    : '';
+  const filterBar = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+      <input type="text" class="blq-filter-input" placeholder="🔍 Buscar en cualquier columna..."
+        value="${filterRaw.replace(/"/g,'&quot;')}"
+        oninput="blqFilterChange('${tid}', this.value)"
+        style="flex:1;min-width:240px;max-width:420px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px">
+      <span style="font-size:11px;color:var(--text3)">
+        ${subtitulo}${sortInfo}
+      </span>
+      ${filterRaw ? `<button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#9ca3af" onclick="blqFilterChange('${tid}', '')">✕ Limpiar búsqueda</button>` : ''}
+    </div>
+  `;
+
+  return filterBar + `<div class="blq-wrap"><table class="blq-table"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table></div>`;
+}
+
+function blqSortToggle(tid, key) {
+  const s = window._blqTables[tid];
+  if (!s) return;
+  if (s.sortKey === key) {
+    // Mismo header: alterna dirección
+    s.sortDir = -s.sortDir;
+  } else {
+    // Header distinto: empieza DESC (más útil para "mayor a menor" por defecto)
+    s.sortKey = key;
+    s.sortDir = -1;
+  }
+  const cont = document.getElementById(tid);
+  if (cont) cont.innerHTML = _blqTablaInner(tid);
+}
+
+function blqSortClear(tid) {
+  const s = window._blqTables[tid];
+  if (!s) return;
+  s.sortKey = null;
+  const cont = document.getElementById(tid);
+  if (cont) cont.innerHTML = _blqTablaInner(tid);
+}
+
+function blqFilterChange(tid, val) {
+  const s = window._blqTables[tid];
+  if (!s) return;
+  s.filter = val;
+  const cont = document.getElementById(tid);
+  if (!cont) return;
+  cont.innerHTML = _blqTablaInner(tid);
+  // Restaurar foco y posición del cursor en el input
+  const inp = cont.querySelector('.blq-filter-input');
+  if (inp) {
+    inp.focus();
+    try { inp.setSelectionRange(val.length, val.length); } catch(_) {}
+  }
 }
 
 // ── RECONOCIMIENTO FACIAL — módulo aislado ──────────────────
