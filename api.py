@@ -6085,6 +6085,29 @@ def logout_ch():
             user_agent=request.headers.get("User-Agent","")[:300])
     return jsonify({"ok":True})
 
+# Throttle en memoria para evitar llenar la tabla de auditoría con eventos
+# 'session_active'. Solo registramos UN evento por usuario cada hora.
+_AUDIT_SESSION_LAST = {}      # usuario -> timestamp del último log
+_AUDIT_SESSION_TTL  = 3600    # 1 hora
+
+def _audit_session_ping(usuario, rol, ip, ua):
+    """Registra una sesión activa una vez por hora por usuario.
+    Sirve para que TODOS los usuarios con token vivo aparezcan en el log,
+    no solo los que vuelven a hacer login después del deploy."""
+    if not usuario: return
+    now = time.time()
+    last = _AUDIT_SESSION_LAST.get(usuario, 0)
+    if now - last < _AUDIT_SESSION_TTL: return
+    _AUDIT_SESSION_LAST[usuario] = now
+    _audit_log_internal(
+        usuario=usuario, rol=rol or "",
+        tipo="login", modulo="auth",
+        accion="sesión activa detectada",
+        detalles={"via": "session_ping_me"},
+        ip=ip or "", user_agent=ua or "",
+    )
+
+
 @app.route("/api/me")
 def me_ch():
     token = request.headers.get("X-Token","")
@@ -6093,6 +6116,11 @@ def me_ch():
     s = _verificar_sesion(None, token)
     if not s:
         return jsonify({"ok":False,"error":"Sesión expirada","code":"session_invalid"}), 401
+    # Registrar sesión activa (1 vez por hora por usuario)
+    _audit_session_ping(
+        s.get("usuario",""), s.get("rol",""),
+        _client_ip(), request.headers.get("User-Agent","")[:300],
+    )
 
     # 2) Token válido — leer datos del usuario en CH. Si CH falla, devolvemos
     #    503 (service unavailable). El frontend NO debe cerrar la sesión por

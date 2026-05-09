@@ -2916,7 +2916,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
       <!-- Panel auditoría -->
       <div id="admin-panel-audit" class="admin-panel">
         <div style="background:linear-gradient(90deg,#fee2e2 0%,#fef3c7 100%);border:1px solid #fecaca;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#7f1d1d;line-height:1.5">
-          🔒 <strong>Logs de seguridad y auditoría</strong> — registra automáticamente: logins exitosos y fallidos, logouts, apertura de cada módulo y descargas/exports. Útil para investigar incidentes (ej: "¿quién descargó la lista de bloqueos el martes?") o ver patrones de uso. Retención: <strong>365 días</strong>; los registros más viejos se borran solos.
+          🔒 <strong>Logs de seguridad y auditoría</strong> — registra automáticamente: logins exitosos y fallidos, logouts, sesiones activas, apertura de cada módulo y descargas/exports. Útil para investigar incidentes (ej: "¿quién descargó la lista de bloqueos el martes?") o ver patrones de uso. Retención: <strong>365 días</strong>; los registros más viejos se borran solos.
+          <div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:8px;color:#78350f;font-size:11px">
+            ⚠️ <strong>El registro arrancó desde el despliegue de esta funcionalidad</strong> — actividad anterior a esa fecha NO está auditada (no había nadie escuchando). Los usuarios con sesión activa quedarán registrados automáticamente en su próximo refresh (vía session_ping cada hora).
+          </div>
         </div>
 
         <!-- KPIs rápidos -->
