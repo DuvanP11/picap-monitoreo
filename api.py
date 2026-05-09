@@ -7761,7 +7761,9 @@ def _resumen_pibox(ch, desde, hasta, pais_iso):
     """Pibox B2B — bookings con company_id, detectando los anormalmente cortos
     (señal de fraude: no recogió/no entregó). El tiempo de servicio se mide
     entre evento 'recogido' (event_cd=22) y 'finalizado' (event_cd=24).
-    Si no hay evento 24, usamos updated_at como aproximación."""
+    Solo se cuentan como 'muy cortos' los que tienen AMBOS eventos; si falta
+    alguno, caen en 'sin eventos completos' y no se mide tiempo en ellos.
+    (Evita el error de tipos al mezclar updated_at String vs DateTime)."""
     extra = f" AND b.g_country = '{pais_iso}'" if pais_iso else ""
     sql = f"""
     WITH base AS (
@@ -7774,8 +7776,7 @@ def _resumen_pibox(ch, desde, hasta, pais_iso):
             ) AS ev_recogido,
             parseDateTimeBestEffortOrNull(
                 extract(COALESCE(b.events,''), 'event_cd":24.*?created_at":"([^"]+)')
-            ) AS ev_finalizado,
-            b.updated_at
+            ) AS ev_finalizado
         FROM picapmongoprod.bookings b
         WHERE b.created_at >= toDateTime('{desde} 00:00:00')
           AND b.created_at <= toDateTime('{hasta} 23:59:59')
@@ -7785,8 +7786,9 @@ def _resumen_pibox(ch, desde, hasta, pais_iso):
     SELECT
         count() AS total,
         countIf(
-            ev_recogido IS NOT NULL AND
-            dateDiff('minute', ev_recogido, ifNull(ev_finalizado, updated_at)) < 5
+            ev_recogido IS NOT NULL
+            AND ev_finalizado IS NOT NULL
+            AND dateDiff('minute', ev_recogido, ev_finalizado) < 5
         ) AS muy_cortos,
         countIf(ev_recogido IS NULL OR ev_finalizado IS NULL) AS sin_eventos,
         round(sum(monto), 0) AS monto_total
@@ -7795,16 +7797,20 @@ def _resumen_pibox(ch, desde, hasta, pais_iso):
     r = ch.query(sql).result_rows
     total, cortos, sin_ev, monto = (r[0] if r else (0, 0, 0, 0))
     total = int(total or 0); cortos = int(cortos or 0); sin_ev = int(sin_ev or 0)
-    pct_cortos = round(cortos / total * 100, 2) if total else 0
+    medidos    = total - sin_ev   # servicios donde sí pudimos medir tiempo
+    pct_cortos = round(cortos / medidos * 100, 2) if medidos else 0
     pct_sin    = round(sin_ev / total * 100, 2) if total else 0
     return {
         "kpis": [
             _kpi("Servicios Pibox B2B totales",   total, "numero"),
-            _kpi("Anormalmente cortos (<5 min)",  cortos, "numero", color="#dc2626", sub=f"{pct_cortos}% del total"),
-            _kpi("Sin evento de inicio/fin",       sin_ev, "numero", color="#ca8a04", sub=f"{pct_sin}% del total"),
-            _kpi("Monto facturado",                int(monto or 0), "moneda"),
+            _kpi("Con tiempo medible",            medidos, "numero"),
+            _kpi("Anormalmente cortos (<5 min)",  cortos, "numero", color="#dc2626",
+                 sub=f"{pct_cortos}% de los medibles"),
+            _kpi("Sin eventos completos",         sin_ev, "numero", color="#ca8a04",
+                 sub=f"{pct_sin}% del total"),
+            _kpi("Monto facturado",               int(monto or 0), "moneda"),
         ],
-        "tip": "Servicios menores a 5 minutos en B2B son señal de fraude (el piloto no recogió ni entregó realmente). El módulo Pibox valida también con foto y GPS para confirmar."
+        "tip": "Servicios menores a 5 minutos entre 'recogido' (event 22) y 'finalizado' (event 24) son señal de fraude (el piloto no recogió ni entregó realmente). Los 'sin eventos completos' deben revisarse aparte; el módulo Pibox valida con foto y GPS."
     }
 
 def _resumen_recaudos(ch, desde, hasta, pais_iso):
