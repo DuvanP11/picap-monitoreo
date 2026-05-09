@@ -5981,6 +5981,8 @@ def login_ch():
         return jsonify({"ok":False,"error":"Credenciales requeridas"}), 400
 
     pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+    _ip_login = _client_ip()
+    _ua_login = request.headers.get("User-Agent","")[:300]
 
     # Trackear el estado de la consulta a ClickHouse para distinguir entre:
     #   - usuario realmente no encontrado
@@ -6003,10 +6005,18 @@ def login_ch():
             row     = r.result_rows[0]
             db_hash = row[1]
             if pwd_hash != db_hash:
+                _audit_log_internal(usuario=usuario, rol="?", tipo="login_failed",
+                    modulo="auth", accion="contraseña incorrecta",
+                    detalles={"motivo": "password_mismatch"},
+                    ip=_ip_login, user_agent=_ua_login)
                 return jsonify({"ok":False,"error":"Contraseña incorrecta"}), 401
             rol    = row[4] or "pendiente"
             acceso = ROLES_ACCESO.get(rol, ["home"])
             token  = _crear_token(usuario, rol)
+            _audit_log_internal(usuario=usuario, rol=rol, tipo="login",
+                modulo="auth", accion="login exitoso",
+                detalles={"via": "clickhouse_users"},
+                ip=_ip_login, user_agent=_ua_login)
             return jsonify({
                 "ok":True, "token":token,
                 "nombre":row[2], "rol":rol,
@@ -6032,6 +6042,10 @@ def login_ch():
                     column_names=["usuario","password_hash","nombre","email","rol","creado_en","activo"])
             except: pass
         threading.Thread(target=_sync, daemon=True).start()
+        _audit_log_internal(usuario=usuario, rol=rol, tipo="login",
+            modulo="auth", accion="login exitoso (emergencia)",
+            detalles={"via": "emergency_credentials"},
+            ip=_ip_login, user_agent=_ua_login)
         return jsonify({
             "ok":True, "token":token,
             "nombre":em["nombre"], "rol":rol,
@@ -6041,6 +6055,10 @@ def login_ch():
     # 3) No se pudo autenticar. Distinguir el caso CH muerto del caso usuario inexistente.
     if not ch_buscado:
         # No alcanzamos a consultar CH — los usuarios existen pero no podemos validar.
+        _audit_log_internal(usuario=usuario, rol="?", tipo="login_failed",
+            modulo="auth", accion="backend de auth no disponible",
+            detalles={"ch_error": ch_error or 'sin detalle'},
+            ip=_ip_login, user_agent=_ua_login)
         return jsonify({
             "ok": False,
             "error": "Servicio de autenticación no disponible. Contacta al administrador.",
@@ -6048,12 +6066,23 @@ def login_ch():
             "detalle": (ch_error or 'sin detalle')[:200],
         }), 503
 
+    _audit_log_internal(usuario=usuario, rol="?", tipo="login_failed",
+        modulo="auth", accion="usuario no encontrado",
+        detalles={"motivo": "user_not_found"},
+        ip=_ip_login, user_agent=_ua_login)
     return jsonify({"ok":False,"error":"Usuario no encontrado"}), 401
 
 @app.route("/api/logout", methods=["POST"])
 def logout_ch():
     # Con tokens HMAC no hay estado en servidor que borrar
     # El frontend borra el token de localStorage
+    token = request.headers.get("X-Token","")
+    s = _verificar_sesion(None, token) or {}
+    if s.get("usuario"):
+        _audit_log_internal(usuario=s["usuario"], rol=s.get("rol",""),
+            tipo="logout", modulo="auth", accion="logout",
+            ip=_client_ip(),
+            user_agent=request.headers.get("User-Agent","")[:300])
     return jsonify({"ok":True})
 
 @app.route("/api/me")
@@ -8009,6 +8038,337 @@ def resumen_general():
         "areas":   RESUMEN_AREAS_META,
         "generado_en": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
     })
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AUDITORÍA / LOGS DE SEGURIDAD
+# Registra qué usuario hace qué (entra a un módulo, exporta, aplica
+# filtros, hace login/logout). Útil para forensia ante una fuga de
+# datos o para auditar uso del portal.
+# ══════════════════════════════════════════════════════════════════════
+_AUDIT_TABLE = """
+CREATE TABLE IF NOT EXISTS picapmongoprod.dashboard_audit_log (
+    id           String,
+    ts           DateTime DEFAULT now(),
+    usuario      String,
+    rol          String,
+    tipo         String,            -- login | logout | view_open | export
+                                    -- button | filter | api_call | other
+    modulo       String,            -- view-id o área del portal
+    accion       String,            -- texto corto descriptivo
+    detalles     String,            -- JSON serializado con extras
+    ip           String,
+    user_agent   String
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(ts)
+ORDER BY (ts, usuario)
+TTL ts + INTERVAL 365 DAY DELETE       -- 1 año de retención por defecto
+"""
+
+_AUDIT_INSERT_COLS = ["id","ts","usuario","rol","tipo","modulo",
+                      "accion","detalles","ip","user_agent"]
+
+_AUDIT_TIPOS_VALIDOS = {
+    "login","logout","login_failed",
+    "view_open","export","button","filter","api_call","other",
+}
+
+def _init_audit_table():
+    try:
+        ch = get_client()
+        ch.command(_AUDIT_TABLE)
+    except Exception as e:
+        print(f"[audit] Error creando tabla: {e}")
+
+def _audit_log_internal(usuario, rol, tipo, modulo="", accion="",
+                         detalles=None, ip="", user_agent=""):
+    """Registra un evento de auditoría. Pensado para llamarse tanto desde
+    los endpoints (login, exports) como por petición explícita del frontend."""
+    try:
+        _init_audit_table()
+        ch = get_client()
+        det = ""
+        if detalles is not None:
+            try:
+                det = _json.dumps(detalles, ensure_ascii=False)[:4000]
+            except Exception:
+                det = str(detalles)[:4000]
+        tipo = (tipo or "other").lower()
+        if tipo not in _AUDIT_TIPOS_VALIDOS:
+            tipo = "other"
+        ch.insert("picapmongoprod.dashboard_audit_log",
+            [[str(uuid.uuid4()), datetime.utcnow(),
+              (usuario or "")[:80], (rol or "")[:32],
+              tipo, (modulo or "")[:80], (accion or "")[:200],
+              det, (ip or "")[:64], (user_agent or "")[:300]]],
+            column_names=_AUDIT_INSERT_COLS)
+    except Exception as e:
+        # Logear error pero NO bloquear: la auditoría es best-effort
+        print(f"[audit] error guardando log: {e}")
+
+def _client_ip():
+    """Toma la IP real del cliente. Render pone X-Forwarded-For."""
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr or ""
+
+
+@app.route("/api/audit/log", methods=["POST"])
+def audit_log_post():
+    """Endpoint para que el frontend registre eventos de UI:
+       view_open, export, button, filter.
+    Body: {tipo, modulo, accion, detalles}
+    """
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    data = request.get_json(silent=True) or {}
+    _audit_log_internal(
+        usuario=s.get("usuario", ""),
+        rol=s.get("rol", ""),
+        tipo=str(data.get("tipo", "other")),
+        modulo=str(data.get("modulo", "")),
+        accion=str(data.get("accion", "")),
+        detalles=data.get("detalles"),
+        ip=_client_ip(),
+        user_agent=request.headers.get("User-Agent", "")[:300],
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/audit/logs", methods=["GET"])
+def audit_logs_list():
+    """Consulta los logs de auditoría. Solo admins.
+    Query params: desde, hasta, usuario, tipo, modulo, q (búsqueda libre),
+                  limit (default 500, max 5000)."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get("rol") != "admin":
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    try:
+        _init_audit_table()
+        ch = get_client()
+        desde = (request.args.get("desde")
+                 or (date.today() - timedelta(days=7)).strftime("%Y-%m-%d"))
+        hasta = request.args.get("hasta") or date.today().strftime("%Y-%m-%d")
+        usuario = (request.args.get("usuario") or "").strip()
+        tipo    = (request.args.get("tipo") or "").strip().lower()
+        modulo  = (request.args.get("modulo") or "").strip()
+        q       = (request.args.get("q") or "").strip()
+        try:
+            limit = max(1, min(5000, int(request.args.get("limit", 500))))
+        except Exception:
+            limit = 500
+
+        where = [
+            f"ts >= toDateTime('{desde} 00:00:00')",
+            f"ts <= toDateTime('{hasta} 23:59:59')",
+        ]
+        if usuario:
+            u_safe = usuario.replace("'", "''")
+            where.append(f"positionCaseInsensitive(usuario, '{u_safe}') > 0")
+        if tipo and tipo in _AUDIT_TIPOS_VALIDOS:
+            where.append(f"tipo = '{tipo}'")
+        if modulo:
+            m_safe = modulo.replace("'", "''")
+            where.append(f"modulo = '{m_safe}'")
+        if q:
+            q_safe = q.replace("'", "''")
+            where.append(
+                f"(positionCaseInsensitive(accion, '{q_safe}') > 0 "
+                f" OR positionCaseInsensitive(detalles, '{q_safe}') > 0 "
+                f" OR positionCaseInsensitive(modulo, '{q_safe}') > 0 "
+                f" OR positionCaseInsensitive(usuario, '{q_safe}') > 0)"
+            )
+
+        sql = f"""
+            SELECT id, ts, usuario, rol, tipo, modulo, accion,
+                   substring(detalles, 1, 1000) AS detalles, ip, user_agent
+            FROM picapmongoprod.dashboard_audit_log
+            WHERE {' AND '.join(where)}
+            ORDER BY ts DESC
+            LIMIT {limit}
+        """
+        r = ch.query(sql)
+        cols = r.column_names
+        eventos = []
+        for row in r.result_rows:
+            d = dict(zip(cols, row))
+            d["ts"] = d["ts"].strftime("%Y-%m-%d %H:%M:%S") if d["ts"] else ""
+            eventos.append(d)
+
+        # Agregaciones para el header (KPIs rápidos)
+        agg_sql = f"""
+            SELECT
+                count()                                              AS total,
+                count(DISTINCT usuario)                                AS usuarios_unicos,
+                countIf(tipo='login')                                  AS logins,
+                countIf(tipo='login_failed')                           AS logins_fallidos,
+                countIf(tipo='export')                                 AS exports,
+                countIf(tipo='view_open')                              AS view_opens
+            FROM picapmongoprod.dashboard_audit_log
+            WHERE {' AND '.join(where)}
+        """
+        agg = ch.query(agg_sql).result_rows
+        agg_d = dict(zip(["total","usuarios_unicos","logins","logins_fallidos",
+                          "exports","view_opens"], agg[0])) if agg else {}
+
+        # Top 5 usuarios y top 5 módulos
+        top_u = ch.query(f"""
+            SELECT usuario, count() AS n
+            FROM picapmongoprod.dashboard_audit_log
+            WHERE {' AND '.join(where)} AND usuario != ''
+            GROUP BY usuario ORDER BY n DESC LIMIT 5
+        """).result_rows
+        top_m = ch.query(f"""
+            SELECT modulo, count() AS n
+            FROM picapmongoprod.dashboard_audit_log
+            WHERE {' AND '.join(where)} AND modulo != ''
+            GROUP BY modulo ORDER BY n DESC LIMIT 5
+        """).result_rows
+
+        return jsonify({
+            "ok": True,
+            "eventos": eventos,
+            "resumen": {k: int(v or 0) for k, v in agg_d.items()},
+            "top_usuarios": [{"usuario": u, "eventos": int(n)} for u, n in top_u],
+            "top_modulos":  [{"modulo": m,  "eventos": int(n)} for m, n in top_m],
+            "filtros": {"desde": desde, "hasta": hasta},
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/audit/export", methods=["GET"])
+def audit_logs_export():
+    """Exporta los logs filtrados a un archivo Excel. Solo admins."""
+    token = request.headers.get("X-Token", "")
+    s = _verificar_sesion(None, token)
+    if not s or s.get("rol") != "admin":
+        return jsonify({"ok": False, "error": "Solo admins"}), 403
+    try:
+        _init_audit_table()
+        ch = get_client()
+        desde = (request.args.get("desde")
+                 or (date.today() - timedelta(days=7)).strftime("%Y-%m-%d"))
+        hasta = request.args.get("hasta") or date.today().strftime("%Y-%m-%d")
+        usuario = (request.args.get("usuario") or "").strip()
+        tipo    = (request.args.get("tipo") or "").strip().lower()
+        modulo  = (request.args.get("modulo") or "").strip()
+        q       = (request.args.get("q") or "").strip()
+
+        where = [
+            f"ts >= toDateTime('{desde} 00:00:00')",
+            f"ts <= toDateTime('{hasta} 23:59:59')",
+        ]
+        if usuario:
+            u_safe = usuario.replace("'", "''")
+            where.append(f"positionCaseInsensitive(usuario, '{u_safe}') > 0")
+        if tipo and tipo in _AUDIT_TIPOS_VALIDOS:
+            where.append(f"tipo = '{tipo}'")
+        if modulo:
+            m_safe = modulo.replace("'", "''")
+            where.append(f"modulo = '{m_safe}'")
+        if q:
+            q_safe = q.replace("'", "''")
+            where.append(
+                f"(positionCaseInsensitive(accion, '{q_safe}') > 0 "
+                f" OR positionCaseInsensitive(detalles, '{q_safe}') > 0)"
+            )
+
+        sql = f"""
+            SELECT formatDateTime(ts, '%Y-%m-%d %H:%M:%S') AS Fecha,
+                   usuario  AS Usuario,
+                   rol      AS Rol,
+                   tipo     AS Tipo,
+                   modulo   AS Modulo,
+                   accion   AS Accion,
+                   detalles AS Detalles,
+                   ip       AS IP,
+                   user_agent AS UserAgent
+            FROM picapmongoprod.dashboard_audit_log
+            WHERE {' AND '.join(where)}
+            ORDER BY ts DESC
+            LIMIT 100000
+        """
+        rows = ch.query(sql).result_rows
+        cols = ["Fecha","Usuario","Rol","Tipo","Modulo","Accion",
+                "Detalles","IP","UserAgent"]
+
+        from io import BytesIO
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "audit_log"
+        ws.append(cols)
+        for row in rows:
+            ws.append(list(row))
+        # Auto-width simple en las primeras 6 columnas
+        for i, w in enumerate([19, 22, 14, 14, 22, 40, 40, 18, 30], start=1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+        out = BytesIO()
+        wb.save(out)
+        out.seek(0)
+
+        # Registrar la exportación misma como evento
+        _audit_log_internal(
+            usuario=s.get("usuario",""), rol=s.get("rol",""),
+            tipo="export", modulo="audit", accion="audit_logs_export",
+            detalles={"filtros": {"desde":desde,"hasta":hasta,
+                                  "usuario":usuario,"tipo":tipo,
+                                  "modulo":modulo,"q":q},
+                      "filas": len(rows)},
+            ip=_client_ip(),
+            user_agent=request.headers.get("User-Agent","")[:300],
+        )
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return send_file(
+            out,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f"audit_logs_{desde}_{hasta}_{ts}.xlsx",
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Middleware: registrar automáticamente cualquier export ────────────
+# Detecta toda ruta /api/exportar/* o /api/*/export y guarda un evento
+# en el log de auditoría. Así no hay que tocar cada endpoint individual.
+@app.after_request
+def _audit_export_middleware(response):
+    try:
+        path = request.path or ""
+        is_export = (
+            path.startswith("/api/exportar/") or
+            path.endswith("/export") or
+            path.endswith("/exportar")
+        )
+        # No re-loguear nuestro propio endpoint de export de audit (se loguea
+        # internamente con detalles más ricos), ni rutas que no son exports.
+        if is_export and path != "/api/audit/export" and response.status_code < 400:
+            token = request.headers.get("X-Token", "")
+            s = _verificar_sesion(None, token) or {}
+            usuario = s.get("usuario", "")
+            if usuario:  # solo registramos si hay sesión válida
+                # Filtros del export = todos los query params
+                filtros = {k: v for k, v in request.args.items()}
+                _audit_log_internal(
+                    usuario=usuario, rol=s.get("rol", ""),
+                    tipo="export",
+                    modulo=path.replace("/api/exportar/","").replace("/api/","").replace("/export","")[:80],
+                    accion=f"GET {path}",
+                    detalles={"filtros": filtros, "status": response.status_code},
+                    ip=_client_ip(),
+                    user_agent=request.headers.get("User-Agent","")[:300],
+                )
+    except Exception as e:
+        # Nunca dejar que el log rompa el response
+        print(f"[audit] middleware error: {e}")
+    return response
 
 
 if __name__ == "__main__":

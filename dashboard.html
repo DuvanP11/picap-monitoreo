@@ -2658,6 +2658,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <div class="bloqueos-tab" id="admin-tab-cal" onclick="switchAdminTab('cal')">📅 Calendario</div>
         <div class="bloqueos-tab" id="admin-tab-cron" onclick="switchAdminTab('cron')">🗓️ Cronograma</div>
         <div class="bloqueos-tab" id="admin-tab-recursos" onclick="switchAdminTab('recursos')">📚 Recursos</div>
+        <div class="bloqueos-tab" id="admin-tab-audit" onclick="switchAdminTab('audit')">🔒 Auditoría</div>
       </div>
       <!-- Panel usuarios -->
       <div id="admin-panel-users" class="admin-panel admin-panel-active">
@@ -2909,6 +2910,60 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
           </div>
           <div id="rec-lista">
             <div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Carga los recursos con ↻ Recargar.</div>
+          </div>
+        </div>
+      </div>
+      <!-- Panel auditoría -->
+      <div id="admin-panel-audit" class="admin-panel">
+        <div style="background:linear-gradient(90deg,#fee2e2 0%,#fef3c7 100%);border:1px solid #fecaca;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#7f1d1d;line-height:1.5">
+          🔒 <strong>Logs de seguridad y auditoría</strong> — registra automáticamente: logins exitosos y fallidos, logouts, apertura de cada módulo y descargas/exports. Útil para investigar incidentes (ej: "¿quién descargó la lista de bloqueos el martes?") o ver patrones de uso. Retención: <strong>365 días</strong>; los registros más viejos se borran solos.
+        </div>
+
+        <!-- KPIs rápidos -->
+        <div id="audit-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px"></div>
+
+        <!-- Filtros -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+            <strong style="font-size:12px;color:var(--text2)">Período:</strong>
+            <button class="pbtn" onclick="auditSetRango(1, this)">Hoy</button>
+            <button class="pbtn active" onclick="auditSetRango(7, this)">7 días</button>
+            <button class="pbtn" onclick="auditSetRango(30, this)">30 días</button>
+            <button class="pbtn" onclick="auditSetRango(90, this)">90 días</button>
+            <input id="audit-desde" type="date" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--bg)">
+            <span style="font-size:11px;color:var(--text3)">→</span>
+            <input id="audit-hasta" type="date" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--bg)">
+            <button class="apply-btn" onclick="cargarAudit()">Aplicar</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+            <select id="audit-tipo" onchange="cargarAudit()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+              <option value="">Todos los tipos</option>
+              <option value="login">🔓 Login exitoso</option>
+              <option value="login_failed">⛔ Login fallido</option>
+              <option value="logout">🚪 Logout</option>
+              <option value="view_open">👁️ Apertura de módulo</option>
+              <option value="export">📥 Export/descarga</option>
+              <option value="button">🔘 Click en botón</option>
+              <option value="filter">🔍 Filtro aplicado</option>
+            </select>
+            <input id="audit-usuario" type="text" placeholder="Filtrar usuario..." oninput="_auditDebounce()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <input id="audit-modulo" type="text" placeholder="Módulo (ej: bloqueos)" oninput="_auditDebounce()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <input id="audit-q" type="text" placeholder="🔎 Buscar en acción/detalles..." oninput="_auditDebounce()" style="flex:1;min-width:200px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg)">
+            <button class="apply-btn" style="background:#16a34a" onclick="auditExport()">📥 Exportar Excel</button>
+          </div>
+        </div>
+
+        <!-- Top usuarios y módulos -->
+        <div id="audit-top" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px"></div>
+
+        <!-- Tabla de eventos -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:13px;font-weight:700;color:var(--text2)">📋 Eventos registrados</div>
+            <div id="audit-count" style="font-size:11px;color:var(--text3)"></div>
+          </div>
+          <div id="audit-tabla" style="overflow-x:auto">
+            <div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Cargando...</div>
           </div>
         </div>
       </div>
@@ -3736,7 +3791,34 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 <script>
 
 // ── NAVEGACIÓN SIDEBAR ────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// AUDITORÍA — registra eventos del usuario en el portal.
+// Se invoca explícitamente desde botones de export/filtro y
+// automáticamente desde switchView. Si no hay token (login no
+// hecho aún) no hace nada. Es best-effort: nunca rompe la UI.
+// ══════════════════════════════════════════════════════════════
+async function auditLog(tipo, modulo, accion, detalles) {
+  try {
+    if (!_sesionToken) return;
+    await fetch(`${API}/api/audit/log`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-Token': _sesionToken},
+      body: JSON.stringify({
+        tipo:    tipo    || 'other',
+        modulo:  modulo  || '',
+        accion:  accion  || '',
+        detalles: detalles || null,
+      }),
+      keepalive: true,  // permite que sobreviva si el usuario navega
+    });
+  } catch (_) { /* silencioso */ }
+}
+
 function switchView(view){
+  // Auditoría: registrar cada cambio de vista (módulo abierto)
+  try { if (window._sesionToken) auditLog('view_open', view, `abrió ${view}`); }
+  catch(_) {}
+
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.sb-sub-item').forEach(i => i.classList.remove('active'));
 
@@ -6372,7 +6454,7 @@ async function doRegister() {
 // ADMIN PANEL
 // ══════════════════════════════════════════════════════════════
 function switchAdminTab(tab) {
-  ['users','console','cal','cron','recursos'].forEach(t => {
+  ['users','console','cal','cron','recursos','audit'].forEach(t => {
     document.getElementById(`admin-tab-${t}`)?.classList.remove('active');
     // Usar clase admin-panel-active en lugar de active para no colisionar
     document.getElementById(`admin-panel-${t}`)?.classList.remove('admin-panel-active');
@@ -6383,6 +6465,7 @@ function switchAdminTab(tab) {
   if(tab==='users')    cargarUsuarios();
   if(tab==='cron')     cargarCronograma();
   if(tab==='recursos') cargarRecursos();
+  if(tab==='audit')    cargarAudit();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -7701,6 +7784,181 @@ function renderResumenGeneral() {
     .join('');
 
   cont.innerHTML = html || '<div style="text-align:center;padding:60px 20px;color:var(--text3);font-size:13px">📭 Sin datos.</div>';
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// AUDITORÍA — vista admin
+// ══════════════════════════════════════════════════════════════
+let _auditDebounceT = null;
+function _auditDebounce() {
+  clearTimeout(_auditDebounceT);
+  _auditDebounceT = setTimeout(() => cargarAudit(), 350);
+}
+
+function _auditFmtDate(d) { return d.toISOString().slice(0,10); }
+
+function auditSetRango(dias, btn) {
+  if (btn) {
+    btn.parentNode.querySelectorAll('.pbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  const hoy = new Date();
+  const desde = new Date(); desde.setDate(hoy.getDate() - (dias - 1));
+  document.getElementById('audit-desde').value = _auditFmtDate(desde);
+  document.getElementById('audit-hasta').value = _auditFmtDate(hoy);
+  cargarAudit();
+}
+
+function _auditTipoLabel(t) {
+  return ({
+    'login':         '🔓 Login',
+    'login_failed':  '⛔ Login fallido',
+    'logout':        '🚪 Logout',
+    'view_open':     '👁️ Vista',
+    'export':        '📥 Export',
+    'button':        '🔘 Botón',
+    'filter':        '🔍 Filtro',
+    'api_call':      '🛠️ API',
+    'other':         '· Otro',
+  })[t] || t;
+}
+function _auditTipoColor(t) {
+  return ({
+    'login':         '#16a34a',
+    'login_failed':  '#dc2626',
+    'logout':        '#6b7280',
+    'view_open':     '#1d4ed8',
+    'export':        '#7c3aed',
+    'button':        '#0ea5e9',
+    'filter':        '#ca8a04',
+  })[t] || '#9ca3af';
+}
+
+async function cargarAudit() {
+  const cont = document.getElementById('audit-tabla');
+  if (!cont) return;
+  // Si los inputs de fecha aún están vacíos (primera carga), default 7 días
+  if (!document.getElementById('audit-desde').value) {
+    auditSetRango(7, document.querySelector('#admin-panel-audit .pbtn.active'));
+    return;
+  }
+  cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Cargando...</div>';
+  try {
+    const params = new URLSearchParams({
+      desde:   document.getElementById('audit-desde').value,
+      hasta:   document.getElementById('audit-hasta').value,
+      tipo:    document.getElementById('audit-tipo').value || '',
+      usuario: document.getElementById('audit-usuario').value || '',
+      modulo:  document.getElementById('audit-modulo').value || '',
+      q:       document.getElementById('audit-q').value || '',
+      limit:   1000,
+    });
+    const r = await fetch(`${API}/api/audit/logs?${params}`, {headers: {'X-Token': _sesionToken}});
+    const d = await safeJson(r);
+    if (!d.ok) throw new Error(d.error || 'Error');
+
+    // KPIs
+    const kpis = d.resumen || {};
+    const kpiData = [
+      {label:'Total eventos',     val: kpis.total           || 0, c:'#5a2bb8'},
+      {label:'Usuarios únicos',   val: kpis.usuarios_unicos || 0, c:'#1d4ed8'},
+      {label:'Logins exitosos',   val: kpis.logins          || 0, c:'#16a34a'},
+      {label:'Logins fallidos',   val: kpis.logins_fallidos || 0, c:'#dc2626'},
+      {label:'Aperturas de vista',val: kpis.view_opens      || 0, c:'#0ea5e9'},
+      {label:'Exports',           val: kpis.exports         || 0, c:'#7c3aed'},
+    ];
+    document.getElementById('audit-kpis').innerHTML = kpiData.map(k => `
+      <div style="background:linear-gradient(135deg, ${k.c}, ${k.c}dd);color:#fff;border-radius:10px;padding:10px 14px">
+        <div style="font-size:10px;opacity:.85;font-weight:600">${k.label}</div>
+        <div style="font-size:22px;font-weight:800;margin-top:2px">${(k.val||0).toLocaleString('es-CO')}</div>
+      </div>`).join('');
+
+    // Top usuarios y módulos
+    const topU = (d.top_usuarios || []).slice(0,5);
+    const topM = (d.top_modulos  || []).slice(0,5);
+    document.getElementById('audit-top').innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px">👥 Top usuarios activos</div>
+        ${topU.length ? topU.map(u => `
+          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px dashed var(--border)">
+            <span>${(u.usuario||'').replace(/</g,'&lt;')}</span>
+            <strong>${u.eventos.toLocaleString('es-CO')}</strong>
+          </div>`).join('') : '<div style="font-size:11px;color:var(--text3);font-style:italic">Sin actividad en este rango.</div>'}
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px">🧩 Top módulos visitados</div>
+        ${topM.length ? topM.map(m => `
+          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px dashed var(--border)">
+            <span>${(m.modulo||'').replace(/</g,'&lt;')}</span>
+            <strong>${m.eventos.toLocaleString('es-CO')}</strong>
+          </div>`).join('') : '<div style="font-size:11px;color:var(--text3);font-style:italic">Sin actividad en este rango.</div>'}
+      </div>`;
+
+    // Tabla
+    const eventos = d.eventos || [];
+    document.getElementById('audit-count').textContent = `${eventos.length.toLocaleString('es-CO')} evento(s) mostrado(s)`;
+    if (!eventos.length) {
+      cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">📭 Sin eventos para los filtros actuales.</div>';
+      return;
+    }
+    const filas = eventos.map(e => {
+      const tipoBadge = `<span style="background:${_auditTipoColor(e.tipo)}22;color:${_auditTipoColor(e.tipo)};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">${_auditTipoLabel(e.tipo)}</span>`;
+      const detSafe = (e.detalles || '').replace(/</g,'&lt;');
+      const detShort = detSafe.length > 80 ? detSafe.slice(0,80) + '…' : detSafe;
+      return `
+        <tr>
+          <td style="font-family:monospace;font-size:10px;color:var(--text3);white-space:nowrap">${e.ts}</td>
+          <td style="font-size:12px;font-weight:600">${(e.usuario||'').replace(/</g,'&lt;')}</td>
+          <td style="font-size:11px;color:var(--text3)">${(e.rol||'').replace(/</g,'&lt;')}</td>
+          <td>${tipoBadge}</td>
+          <td style="font-size:11px"><code style="background:#f3f4f6;padding:1px 4px;border-radius:3px">${(e.modulo||'').replace(/</g,'&lt;')}</code></td>
+          <td style="font-size:11px">${(e.accion||'').replace(/</g,'&lt;')}</td>
+          <td style="font-size:10px;color:var(--text3);max-width:300px" title="${detSafe.replace(/"/g,'&quot;')}">${detShort}</td>
+          <td style="font-size:10px;color:var(--text3);font-family:monospace">${(e.ip||'').replace(/</g,'&lt;')}</td>
+        </tr>`;
+    }).join('');
+    cont.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left">
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">Fecha</th>
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">Usuario</th>
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">Rol</th>
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">Tipo</th>
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">Módulo</th>
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">Acción</th>
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">Detalles</th>
+            <th style="padding:8px 10px;border-bottom:2px solid var(--border)">IP</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <style>#audit-tabla tbody tr:nth-child(even){background:#fafafa}#audit-tabla tbody td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}</style>`;
+  } catch (err) {
+    cont.innerHTML = `<div style="text-align:center;padding:24px;color:#dc2626;font-size:12px">❌ ${err.message}</div>`;
+  }
+}
+
+function auditExport() {
+  const params = new URLSearchParams({
+    desde:   document.getElementById('audit-desde').value,
+    hasta:   document.getElementById('audit-hasta').value,
+    tipo:    document.getElementById('audit-tipo').value || '',
+    usuario: document.getElementById('audit-usuario').value || '',
+    modulo:  document.getElementById('audit-modulo').value || '',
+    q:       document.getElementById('audit-q').value || '',
+  });
+  // El endpoint requiere X-Token. Como es una descarga, hacemos fetch + blob.
+  fetch(`${API}/api/audit/export?${params}`, {headers: {'X-Token': _sesionToken}})
+    .then(r => r.ok ? r.blob() : Promise.reject('Error en la descarga'))
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `audit_logs_${document.getElementById('audit-desde').value}_${document.getElementById('audit-hasta').value}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+    })
+    .catch(err => alert('❌ ' + err));
 }
 
 
