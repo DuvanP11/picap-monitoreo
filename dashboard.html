@@ -938,12 +938,19 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   0%,55%,100% { opacity:0; transform:scale(.5); }
   65%,75%     { opacity:.9; transform:scale(1.4); }
 }
-/* Caja del paquete pequeña que vuela hacia el portal */
-.moto-package{position:absolute;left:60px;top:60px;width:14px;height:14px;background:#f59e0b;border-radius:3px;border-top:4px solid #d97706;opacity:0;animation:package-fly 8s ease-in-out infinite;}
+/* Caja del paquete que vuela hacia el portal — sale de la moto, hace
+   un arco y se "entrega" entrando al portal antes de que la moto siga */
+.moto-package{position:absolute;left:50px;top:62px;width:24px;height:24px;opacity:0;animation:package-fly 8s ease-in-out infinite;pointer-events:none;}
 @keyframes package-fly{
-  0%,55%,100% { opacity:0; transform:translate(0,0) rotate(0); }
-  62%,72%     { opacity:1; transform:translate(80px,-20px) rotate(180deg); }
-  78%         { opacity:0; transform:translate(110px,-40px) rotate(360deg); }
+  0%, 50%, 100% { opacity:0; transform:translate(0,0) rotate(0) scale(1); }
+  /* Sale de la caja de la moto */
+  56%           { opacity:1; transform:translate(10px,-6px) rotate(40deg) scale(1); }
+  /* Sube en arco hacia el portal */
+  64%           { opacity:1; transform:translate(60px,-30px) rotate(180deg) scale(1); }
+  /* Llega al portal y empieza a encogerse */
+  70%           { opacity:1; transform:translate(110px,-18px) rotate(320deg) scale(.85); }
+  /* Entra al portal: se encoge y desaparece */
+  76%           { opacity:0; transform:translate(125px,-10px) rotate(420deg) scale(.1); }
 }
 .perfil-hero-info{display:flex;flex-direction:column;gap:2px;color:#fff;}
 .perfil-header .perfil-name{color:#fff!important;font-size:20px;font-weight:700;}
@@ -2512,8 +2519,20 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
               <line x1="0"  y1="22" x2="10" y2="18" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
 
-            <!-- Paquete que vuela hacia el portal -->
-            <div class="moto-package"></div>
+            <!-- Paquete que vuela hacia el portal con la marca PIBOX -->
+            <svg class="moto-package" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <!-- Cuerpo de la caja -->
+              <rect x="2" y="6" width="20" height="16" rx="2" fill="#f59e0b" stroke="#92400e" stroke-width="1"/>
+              <!-- Tapa -->
+              <rect x="2" y="6" width="20" height="5" rx="2" fill="#d97706"/>
+              <!-- Cinta vertical y horizontal -->
+              <line x1="12" y1="6" x2="12" y2="22" stroke="#7c2d12" stroke-width="1.2"/>
+              <line x1="2"  y1="13" x2="22" y2="13" stroke="#7c2d12" stroke-width="1.2"/>
+              <!-- Etiqueta blanca con la marca -->
+              <rect x="5" y="14" width="14" height="6" rx="1" fill="#fff"/>
+              <text x="12" y="18.5" font-size="4" fill="#7c2d12" text-anchor="middle"
+                    font-weight="bold" font-family="Arial,sans-serif">PIBOX</text>
+            </svg>
 
             <!-- Mensajero en moto (recorre la pantalla) -->
             <svg class="moto-svg" viewBox="0 0 140 120" xmlns="http://www.w3.org/2000/svg">
@@ -2550,12 +2569,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
               <circle cx="97" cy="95" r="2.5" fill="#fbbf24"/>
               <!-- Manubrio -->
               <path d="M88 60 Q98 54 104 64" stroke="#a78bfa" stroke-width="3" fill="none" stroke-linecap="round"/>
-              <!-- Caja de paquete en la moto -->
+              <!-- Caja de paquete en la moto (Pibox) -->
               <rect x="18" y="42" width="28" height="22" rx="3" fill="#f59e0b"/>
               <rect x="18" y="42" width="28" height="7"  rx="3" fill="#d97706"/>
               <line x1="32" y1="42" x2="32" y2="64" stroke="#d97706" stroke-width="1.2"/>
               <line x1="18" y1="52" x2="46" y2="52" stroke="#d97706" stroke-width="1.2"/>
-              <text x="32" y="60" font-size="6" fill="#7c2d12" text-anchor="middle" font-weight="bold">PICAP</text>
+              <text x="32" y="60" font-size="6" fill="#7c2d12" text-anchor="middle" font-weight="bold" font-family="Arial,sans-serif">PIBOX</text>
               <!-- Cuerpo piloto -->
               <rect x="56" y="36" width="26" height="30" rx="6" fill="#7c3aed"/>
               <!-- Brazo extendido al manubrio -->
