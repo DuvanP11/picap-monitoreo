@@ -915,19 +915,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   85%  { transform:translate(-150px,30px) scale(1); opacity:0; }
   100% { transform:translate(-150px,30px) scale(1); opacity:0; }
 }
-/* Ruedas girando */
-.moto-wheel{transform-origin:center;transform-box:fill-box;animation:moto-wheel-spin .35s linear infinite;}
-@keyframes moto-wheel-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-/* Portal mágico — anillo doble con remolino */
+/* Portal mágico — pulso global. Los anillos internos se animan vía SMIL
+   <animateTransform> dentro del SVG, no por CSS, para que el origen de
+   rotación sea exactamente el centro del círculo y no se desalinee. */
 .moto-portal{position:absolute;right:14px;top:38px;width:64px;height:64px;animation:portal-pulse 2s ease-in-out infinite;}
 @keyframes portal-pulse{
   0%,100% { transform:scale(.92); }
   50%     { transform:scale(1.08); }
 }
-.moto-portal .ring-outer{animation:portal-spin 4s linear infinite;transform-origin:32px 32px;transform-box:fill-box;}
-.moto-portal .ring-inner{animation:portal-spin-rev 3s linear infinite;transform-origin:32px 32px;transform-box:fill-box;}
-@keyframes portal-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-@keyframes portal-spin-rev{from{transform:rotate(0)}to{transform:rotate(-360deg)}}
 /* Partículas brillando alrededor del portal */
 .moto-spark{position:absolute;border-radius:50%;background:#fbbf24;box-shadow:0 0 8px #fbbf24;}
 .moto-spark.s1{right:8px;top:32px;width:5px;height:5px;animation:spark-1 1.6s ease-in-out infinite;}
@@ -2488,8 +2483,16 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
                 </linearGradient>
               </defs>
               <circle cx="32" cy="32" r="30" fill="url(#portalGrad)"/>
-              <circle class="ring-outer" cx="32" cy="32" r="28" fill="none" stroke="url(#ringGrad)" stroke-width="3" stroke-dasharray="8 4" opacity=".9"/>
-              <circle class="ring-inner" cx="32" cy="32" r="20" fill="none" stroke="#fbbf24" stroke-width="2" stroke-dasharray="4 6" opacity=".75"/>
+              <!-- Anillo exterior girando: animateTransform SMIL gira alrededor de (32,32) exacto -->
+              <g>
+                <circle cx="32" cy="32" r="28" fill="none" stroke="url(#ringGrad)" stroke-width="3" stroke-dasharray="8 4" opacity=".9"/>
+                <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="4s" repeatCount="indefinite"/>
+              </g>
+              <!-- Anillo interior girando al revés -->
+              <g>
+                <circle cx="32" cy="32" r="20" fill="none" stroke="#fbbf24" stroke-width="2" stroke-dasharray="4 6" opacity=".75"/>
+                <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="-360 32 32" dur="3s" repeatCount="indefinite"/>
+              </g>
               <circle cx="32" cy="32" r="12" fill="#0c0a3e" opacity=".7"/>
               <circle cx="32" cy="32" r="6"  fill="#1e1b4b"/>
             </svg>
@@ -2519,22 +2522,32 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
               <rect x="20" y="68" width="80" height="22" rx="9" fill="#4c1d95"/>
               <rect x="28" y="62" width="62" height="14" rx="5" fill="#6d28d9"/>
               <rect x="42" y="56" width="34" height="18" rx="4" fill="#7c3aed"/>
-              <!-- Rueda trasera (gira) -->
-              <g class="moto-wheel" style="transform-origin:33px 95px">
-                <circle cx="33" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
-                <circle cx="33" cy="95" r="7"  fill="#2d2066"/>
+              <!-- Rueda trasera. Llanta + cubo fijos; solo los radios giran
+                   alrededor del centro (33,95) usando animateTransform SMIL.
+                   Esto garantiza que el origen de rotación sea exacto y la
+                   rueda nunca se separe de la moto. -->
+              <circle cx="33" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
+              <circle cx="33" cy="95" r="7"  fill="#2d2066"/>
+              <g>
                 <line x1="33" y1="83" x2="33" y2="107" stroke="#a78bfa" stroke-width="1.5"/>
                 <line x1="21" y1="95" x2="45" y2="95"  stroke="#a78bfa" stroke-width="1.5"/>
-                <circle cx="33" cy="95" r="2.5" fill="#fbbf24"/>
+                <animateTransform attributeName="transform" type="rotate"
+                                  from="0 33 95" to="360 33 95"
+                                  dur="0.4s" repeatCount="indefinite"/>
               </g>
-              <!-- Rueda delantera (gira) -->
-              <g class="moto-wheel" style="transform-origin:97px 95px;animation-delay:-.1s">
-                <circle cx="97" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
-                <circle cx="97" cy="95" r="7"  fill="#2d2066"/>
+              <circle cx="33" cy="95" r="2.5" fill="#fbbf24"/>
+
+              <!-- Rueda delantera (mismo patrón, centro (97,95)) -->
+              <circle cx="97" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
+              <circle cx="97" cy="95" r="7"  fill="#2d2066"/>
+              <g>
                 <line x1="97" y1="83" x2="97" y2="107" stroke="#a78bfa" stroke-width="1.5"/>
                 <line x1="85" y1="95" x2="109" y2="95" stroke="#a78bfa" stroke-width="1.5"/>
-                <circle cx="97" cy="95" r="2.5" fill="#fbbf24"/>
+                <animateTransform attributeName="transform" type="rotate"
+                                  from="0 97 95" to="360 97 95"
+                                  dur="0.4s" repeatCount="indefinite" begin="-0.1s"/>
               </g>
+              <circle cx="97" cy="95" r="2.5" fill="#fbbf24"/>
               <!-- Manubrio -->
               <path d="M88 60 Q98 54 104 64" stroke="#a78bfa" stroke-width="3" fill="none" stroke-linecap="round"/>
               <!-- Caja de paquete en la moto -->
