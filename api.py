@@ -7639,39 +7639,70 @@ def _resumen_pagos_promo(ch, desde, hasta, pais_iso):
     }
 
 def _resumen_facial(ch, desde, hasta, pais_iso):
-    """Alertas RF — total, desglose por nivel + porcentajes y similitud máxima."""
+    """Alertas RF — replica la lógica del módulo /api/reconocimiento, modo
+    Confianza Alta (umbral 0.96) CON filtro de apellido coincidente.
+    Esto hace que el conteo del Resumen 360 cuadre con lo que el operador
+    ve cuando entra al módulo RF en modo recomendado.
+
+    Categorías:
+      - Confianza alta (≥ 0.96 + apellido | mismo IMEI)  → alertas reales
+      - Equilibrado    (0.93–0.96 + apellido)             → para revisar
+      - Auditoría      (0.85–0.93 + apellido)             → posibles
+      - Descartadas    → el resto (modelo dijo distinto o apellidos no comparten)
+    """
+    # Tokens significativos compartidos entre nombre_a y nombre_b
+    TOK = ("arrayFilter(tk -> length(tk) >= 3, "
+           "arrayMap(s -> lowerUTF8(s), splitByChar(' ', toString({col}))))")
+    APELLIDO_OK = (
+        f"(length({TOK.format(col='nombre_a')}) > 0 "
+        f"AND length({TOK.format(col='nombre_b')}) > 0 "
+        f"AND arrayCount(t -> has({TOK.format(col='nombre_b')}, t), "
+        f"{TOK.format(col='nombre_a')}) > 0)"
+    )
     try:
         sql = f"""
         SELECT
-            count()                                AS total,
-            countIf(nivel='ALERTA')                AS alerta,
-            countIf(nivel='REVISAR')               AS revisar,
-            countIf(nivel='POSIBLE')               AS posible,
-            round(max(similitud), 4)               AS sim_max,
-            round(avg(similitud), 4)               AS sim_avg
+            count()                                                              AS total,
+            countIf(
+                (toFloat64(similitud) >= 0.96 AND {APELLIDO_OK})
+                OR ifNull(mismo_imei,'NO') = 'SÍ'
+            )                                                                    AS alerta,
+            countIf(
+                toFloat64(similitud) >= 0.93 AND toFloat64(similitud) < 0.96
+                AND {APELLIDO_OK}
+            )                                                                    AS revisar,
+            countIf(
+                toFloat64(similitud) >= 0.85 AND toFloat64(similitud) < 0.93
+                AND {APELLIDO_OK}
+            )                                                                    AS posible,
+            round(maxIf(similitud, toFloat64(similitud) > 0), 4)                 AS sim_max,
+            round(avgIf(similitud, toFloat64(similitud) > 0), 4)                 AS sim_avg
         FROM picapmongoprod.alertas_reconocimiento
         WHERE procesado_en >= toDateTime('{desde} 00:00:00')
           AND procesado_en <= toDateTime('{hasta} 23:59:59')
         """
         r = ch.query(sql).result_rows
-        total, alerta, revisar, posible, sim_max, sim_avg = (r[0] if r else (0, 0, 0, 0, 0, 0))
+        total, alerta, revisar, posible, sim_max, sim_avg = (r[0] if r else (0,0,0,0,0,0))
     except Exception:
         total, alerta, revisar, posible, sim_max, sim_avg = (0, 0, 0, 0, 0, 0)
     total = int(total or 0); alerta = int(alerta or 0)
     revisar = int(revisar or 0); posible = int(posible or 0)
-    pct_a = round(alerta / total * 100, 2) if total else 0
-    pct_r = round(revisar / total * 100, 2) if total else 0
-    pct_p = round(posible / total * 100, 2) if total else 0
+    pct_a = round(alerta / total * 100, 3) if total else 0
+    pct_r = round(revisar / total * 100, 3) if total else 0
+    pct_p = round(posible / total * 100, 3) if total else 0
     return {
         "kpis": [
-            _kpi("Total comparaciones",       total, "numero"),
-            _kpi("Alertas (alta confianza)",  alerta, "numero", color="#dc2626", sub=f"{pct_a}% del total"),
-            _kpi("Para revisar manual",       revisar, "numero", color="#ca8a04", sub=f"{pct_r}% del total"),
-            _kpi("Posibles coincidencias",    posible, "numero", sub=f"{pct_p}% del total"),
-            _kpi("Similitud máxima",          float(sim_max or 0), "decimal"),
-            _kpi("Similitud promedio",        float(sim_avg or 0), "decimal"),
+            _kpi("Pares analizados",                       total,   "numero"),
+            _kpi("Alertas reales · Confianza alta (≥0.96)",alerta,  "numero", color="#dc2626",
+                 sub=f"{pct_a}% del total"),
+            _kpi("Para revisar · Equilibrado (0.93–0.96)", revisar, "numero", color="#ca8a04",
+                 sub=f"{pct_r}% del total"),
+            _kpi("Posibles · Auditoría (0.85–0.93)",       posible, "numero",
+                 sub=f"{pct_p}% del total"),
+            _kpi("Similitud máxima",                       float(sim_max or 0), "decimal"),
+            _kpi("Similitud promedio",                     float(sim_avg or 0), "decimal"),
         ],
-        "tip": "Similitud > 0.96 ≈ misma persona con alta confianza (alerta). Entre 0.85 y 0.96 sugiere revisión manual. Tasa esperada de alertas ≈ 1-3%; si sube indica que un mismo rostro está creando varias cuentas."
+        "tip": "Cada categoría replica lo que ves al elegir ese modo en el módulo RF (con filtro de apellido activado). Los conteos cuadran con 'Alertas reales' del módulo. Si querés ver TODAS las comparaciones sin filtro, abrí el módulo Facial."
     }
 
 def _resumen_bloqueos(ch, desde, hasta, pais_iso):
