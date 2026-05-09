@@ -891,7 +891,65 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .perfil-header{background:linear-gradient(135deg,#1e1b4b 0%,#3b0764 50%,#1e1b4b 100%);border-radius:16px;padding:16px 28px;display:flex;align-items:center;gap:24px;margin-bottom:16px;position:relative;overflow:hidden;color:#fff;}
 .perfil-header::before{content:'';position:absolute;top:-30px;right:-30px;width:120px;height:120px;background:radial-gradient(circle,rgba(167,139,250,.25),transparent);border-radius:50%;}
 .perfil-header::after{content:'';position:absolute;bottom:-20px;left:-20px;width:80px;height:80px;background:radial-gradient(circle,rgba(245,158,11,.15),transparent);border-radius:50%;}
-.perfil-hero-img{flex-shrink:0;filter:drop-shadow(0 4px 12px rgba(0,0,0,.3));}
+.perfil-hero-img{flex-shrink:0;filter:drop-shadow(0 4px 12px rgba(0,0,0,.3));position:relative;}
+
+/* ── Animación de la moto con portal mágico ── */
+/* La moto recorre de izquierda a derecha, llega al portal, "entra" (se
+   encoge y desaparece), el portal pulsa, y luego la moto reaparece desde
+   la izquierda. Loop infinito. */
+.moto-anim-wrap{position:relative;width:220px;height:160px;overflow:hidden;border-radius:14px;}
+.moto-anim-bg{position:absolute;inset:0;background:linear-gradient(180deg,rgba(76,29,149,.0) 0%,rgba(76,29,149,.0) 70%,rgba(167,139,250,.15) 100%);}
+/* Carretera con líneas animadas */
+.moto-road-lines{position:absolute;left:0;right:0;bottom:18px;height:3px;display:flex;gap:14px;animation:moto-road 1.5s linear infinite;}
+.moto-road-lines span{flex:0 0 18px;height:3px;background:rgba(167,139,250,.5);border-radius:2px;}
+@keyframes moto-road{from{transform:translateX(0)}to{transform:translateX(-32px)}}
+/* La moto: 8s en total — sale, recorre, entra al portal, desaparece, reaparece */
+.moto-svg{position:absolute;left:0;top:0;width:140px;height:120px;animation:moto-recorrido 8s ease-in-out infinite;}
+@keyframes moto-recorrido{
+  0%   { transform:translate(-150px,30px) scale(1); opacity:0; }
+  10%  { transform:translate(-30px,30px) scale(1); opacity:1; }
+  45%  { transform:translate(15px,28px) scale(1); opacity:1; }
+  60%  { transform:translate(45px,30px) scale(.9); opacity:1; }
+  72%  { transform:translate(70px,32px) scale(.55) rotate(8deg); opacity:.7; }
+  80%  { transform:translate(85px,32px) scale(.15) rotate(20deg); opacity:0; }
+  85%  { transform:translate(-150px,30px) scale(1); opacity:0; }
+  100% { transform:translate(-150px,30px) scale(1); opacity:0; }
+}
+/* Ruedas girando */
+.moto-wheel{transform-origin:center;transform-box:fill-box;animation:moto-wheel-spin .35s linear infinite;}
+@keyframes moto-wheel-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+/* Portal mágico — anillo doble con remolino */
+.moto-portal{position:absolute;right:14px;top:38px;width:64px;height:64px;animation:portal-pulse 2s ease-in-out infinite;}
+@keyframes portal-pulse{
+  0%,100% { transform:scale(.92); }
+  50%     { transform:scale(1.08); }
+}
+.moto-portal .ring-outer{animation:portal-spin 4s linear infinite;transform-origin:32px 32px;transform-box:fill-box;}
+.moto-portal .ring-inner{animation:portal-spin-rev 3s linear infinite;transform-origin:32px 32px;transform-box:fill-box;}
+@keyframes portal-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes portal-spin-rev{from{transform:rotate(0)}to{transform:rotate(-360deg)}}
+/* Partículas brillando alrededor del portal */
+.moto-spark{position:absolute;border-radius:50%;background:#fbbf24;box-shadow:0 0 8px #fbbf24;}
+.moto-spark.s1{right:8px;top:32px;width:5px;height:5px;animation:spark-1 1.6s ease-in-out infinite;}
+.moto-spark.s2{right:62px;top:30px;width:4px;height:4px;animation:spark-2 1.4s ease-in-out infinite .3s;}
+.moto-spark.s3{right:30px;top:90px;width:3px;height:3px;animation:spark-3 1.8s ease-in-out infinite .6s;}
+.moto-spark.s4{right:50px;top:22px;width:3px;height:3px;animation:spark-1 2s ease-in-out infinite .8s;}
+@keyframes spark-1{0%,100%{opacity:0;transform:translate(0,0) scale(.5)}50%{opacity:1;transform:translate(-6px,-4px) scale(1)}}
+@keyframes spark-2{0%,100%{opacity:0;transform:translate(0,0) scale(.5)}50%{opacity:1;transform:translate(8px,4px) scale(1)}}
+@keyframes spark-3{0%,100%{opacity:0;transform:translate(0,0) scale(.5)}50%{opacity:1;transform:translate(-4px,-8px) scale(1)}}
+/* Speed lines que aparecen cuando la moto entra al portal */
+.moto-speed-burst{position:absolute;right:88px;top:48px;width:32px;height:32px;opacity:0;animation:speed-burst 8s ease-in-out infinite;}
+@keyframes speed-burst{
+  0%,55%,100% { opacity:0; transform:scale(.5); }
+  65%,75%     { opacity:.9; transform:scale(1.4); }
+}
+/* Caja del paquete pequeña que vuela hacia el portal */
+.moto-package{position:absolute;left:60px;top:60px;width:14px;height:14px;background:#f59e0b;border-radius:3px;border-top:4px solid #d97706;opacity:0;animation:package-fly 8s ease-in-out infinite;}
+@keyframes package-fly{
+  0%,55%,100% { opacity:0; transform:translate(0,0) rotate(0); }
+  62%,72%     { opacity:1; transform:translate(80px,-20px) rotate(180deg); }
+  78%         { opacity:0; transform:translate(110px,-40px) rotate(360deg); }
+}
 .perfil-hero-info{display:flex;flex-direction:column;gap:2px;color:#fff;}
 .perfil-header .perfil-name{color:#fff!important;font-size:20px;font-weight:700;}
 .perfil-header .perfil-email{color:rgba(255,255,255,.75)!important;font-size:12px;}
@@ -2403,52 +2461,101 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         Volver al inicio
       </button>
       <div class="perfil-header" id="perfil-header">
-        <!-- Ilustración mensajero en moto -->
+        <!-- Mensajero en moto recorriendo y entrando al portal mágico -->
         <div class="perfil-hero-img">
-          <svg viewBox="0 0 220 160" xmlns="http://www.w3.org/2000/svg" style="width:220px;height:160px">
-            <!-- Fondo decorativo -->
-            <ellipse cx="110" cy="148" rx="80" ry="8" fill="rgba(0,0,0,.15)"/>
-            <!-- Cuerpo moto -->
-            <rect x="60" y="105" width="95" height="28" rx="10" fill="#4c1d95"/>
-            <rect x="70" y="98" width="75" height="18" rx="6" fill="#6d28d9"/>
-            <!-- Motor / cuerpo central -->
-            <rect x="88" y="92" width="40" height="22" rx="5" fill="#7c3aed"/>
-            <!-- Rueda trasera -->
-            <circle cx="75" cy="133" r="16" fill="#1e1b4b" stroke="#a78bfa" stroke-width="3"/>
-            <circle cx="75" cy="133" r="8" fill="#2d2066"/>
-            <circle cx="75" cy="133" r="3" fill="#a78bfa"/>
-            <!-- Rueda delantera -->
-            <circle cx="150" cy="133" r="16" fill="#1e1b4b" stroke="#a78bfa" stroke-width="3"/>
-            <circle cx="150" cy="133" r="8" fill="#2d2066"/>
-            <circle cx="150" cy="133" r="3" fill="#a78bfa"/>
-            <!-- Manubrio -->
-            <path d="M140 95 Q152 88 158 100" stroke="#a78bfa" stroke-width="3" fill="none" stroke-linecap="round"/>
-            <!-- Caja de paquete en la moto -->
-            <rect x="58" y="76" width="32" height="26" rx="4" fill="#f59e0b"/>
-            <rect x="58" y="76" width="32" height="8" rx="4" fill="#d97706"/>
-            <line x1="74" y1="76" x2="74" y2="102" stroke="#d97706" stroke-width="1.5"/>
-            <line x1="58" y1="88" x2="90" y2="88" stroke="#d97706" stroke-width="1.5"/>
-            <!-- Cuerpo piloto -->
-            <rect x="100" y="68" width="28" height="34" rx="6" fill="#7c3aed"/>
-            <!-- Brazo extendido -->
-            <path d="M128 78 L148 70" stroke="#7c3aed" stroke-width="7" stroke-linecap="round"/>
-            <circle cx="150" cy="69" r="5" fill="#ddd6fe"/>
-            <!-- Casco -->
-            <ellipse cx="114" cy="62" rx="16" ry="14" fill="#4c1d95"/>
-            <path d="M100 62 Q114 48 128 62" fill="#5b21b6"/>
-            <!-- Visor casco -->
-            <path d="M103 65 Q114 58 125 65" fill="none" stroke="#a78bfa" stroke-width="3" stroke-linecap="round"/>
-            <!-- Pierna piloto -->
-            <rect x="108" y="100" width="10" height="20" rx="4" fill="#5b21b6"/>
-            <!-- Punto de velocidad -->
-            <circle cx="180" cy="105" r="2" fill="rgba(167,139,250,.4)"/>
-            <circle cx="192" cy="98" r="1.5" fill="rgba(167,139,250,.3)"/>
-            <circle cx="186" cy="115" r="1" fill="rgba(167,139,250,.3)"/>
-            <!-- Líneas de velocidad -->
-            <line x1="30" y1="110" x2="50" y2="110" stroke="rgba(167,139,250,.3)" stroke-width="2" stroke-linecap="round"/>
-            <line x1="22" y1="120" x2="48" y2="120" stroke="rgba(167,139,250,.2)" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="28" y1="100" x2="45" y2="100" stroke="rgba(167,139,250,.2)" stroke-width="1" stroke-linecap="round"/>
-          </svg>
+          <div class="moto-anim-wrap" aria-label="Mensajero Picap entregando paquete por portal mágico">
+            <div class="moto-anim-bg"></div>
+
+            <!-- Carretera con líneas en movimiento -->
+            <div class="moto-road-lines">
+              <span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span>
+            </div>
+
+            <!-- Portal mágico (lado derecho) -->
+            <svg class="moto-portal" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <radialGradient id="portalGrad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%"   stop-color="#1e1b4b" stop-opacity=".0"/>
+                  <stop offset="55%"  stop-color="#7c3aed" stop-opacity=".55"/>
+                  <stop offset="100%" stop-color="#f59e0b" stop-opacity=".95"/>
+                </radialGradient>
+                <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%"   stop-color="#a78bfa"/>
+                  <stop offset="50%"  stop-color="#fbbf24"/>
+                  <stop offset="100%" stop-color="#a78bfa"/>
+                </linearGradient>
+              </defs>
+              <circle cx="32" cy="32" r="30" fill="url(#portalGrad)"/>
+              <circle class="ring-outer" cx="32" cy="32" r="28" fill="none" stroke="url(#ringGrad)" stroke-width="3" stroke-dasharray="8 4" opacity=".9"/>
+              <circle class="ring-inner" cx="32" cy="32" r="20" fill="none" stroke="#fbbf24" stroke-width="2" stroke-dasharray="4 6" opacity=".75"/>
+              <circle cx="32" cy="32" r="12" fill="#0c0a3e" opacity=".7"/>
+              <circle cx="32" cy="32" r="6"  fill="#1e1b4b"/>
+            </svg>
+
+            <!-- Partículas brillantes -->
+            <div class="moto-spark s1"></div>
+            <div class="moto-spark s2"></div>
+            <div class="moto-spark s3"></div>
+            <div class="moto-spark s4"></div>
+
+            <!-- Burst de velocidad cuando la moto entra al portal -->
+            <svg class="moto-speed-burst" viewBox="0 0 32 32">
+              <line x1="2"  y1="16" x2="14" y2="16" stroke="#fbbf24" stroke-width="2" stroke-linecap="round"/>
+              <line x1="6"  y1="8"  x2="14" y2="13" stroke="#fbbf24" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="6"  y1="24" x2="14" y2="19" stroke="#fbbf24" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="0"  y1="10" x2="10" y2="14" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="0"  y1="22" x2="10" y2="18" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+
+            <!-- Paquete que vuela hacia el portal -->
+            <div class="moto-package"></div>
+
+            <!-- Mensajero en moto (recorre la pantalla) -->
+            <svg class="moto-svg" viewBox="0 0 140 120" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="70" cy="108" rx="55" ry="5" fill="rgba(0,0,0,.18)"/>
+              <!-- Cuerpo moto -->
+              <rect x="20" y="68" width="80" height="22" rx="9" fill="#4c1d95"/>
+              <rect x="28" y="62" width="62" height="14" rx="5" fill="#6d28d9"/>
+              <rect x="42" y="56" width="34" height="18" rx="4" fill="#7c3aed"/>
+              <!-- Rueda trasera (gira) -->
+              <g class="moto-wheel" style="transform-origin:33px 95px">
+                <circle cx="33" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
+                <circle cx="33" cy="95" r="7"  fill="#2d2066"/>
+                <line x1="33" y1="83" x2="33" y2="107" stroke="#a78bfa" stroke-width="1.5"/>
+                <line x1="21" y1="95" x2="45" y2="95"  stroke="#a78bfa" stroke-width="1.5"/>
+                <circle cx="33" cy="95" r="2.5" fill="#fbbf24"/>
+              </g>
+              <!-- Rueda delantera (gira) -->
+              <g class="moto-wheel" style="transform-origin:97px 95px;animation-delay:-.1s">
+                <circle cx="97" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
+                <circle cx="97" cy="95" r="7"  fill="#2d2066"/>
+                <line x1="97" y1="83" x2="97" y2="107" stroke="#a78bfa" stroke-width="1.5"/>
+                <line x1="85" y1="95" x2="109" y2="95" stroke="#a78bfa" stroke-width="1.5"/>
+                <circle cx="97" cy="95" r="2.5" fill="#fbbf24"/>
+              </g>
+              <!-- Manubrio -->
+              <path d="M88 60 Q98 54 104 64" stroke="#a78bfa" stroke-width="3" fill="none" stroke-linecap="round"/>
+              <!-- Caja de paquete en la moto -->
+              <rect x="18" y="42" width="28" height="22" rx="3" fill="#f59e0b"/>
+              <rect x="18" y="42" width="28" height="7"  rx="3" fill="#d97706"/>
+              <line x1="32" y1="42" x2="32" y2="64" stroke="#d97706" stroke-width="1.2"/>
+              <line x1="18" y1="52" x2="46" y2="52" stroke="#d97706" stroke-width="1.2"/>
+              <text x="32" y="60" font-size="6" fill="#7c2d12" text-anchor="middle" font-weight="bold">PICAP</text>
+              <!-- Cuerpo piloto -->
+              <rect x="56" y="36" width="26" height="30" rx="6" fill="#7c3aed"/>
+              <!-- Brazo extendido al manubrio -->
+              <path d="M82 46 L100 38" stroke="#7c3aed" stroke-width="6" stroke-linecap="round"/>
+              <circle cx="102" cy="37" r="4" fill="#ddd6fe"/>
+              <!-- Casco -->
+              <ellipse cx="68" cy="32" rx="14" ry="12" fill="#4c1d95"/>
+              <path d="M55 32 Q68 20 82 32" fill="#5b21b6"/>
+              <path d="M58 35 Q68 28 78 35" fill="none" stroke="#a78bfa" stroke-width="2.5" stroke-linecap="round"/>
+              <!-- Pierna piloto -->
+              <rect x="62" y="64" width="9" height="18" rx="4" fill="#5b21b6"/>
+            </svg>
+          </div>
         </div>
         <div class="perfil-hero-info">
           <div class="perfil-name" id="perfil-nombre">—</div>
@@ -2492,9 +2599,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     </div>
     <!-- ── Selector de avatar animal ── -->
 <div class="animal-picker" id="animal-picker">
-  <div class="animal-picker-title">🐾 Elige tu avatar</div>
-  <div class="animal-grid" id="animal-grid"></div>
-  <div class="animal-picker-btn-wrap">
+  <div class="animal-picker-title">🎭 Elige tu avatar</div>
+  <div style="font-size:11px;color:var(--text3);font-weight:600;margin-bottom:6px;letter-spacing:.5px">🐾 ANIMALES</div>
+  <div class="animal-grid" id="animal-grid-animales"></div>
+  <div style="font-size:11px;color:var(--text3);font-weight:600;margin:16px 0 6px;letter-spacing:.5px">✨ PERSONAJES FICTICIOS</div>
+  <div class="animal-grid" id="animal-grid-ficticios"></div>
+  <div class="animal-picker-btn-wrap" style="margin-top:14px">
     <button onclick="guardarAvatar()" class="apply-btn" style="background:var(--purple);color:#fff;font-weight:700;padding:8px 22px">✓ Guardar avatar</button>
   </div>
 </div>
@@ -5698,20 +5808,71 @@ const ANIMAL_SVGS = {
   'koala': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#6d28d9"/><circle cx="40" cy="40" r="36" fill="#7c3aed"/><circle cx="18" cy="24" r="14" fill="#9ca3af"/><circle cx="62" cy="24" r="14" fill="#9ca3af"/><circle cx="18" cy="24" r="9" fill="#d1d5db"/><circle cx="62" cy="24" r="9" fill="#d1d5db"/><circle cx="40" cy="44" r="21" fill="#9ca3af"/><ellipse cx="40" cy="46" rx="14" ry="12" fill="#d1d5db"/><ellipse cx="40" cy="44" rx="7" ry="5" fill="#374151"/><ellipse cx="40" cy="43" rx="5" ry="3" fill="#4b5563"/><circle cx="31" cy="38" r="5" fill="#1e1b4b"/><circle cx="49" cy="38" r="5" fill="#1e1b4b"/><circle cx="32" cy="37" r="2" fill="#fff"/><circle cx="50" cy="37" r="2" fill="#fff"/><path d="M36 52 Q40 55 44 52" stroke="#374151" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`,
   'lobo': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#3b0764"/><circle cx="40" cy="40" r="36" fill="#4c1d95"/><path d="M18 30 L14 6 L36 26 Z" fill="#6b7280"/><path d="M62 30 L66 6 L44 26 Z" fill="#6b7280"/><path d="M20 29 L17 11 L34 25 Z" fill="#d1d5db"/><path d="M60 29 L63 11 L46 25 Z" fill="#d1d5db"/><ellipse cx="40" cy="43" rx="21" ry="18" fill="#6b7280"/><ellipse cx="40" cy="48" rx="14" ry="11" fill="#d1d5db"/><ellipse cx="40" cy="53" rx="9" ry="6" fill="#e5e7eb"/><ellipse cx="40" cy="49" rx="4" ry="2.5" fill="#1e1b4b"/><circle cx="31" cy="40" r="5.5" fill="#1e1b4b"/><circle cx="49" cy="40" r="5.5" fill="#1e1b4b"/><circle cx="31" cy="40" r="3.5" fill="#3b82f6"/><circle cx="49" cy="40" r="3.5" fill="#3b82f6"/><ellipse cx="31" cy="40" rx="2" ry="3" fill="#1e1b4b"/><ellipse cx="49" cy="40" rx="2" ry="3" fill="#1e1b4b"/><circle cx="32" cy="39" r="1.5" fill="#fff"/><circle cx="50" cy="39" r="1.5" fill="#fff"/><line x1="31" y1="52" x2="16" y2="49" stroke="#9ca3af" stroke-width="1" stroke-linecap="round"/><line x1="31" y1="54" x2="16" y2="55" stroke="#9ca3af" stroke-width="1" stroke-linecap="round"/><line x1="49" y1="52" x2="64" y2="49" stroke="#9ca3af" stroke-width="1" stroke-linecap="round"/><line x1="49" y1="54" x2="64" y2="55" stroke="#9ca3af" stroke-width="1" stroke-linecap="round"/><path d="M36 57 Q40 60 44 57" stroke="#4b5563" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`,
   'venado': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#5b21b6"/><circle cx="40" cy="40" r="36" fill="#6d28d9"/><path d="M24 28 L18 8 M18 8 L12 16 M18 8 L22 16" stroke="#92400e" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M56 28 L62 8 M62 8 L68 16 M62 8 L58 16" stroke="#92400e" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="22" cy="30" rx="8" ry="10" fill="#d97706" transform="rotate(-15 22 30)"/><ellipse cx="58" cy="30" rx="8" ry="10" fill="#d97706" transform="rotate(15 58 30)"/><ellipse cx="22" cy="30" rx="4" ry="6" fill="#fbbf24" transform="rotate(-15 22 30)"/><ellipse cx="58" cy="30" rx="4" ry="6" fill="#fbbf24" transform="rotate(15 58 30)"/><ellipse cx="40" cy="44" rx="19" ry="17" fill="#d97706"/><ellipse cx="40" cy="53" rx="10" ry="7" fill="#b45309"/><ellipse cx="40" cy="50" rx="4.5" ry="3" fill="#1e1b4b"/><circle cx="31" cy="41" r="5.5" fill="#1e1b4b"/><circle cx="49" cy="41" r="5.5" fill="#1e1b4b"/><circle cx="31" cy="41" r="3.5" fill="#92400e"/><circle cx="49" cy="41" r="3.5" fill="#92400e"/><circle cx="31" cy="41" r="2" fill="#1e1b4b"/><circle cx="49" cy="41" r="2" fill="#1e1b4b"/><circle cx="32" cy="40" r="1.5" fill="#fff"/><circle cx="50" cy="40" r="1.5" fill="#fff"/><path d="M36 57 Q40 60 44 57" stroke="#92400e" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`,
+
+  // ── Personajes ficticios ──────────────────────────────────────
+  // Robot — cabeza metálica con antena, ojos LED y pantalla
+  'robot': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#1e293b"/><circle cx="40" cy="40" r="36" fill="#334155"/><line x1="40" y1="14" x2="40" y2="22" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/><circle cx="40" cy="12" r="3" fill="#22d3ee"><animate attributeName="opacity" values="1;.3;1" dur="1.5s" repeatCount="indefinite"/></circle><rect x="22" y="26" width="36" height="34" rx="6" fill="#cbd5e1"/><rect x="24" y="28" width="32" height="30" rx="4" fill="#e2e8f0"/><circle cx="32" cy="40" r="6" fill="#0ea5e9"/><circle cx="48" cy="40" r="6" fill="#0ea5e9"/><circle cx="32" cy="40" r="3" fill="#fff"/><circle cx="48" cy="40" r="3" fill="#fff"/><rect x="34" y="50" width="12" height="3" rx="1" fill="#475569"/><rect x="36" y="55" width="8" height="2" rx="1" fill="#64748b"/><rect x="18" y="38" width="6" height="14" rx="2" fill="#475569"/><rect x="56" y="38" width="6" height="14" rx="2" fill="#475569"/><circle cx="21" cy="50" r="2" fill="#22d3ee"/><circle cx="59" cy="50" r="2" fill="#22d3ee"/></svg>`,
+
+  // Astronauta — casco con visor que refleja estrellas
+  'astronauta': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="space" cx="50%" cy="50%"><stop offset="0%" stop-color="#1e3a8a"/><stop offset="100%" stop-color="#0c0a3e"/></radialGradient></defs><circle cx="40" cy="40" r="40" fill="url(#space)"/><circle cx="20" cy="18" r="1" fill="#fff"/><circle cx="62" cy="22" r="1.2" fill="#fbbf24"/><circle cx="14" cy="58" r="1" fill="#fff"/><circle cx="68" cy="60" r="1" fill="#fff"/><circle cx="40" cy="44" r="26" fill="#f1f5f9"/><circle cx="40" cy="44" r="22" fill="#cbd5e1"/><ellipse cx="40" cy="42" rx="17" ry="15" fill="#0c0a3e"/><ellipse cx="35" cy="38" rx="6" ry="4" fill="#3b82f6" opacity=".6"/><ellipse cx="34" cy="37" rx="2" ry="1.5" fill="#fff" opacity=".8"/><circle cx="44" cy="40" r="1" fill="#fff"/><circle cx="48" cy="46" r=".8" fill="#fff"/><rect x="28" y="58" width="24" height="6" rx="2" fill="#94a3b8"/><circle cx="33" cy="61" r="1.5" fill="#ef4444"/><circle cx="39" cy="61" r="1.5" fill="#22c55e"/><circle cx="45" cy="61" r="1.5" fill="#3b82f6"/><line x1="20" y1="44" x2="14" y2="44" stroke="#94a3b8" stroke-width="2"/><line x1="60" y1="44" x2="66" y2="44" stroke="#94a3b8" stroke-width="2"/></svg>`,
+
+  // Ninja — capucha negra, ojos rasgados visibles
+  'ninja': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#0f172a"/><circle cx="40" cy="40" r="36" fill="#1e293b"/><path d="M16 40 Q16 18 40 16 Q64 18 64 40 L64 60 Q40 70 16 60 Z" fill="#000"/><rect x="16" y="36" width="48" height="10" fill="#fef3c7"/><ellipse cx="30" cy="41" rx="4" ry="2.5" fill="#0f172a"/><ellipse cx="50" cy="41" rx="4" ry="2.5" fill="#0f172a"/><ellipse cx="30" cy="41" rx="2" ry="1.5" fill="#fff"/><ellipse cx="50" cy="41" rx="2" ry="1.5" fill="#fff"/><path d="M16 38 L64 38" stroke="#000" stroke-width="1"/><path d="M16 44 L64 44" stroke="#000" stroke-width="1"/><path d="M14 48 L30 56 L20 64 Z" fill="#dc2626"/><circle cx="24" cy="56" r="2" fill="#7f1d1d"/></svg>`,
+
+  // Mago — sombrero estrellado con cara mística
+  'mago': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#1e1b4b"/><circle cx="40" cy="40" r="36" fill="#312e81"/><path d="M22 38 L40 4 L58 38 Z" fill="#4338ca"/><path d="M22 38 L58 38 L62 42 L18 42 Z" fill="#3730a3"/><polygon points="32,18 33,22 37,22 34,25 35,29 32,27 29,29 30,25 27,22 31,22" fill="#fbbf24"/><circle cx="48" cy="14" r="1.5" fill="#fbbf24"/><circle cx="36" cy="30" r=".8" fill="#fbbf24"/><circle cx="40" cy="50" r="14" fill="#f4d4a3"/><ellipse cx="40" cy="55" rx="8" ry="9" fill="#cbd5e1"/><circle cx="34" cy="48" r="2.5" fill="#1e1b4b"/><circle cx="46" cy="48" r="2.5" fill="#1e1b4b"/><circle cx="34.5" cy="47.5" r="1" fill="#fff"/><circle cx="46.5" cy="47.5" r="1" fill="#fff"/><path d="M37 56 Q40 58 43 56" stroke="#1e1b4b" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M30 64 Q40 70 50 64" stroke="#cbd5e1" stroke-width="3" fill="none" stroke-linecap="round"/></svg>`,
+
+  // Superhéroe — máscara y capa
+  'super': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#7f1d1d"/><circle cx="40" cy="40" r="36" fill="#991b1b"/><path d="M14 70 Q40 80 66 70 L66 50 Q40 56 14 50 Z" fill="#fbbf24"/><circle cx="40" cy="42" r="22" fill="#fde68a"/><path d="M18 35 Q22 26 40 26 Q58 26 62 35 L62 42 Q40 48 18 42 Z" fill="#1e1b4b"/><polygon points="22,38 32,38 33,44 28,42 23,44" fill="#fff"/><polygon points="58,38 48,38 47,44 52,42 57,44" fill="#fff"/><circle cx="29" cy="40" r="2" fill="#1e1b4b"/><circle cx="51" cy="40" r="2" fill="#1e1b4b"/><path d="M34 52 Q40 56 46 52" stroke="#1e1b4b" stroke-width="2" fill="none" stroke-linecap="round"/><polygon points="40,58 36,66 40,64 44,66" fill="#dc2626"/><polygon points="40,60 38,64 42,64" fill="#fbbf24"/></svg>`,
+
+  // Pirata — parche, pañuelo y barba
+  'pirata': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#7c2d12"/><circle cx="40" cy="40" r="36" fill="#9a3412"/><path d="M16 32 Q40 18 64 32 L62 36 L18 36 Z" fill="#dc2626"/><circle cx="28" cy="29" r="1.5" fill="#fff"/><circle cx="40" cy="26" r="1.5" fill="#fff"/><circle cx="52" cy="29" r="1.5" fill="#fff"/><path d="M16 34 Q14 38 18 40" stroke="#dc2626" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M64 34 Q66 38 62 40" stroke="#dc2626" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="40" cy="46" r="20" fill="#fde68a"/><rect x="22" y="41" width="16" height="10" fill="#1e1b4b"/><line x1="22" y1="46" x2="14" y2="42" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/><line x1="38" y1="46" x2="46" y2="42" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/><circle cx="50" cy="44" r="3" fill="#1e1b4b"/><circle cx="50.5" cy="43.5" r="1" fill="#fff"/><path d="M28 58 Q34 62 40 58 Q46 62 52 58 L52 66 Q40 70 28 66 Z" fill="#374151"/><path d="M34 60 Q40 64 46 60" stroke="#1f2937" stroke-width="1" fill="none"/><circle cx="36" cy="61" r=".8" fill="#1f2937"/><circle cx="44" cy="61" r=".8" fill="#1f2937"/></svg>`,
+
+  // Vampiro — colmillos, capa, mirada roja
+  'vampiro': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#0c0a3e"/><circle cx="40" cy="40" r="36" fill="#1e1b4b"/><path d="M40 12 L34 22 L40 18 L46 22 Z" fill="#1f2937"/><circle cx="40" cy="44" r="22" fill="#e2e8f0"/><path d="M14 26 L40 14 L66 26 Q40 22 14 26 Z" fill="#1f2937"/><ellipse cx="32" cy="41" rx="5" ry="4" fill="#dc2626"/><ellipse cx="48" cy="41" rx="5" ry="4" fill="#dc2626"/><circle cx="32" cy="41" r="2.5" fill="#fff"/><circle cx="48" cy="41" r="2.5" fill="#fff"/><circle cx="32" cy="41" r="1.2" fill="#1e1b4b"/><circle cx="48" cy="41" r="1.2" fill="#1e1b4b"/><path d="M30 52 Q34 56 40 56 Q46 56 50 52" stroke="#7f1d1d" stroke-width="1.5" fill="#7f1d1d"/><polygon points="34,52 35,58 36,52" fill="#fff"/><polygon points="44,52 45,58 46,52" fill="#fff"/><path d="M14 54 L20 70 Q40 80 60 70 L66 54 Q40 64 14 54 Z" fill="#7f1d1d"/></svg>`,
+
+  // Alienígena — verde con antenas y ojos grandes
+  'alien': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#064e3b"/><circle cx="40" cy="40" r="36" fill="#065f46"/><line x1="30" y1="14" x2="26" y2="6" stroke="#22c55e" stroke-width="2" stroke-linecap="round"/><line x1="50" y1="14" x2="54" y2="6" stroke="#22c55e" stroke-width="2" stroke-linecap="round"/><circle cx="26" cy="6" r="2.5" fill="#bef264"><animate attributeName="opacity" values="1;.3;1" dur="2s" repeatCount="indefinite"/></circle><circle cx="54" cy="6" r="2.5" fill="#bef264"><animate attributeName="opacity" values="1;.3;1" dur="2s" begin=".3s" repeatCount="indefinite"/></circle><ellipse cx="40" cy="44" rx="22" ry="24" fill="#86efac"/><ellipse cx="40" cy="38" rx="18" ry="14" fill="#bef264"/><ellipse cx="30" cy="42" rx="7" ry="9" fill="#1e1b4b"/><ellipse cx="50" cy="42" rx="7" ry="9" fill="#1e1b4b"/><ellipse cx="32" cy="40" rx="2" ry="3" fill="#fff"/><ellipse cx="52" cy="40" rx="2" ry="3" fill="#fff"/><path d="M33 56 L47 56" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/><circle cx="32" cy="62" r="1.5" fill="#22c55e"/><circle cx="40" cy="64" r="1.5" fill="#22c55e"/><circle cx="48" cy="62" r="1.5" fill="#22c55e"/></svg>`,
+
+  // Calavera glam — calavera blanca con corona
+  'calavera': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#0f172a"/><circle cx="40" cy="40" r="36" fill="#1e293b"/><path d="M24 16 L28 24 L34 18 L40 26 L46 18 L52 24 L56 16 L56 28 L24 28 Z" fill="#fbbf24"/><circle cx="28" cy="20" r="1.5" fill="#dc2626"/><circle cx="40" cy="22" r="1.8" fill="#22c55e"/><circle cx="52" cy="20" r="1.5" fill="#3b82f6"/><ellipse cx="40" cy="44" rx="22" ry="22" fill="#f1f5f9"/><circle cx="32" cy="42" r="6" fill="#0f172a"/><circle cx="48" cy="42" r="6" fill="#0f172a"/><circle cx="32" cy="42" r="2" fill="#dc2626"><animate attributeName="r" values="2;3;2" dur="2s" repeatCount="indefinite"/></circle><circle cx="48" cy="42" r="2" fill="#dc2626"><animate attributeName="r" values="2;3;2" dur="2s" begin=".5s" repeatCount="indefinite"/></circle><ellipse cx="40" cy="52" rx="3" ry="4" fill="#0f172a"/><rect x="30" y="58" width="3" height="6" fill="#0f172a"/><rect x="35" y="58" width="3" height="6" fill="#0f172a"/><rect x="40" y="58" width="3" height="6" fill="#0f172a"/><rect x="45" y="58" width="3" height="6" fill="#0f172a"/></svg>`,
+
+  // Princesa/reina — corona y peinado
+  'reina': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#831843"/><circle cx="40" cy="40" r="36" fill="#9d174d"/><path d="M22 22 L26 32 L32 24 L40 34 L48 24 L54 32 L58 22 L58 36 L22 36 Z" fill="#fbbf24"/><circle cx="30" cy="26" r="2" fill="#ef4444"/><circle cx="40" cy="28" r="2.5" fill="#3b82f6"/><circle cx="50" cy="26" r="2" fill="#22c55e"/><path d="M16 36 Q16 22 40 30 Q64 22 64 36 Q64 50 56 56 L24 56 Q16 50 16 36 Z" fill="#92400e"/><ellipse cx="40" cy="48" rx="20" ry="20" fill="#fde68a"/><circle cx="32" cy="46" r="3.5" fill="#1e1b4b"/><circle cx="48" cy="46" r="3.5" fill="#1e1b4b"/><circle cx="32" cy="45.5" r="1.2" fill="#fff"/><circle cx="48" cy="45.5" r="1.2" fill="#fff"/><circle cx="26" cy="50" r="2.5" fill="#fbcfe8" opacity=".7"/><circle cx="54" cy="50" r="2.5" fill="#fbcfe8" opacity=".7"/><path d="M34 56 Q40 60 46 56" stroke="#be185d" stroke-width="2" fill="#ec4899" stroke-linecap="round"/></svg>`,
+
+  // Yeti / monstruo amigable — peludo con cuernos
+  'yeti': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="40" fill="#1e3a8a"/><circle cx="40" cy="40" r="36" fill="#1e40af"/><path d="M22 24 L18 12 Q22 14 26 18 Z" fill="#e0e7ff"/><path d="M58 24 L62 12 Q58 14 54 18 Z" fill="#e0e7ff"/><circle cx="40" cy="44" r="24" fill="#dbeafe"/><path d="M16 36 Q18 28 22 32 Q26 28 30 32 Q34 28 38 32 Q42 28 46 32 Q50 28 54 32 Q58 28 62 32 Q66 28 64 36" fill="#dbeafe" stroke="#bfdbfe" stroke-width=".5"/><path d="M40 28 Q44 26 46 30" fill="none" stroke="#bfdbfe" stroke-width="1"/><circle cx="32" cy="42" r="5" fill="#1e1b4b"/><circle cx="48" cy="42" r="5" fill="#1e1b4b"/><circle cx="32" cy="42" r="3" fill="#a78bfa"/><circle cx="48" cy="42" r="3" fill="#a78bfa"/><circle cx="33" cy="41" r="1.2" fill="#fff"/><circle cx="49" cy="41" r="1.2" fill="#fff"/><ellipse cx="40" cy="50" rx="3" ry="2" fill="#1e1b4b"/><path d="M30 57 Q40 64 50 57 L50 60 L48 60 L48 57 L46 60 L46 57 L44 60 L44 57 L42 60 L42 57 L40 60 L40 57 L38 60 L38 57 L36 60 L36 57 L34 60 L34 57 L32 60 L32 57 L30 60 Z" fill="#fff"/></svg>`,
+
+  // Pixel/8-bit — cuadrado retro estilo Mario
+  'pixel': `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges"><rect width="80" height="80" fill="#7c3aed"/><rect x="6" y="6" width="68" height="68" fill="#a78bfa"/><rect x="22" y="14" width="36" height="6" fill="#dc2626"/><rect x="18" y="20" width="44" height="8" fill="#dc2626"/><rect x="22" y="28" width="6" height="6" fill="#fde68a"/><rect x="28" y="22" width="22" height="14" fill="#fde68a"/><rect x="50" y="28" width="6" height="6" fill="#fde68a"/><rect x="32" y="28" width="6" height="4" fill="#1e1b4b"/><rect x="42" y="28" width="6" height="4" fill="#1e1b4b"/><rect x="34" y="40" width="12" height="4" fill="#92400e"/><rect x="22" y="36" width="6" height="4" fill="#fde68a"/><rect x="52" y="36" width="6" height="4" fill="#fde68a"/><rect x="20" y="44" width="40" height="14" fill="#22c55e"/><rect x="14" y="46" width="6" height="10" fill="#fde68a"/><rect x="60" y="46" width="6" height="10" fill="#fde68a"/><rect x="22" y="58" width="14" height="6" fill="#92400e"/><rect x="44" y="58" width="14" height="6" fill="#92400e"/></svg>`,
 };
 const ANIMAL_NAMES = {
-  'zorro': '🦊 Zorro',
-  'buho': '🦉 Búho',
-  'oso': '🐻 Oso',
-  'gato': '🐱 Gato',
-  'conejo': '🐰 Conejo',
-  'panda': '🐼 Panda',
-  'tigre': '🐯 Tigre',
+  // Animales
+  'zorro':    '🦊 Zorro',
+  'buho':     '🦉 Búho',
+  'oso':      '🐻 Oso',
+  'gato':     '🐱 Gato',
+  'conejo':   '🐰 Conejo',
+  'panda':    '🐼 Panda',
+  'tigre':    '🐯 Tigre',
   'pinguino': '🐧 Pingüino',
-  'leon': '🦁 León',
-  'koala': '🐨 Koala',
-  'lobo': '🐺 Lobo',
-  'venado': '🦌 Venado',
+  'leon':     '🦁 León',
+  'koala':    '🐨 Koala',
+  'lobo':     '🐺 Lobo',
+  'venado':   '🦌 Venado',
+  // Personajes ficticios
+  'robot':       '🤖 Robot',
+  'astronauta':  '👨‍🚀 Astronauta',
+  'ninja':       '🥷 Ninja',
+  'mago':        '🧙 Mago',
+  'super':       '🦸 Superhéroe',
+  'pirata':      '🏴‍☠️ Pirata',
+  'vampiro':     '🧛 Vampiro',
+  'alien':       '👽 Alienígena',
+  'calavera':    '💀 Calavera',
+  'reina':       '👑 Reina',
+  'yeti':        '⛄ Yeti',
+  'pixel':       '👾 Pixel 8-bit',
 };
 
 function getAnimalKey() {
@@ -5726,16 +5887,43 @@ function setAvatar(key) {
 }
 let _avatarSeleccionado = null;
 
+// Categorías para el render: animales primero, ficticios después.
+const _AVATAR_KEYS_ANIMALES = ['zorro','buho','oso','gato','conejo','panda',
+                                'tigre','pinguino','leon','koala','lobo','venado'];
+const _AVATAR_KEYS_FICTICIOS = ['robot','astronauta','ninja','mago','super','pirata',
+                                 'vampiro','alien','calavera','reina','yeti','pixel'];
+
+function _renderAvatarOpcion(key, actual) {
+  const svg = ANIMAL_SVGS[key];
+  if (!svg) return '';
+  return `<div class="animal-opt ${key === actual ? 'selected' : ''}"
+               id="aopt-${key}" onclick="seleccionarAnimal('${key}')"
+               title="${ANIMAL_NAMES[key] || key}">
+            ${svg}
+          </div>`;
+}
+
 function renderAnimalPicker() {
-  const grid = document.getElementById('animal-grid');
-  if(!grid) return;
   const actual = getAvatar();
-  grid.innerHTML = Object.entries(ANIMAL_SVGS).map(([key, svg]) => `
-    <div class="animal-opt ${key === actual ? 'selected' : ''}" 
-         id="aopt-${key}" onclick="seleccionarAnimal('${key}')" 
-         title="${ANIMAL_NAMES[key] || key}">
-      ${svg}
-    </div>`).join('');
+  // Pintar grilla de animales
+  const gAnim = document.getElementById('animal-grid-animales');
+  if (gAnim) {
+    gAnim.innerHTML = _AVATAR_KEYS_ANIMALES
+      .map(k => _renderAvatarOpcion(k, actual)).join('');
+  }
+  // Pintar grilla de ficticios
+  const gFict = document.getElementById('animal-grid-ficticios');
+  if (gFict) {
+    gFict.innerHTML = _AVATAR_KEYS_FICTICIOS
+      .map(k => _renderAvatarOpcion(k, actual)).join('');
+  }
+  // Compatibilidad hacia atrás: si algún tema viejo aún usa #animal-grid
+  // (un solo container), pintamos ahí también.
+  const gOld = document.getElementById('animal-grid');
+  if (gOld) {
+    gOld.innerHTML = [..._AVATAR_KEYS_ANIMALES, ..._AVATAR_KEYS_FICTICIOS]
+      .map(k => _renderAvatarOpcion(k, actual)).join('');
+  }
   _avatarSeleccionado = actual;
 }
 
