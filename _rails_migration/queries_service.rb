@@ -455,6 +455,151 @@ module QueriesService
     LIMIT 50
   SQL
 
+  # ════════════════════════════════════════════════════════════════════════
+  # BLOQUEOS — paridad EXACTA con api.py Python (Q_BLOQUEOS, líneas 890-1045)
+  # Cruza passenger_suspensions + driver_suspensions + passengers.
+  # Calcula dias_bloqueo_real con lógica especial: si la cuenta fue reactivada
+  # (suspended=false, expelled=false), usa updated_at del suspension; si no,
+  # cuenta hasta today().
+  # Filtra por fecha de la suspensión más reciente entre passenger y driver.
+  # ════════════════════════════════════════════════════════════════════════
+  Q_BLOQUEOS = <<~'SQL'
+    WITH ultimos_ps AS (
+        SELECT
+            starts_at   AS starts_block_p,
+            ends_at     AS ends_block_p,
+            passenger_id,
+            created_at,
+            updated_at  AS reactivado_en_p,
+            ROW_NUMBER() OVER (
+                PARTITION BY passenger_id
+                ORDER BY created_at DESC NULLS LAST
+            ) AS rn
+        FROM picapmongoprod.passenger_suspensions
+        WHERE created_at IS NOT NULL
+    ),
+    ultimos_ds AS (
+        SELECT
+            starts_at   AS starts_block_d,
+            ends_at     AS ends_block_d,
+            driver_id,
+            created_at,
+            updated_at  AS reactivado_en_d,
+            ROW_NUMBER() OVER (
+                PARTITION BY driver_id
+                ORDER BY created_at DESC NULLS LAST
+            ) AS rn
+        FROM picapmongoprod.driver_suspensions
+        WHERE created_at IS NOT NULL
+    ),
+    ps_final AS (SELECT * FROM ultimos_ps WHERE rn = 1),
+    ds_final AS (SELECT * FROM ultimos_ds WHERE rn = 1)
+    SELECT
+        p._id                                        AS id_usuario,
+        p.name                                       AS nombre,
+        p.g_country                                  AS pais_codigo,
+        p.g_adm_area_lv_1                            AS ciudad,
+        ps.starts_block_p                            AS starts_block_user,
+        ps.ends_block_p                              AS ends_block_user,
+        ifNull(toString(p.suspended), '')            AS suspendido,
+        ifNull(p.passenger_suspension_comment, '')   AS comentario_user,
+        ifNull(p.passenger_expulsion_comment, '')    AS comentario_expulsion_user,
+        dateDiff('day', toDate(ps.created_at), today()) AS dias_suspension_user,
+        ds.starts_block_d                            AS starts_block_driver,
+        ds.ends_block_d                              AS ends_block_driver,
+        ifNull(toString(p.is_driver_suspended), '')  AS driver_suspendido,
+        ifNull(p.driver_suspension_comment, '')      AS comentario_driver,
+        dateDiff('day', toDate(ds.created_at), today()) AS dias_suspension_driver,
+        ifNull(toString(p.expelled), '')             AS expulsado,
+        CASE
+            WHEN lower(ifNull(toString(p.expelled),'')) = 'true' THEN 'EXPULSADO'
+            WHEN lower(ifNull(toString(p.suspended),'')) = 'true'
+              OR lower(ifNull(toString(p.is_driver_suspended),'')) = 'true' THEN 'SUSPENDIDO'
+            ELSE 'ACTIVO'
+        END AS tipo_bloqueo,
+        CASE
+            WHEN p.driver_enrollment_status_cd = 3 THEN 'PILOTO'
+            ELSE 'USUARIO'
+        END AS tipo_usuario,
+        formatDateTime(
+            toTimeZone(
+                coalesce(
+                    if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
+                       greatest(ps.created_at, ds.created_at), NULL),
+                    ps.created_at, ds.created_at
+                ), 'America/Bogota'
+            ), '%Y-%m-%d %H:%M'
+        ) AS fecha_ultima_suspension,
+        dateDiff('day', toDate(coalesce(
+            if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
+               greatest(ps.created_at, ds.created_at), NULL),
+            ps.created_at, ds.created_at
+        )), today()) AS dias_bloqueado_total,
+        multiIf(
+            ds.starts_block_d IS NOT NULL
+                AND (ps.created_at IS NULL OR ds.created_at >= ps.created_at),
+            greatest(0, dateDiff('day',
+                toDate(ds.starts_block_d),
+                if(
+                    ds.reactivado_en_d IS NOT NULL
+                    AND ds.reactivado_en_d > ds.starts_block_d
+                    AND ds.reactivado_en_d <= now()
+                    AND lower(ifNull(toString(p.expelled),'')) != 'true'
+                    AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
+                    AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0',''),
+                    toDate(ds.reactivado_en_d),
+                    today()
+                )
+            )),
+            ps.starts_block_p IS NOT NULL,
+            greatest(0, dateDiff('day',
+                toDate(ps.starts_block_p),
+                if(
+                    ps.reactivado_en_p IS NOT NULL
+                    AND ps.reactivado_en_p > ps.starts_block_p
+                    AND ps.reactivado_en_p <= now()
+                    AND lower(ifNull(toString(p.expelled),'')) != 'true'
+                    AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
+                    AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0',''),
+                    toDate(ps.reactivado_en_p),
+                    today()
+                )
+            )),
+            dateDiff('day', toDate(coalesce(
+                if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
+                   greatest(ps.created_at, ds.created_at), NULL),
+                ps.created_at, ds.created_at
+            )), today())
+        ) AS dias_bloqueo_real,
+        CASE
+            WHEN lower(ifNull(toString(p.expelled),'')) = 'true' THEN 'Permanente (expulsión)'
+            WHEN dateDiff('day', toDate(coalesce(
+                if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
+                   greatest(ps.created_at, ds.created_at), NULL),
+                ps.created_at, ds.created_at
+            )), today()) > 30 THEN 'Más de 30 días'
+            ELSE 'Menos de 30 días'
+        END AS estado_suspension,
+        CASE
+            WHEN lower(ifNull(toString(p.expelled),'')) = 'true'
+              OR lower(ifNull(toString(p.suspended),'')) = 'true' THEN 'bloqueado'
+            WHEN lower(ifNull(toString(p.expelled),'')) = 'false'
+             AND lower(ifNull(toString(p.suspended),'')) = 'false' THEN 'activo'
+            ELSE ''
+        END AS esta_activo
+    FROM picapmongoprod.passengers AS p
+    LEFT JOIN ps_final AS ps ON p._id = ps.passenger_id
+    LEFT JOIN ds_final AS ds ON p._id = ds.driver_id
+    WHERE coalesce(
+        if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
+           greatest(ps.created_at, ds.created_at), NULL),
+        ps.created_at, ds.created_at
+    ) BETWEEN toDateTime('%{fecha_desde} 00:00:00')
+          AND toDateTime('%{fecha_hasta} 23:59:59')
+    ORDER BY fecha_ultima_suspension DESC
+    LIMIT 10000
+  SQL
+
   # Estafa — stub simple (se reescribirá en bloque D con la query agregada del Python)
   Q_ESTAFA = <<~'SQL'
     SELECT
