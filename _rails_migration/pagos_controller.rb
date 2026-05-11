@@ -52,11 +52,15 @@ module Api
       ciudad = params[:ciudad].to_s.strip
       filtro += " AND b.g_adm_area_lv_1 = '#{ciudad.gsub("'","''")}'" if ciudad.present?
 
-      # Por ahora usamos status_cd como proxy. En Bloque C lo reemplazamos
-      # con la lógica GPS-based del Python (mucho más precisa).
-      base_filter = tipo == :promo \
-        ? "b.payment_method_cd = 5 AND b.status_cd IN (4, 100, 102, 107, 108)" \
-        : "toString(b.payment_method_cd) = '3' AND b.status_cd IN (4, 100, 102, 107, 108)"
+      # Por ahora TC usa status_cd como proxy. Promo retorna vacío válido
+      # (su lógica real usa wallet_account_transactions con _type IN PromoCodeXxx).
+      # En Bloque C lo reemplazamos con GPS-based del Python.
+      base_filter = if tipo == :promo
+        # 1=0 → 0 filas; el frontend muestra "Sin datos" sin crash
+        "1 = 0 AND b.status_cd IN (4, 100, 102, 107, 108)"
+      else
+        "toString(b.payment_method_cd) = '3' AND b.status_cd IN (4, 100, 102, 107, 108)"
+      end
 
       where_clause = <<~SQL.strip
         WHERE #{base_filter}
