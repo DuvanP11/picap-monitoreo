@@ -1,59 +1,55 @@
 # app/services/queries_service.rb
-# Queries SQL — paridad EXACTA con api.py de Python
-# Métodos públicos:
-#   QueriesService.format(sql, fecha_desde:, fecha_hasta:)
-#   QueriesService.cte_con_pais(iso_pais)
-#   QueriesService::Q_KPIS, Q_TENDENCIA, Q_CIUDADES, Q_TOP_DRIVERS
+# Queries SQL — paridad con api.py Python + auxiliares para Rails.
+#
+# Módulos cubiertos en este archivo:
+#   ✅ Evasión:      BASE_CTE + Q_KPIS + Q_TENDENCIA + Q_CIUDADES + Q_TOP_DRIVERS (paridad EXACTA Python)
+#   ✅ Auth:         Q_USER_BY_USUARIO, Q_ALL_USERS
+#   ✅ Wallet:       Q_WALLET (paridad Python, usa WalletAccountTransactionFraudCommission)
+#   ✅ Recuperación: Q_WALLET_BY_DRIVER, Q_RESUMEN_PERIODO
+#   ✅ RF:           Q_RF_RESUMEN, Q_RF_DETALLE
+#   ⚠️  Stubs (se reescribirán en sus bloques): Q_ESTAFA, Q_BLOQUEOS, Q_RECAUDOS,
+#       Q_PAGOS_STATS, TC_BASE_CTE, Q_AUDITORIA_COMISIONES
+#
+# Helpers públicos:
+#   QueriesService.format(sql, **vars)
+#   QueriesService.cte_con_pais(iso_pais, moneda = nil)
+#   QueriesService.tasa_para(pais = nil)
 
 module QueriesService
 
+  # ════════════════════════════════════════════════════════════════════════
+  # Configuración de país y tasas
+  # ════════════════════════════════════════════════════════════════════════
   PAIS_A_ISO = {
-    "Colombia"  => "CO",
-    "Mexico"    => "MX",
-    "México"    => "MX",
-    "Nicaragua" => "NI",
-    "Guatemala" => "GT",
-    "Peru"      => "PE",
-    "Perú"      => "PE",
-    "Ecuador"   => "EC",
-    "CO"        => "CO",
-    "MX"        => "MX",
-    "NI"        => "NI",
-    "GT"        => "GT",
-    "PE"        => "PE",
-    "EC"        => "EC",
+    "Colombia"  => "CO", "Mexico" => "MX", "México" => "MX",
+    "Nicaragua" => "NI", "Guatemala" => "GT", "Peru" => "PE",
+    "Perú"      => "PE", "Ecuador" => "EC",
+    "CO" => "CO", "MX" => "MX", "NI" => "NI", "GT" => "GT", "PE" => "PE", "EC" => "EC",
   }.freeze
 
   TASAS_PAIS = {
-    "Colombia"  => 0.12,
-    "Mexico"    => 0.10,
-    "Nicaragua" => 0.10,
-    "Guatemala" => 0.15,
-    "CO"        => 0.12,
-    "MX"        => 0.10,
-    "NI"        => 0.10,
-    "GT"        => 0.15,
+    "Colombia"  => 0.12, "Mexico" => 0.10, "Nicaragua" => 0.10, "Guatemala" => 0.15,
+    "CO" => 0.12, "MX" => 0.10, "NI" => 0.10, "GT" => 0.15,
   }.freeze
   TASA_DEFAULT = 0.15
 
-  # Reemplaza %{key} por valor usando gsub manual (no usa Kernel#format
-  # para evitar problemas con % en patrones LIKE de SQL).
+  # ════════════════════════════════════════════════════════════════════════
+  # Helpers
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Reemplaza %{key} por valor con gsub manual (evita Kernel#format que
+  # se rompe con % en patrones LIKE de SQL).
   def self.format(sql, **vars)
     result = sql.dup
     vars.each { |k, v| result.gsub!("%{#{k}}", v.to_s) }
     result
   end
 
-  # Inyecta filtro de país en BASE_CTE haciendo replace en el WHERE.
-  # Replica exactamente lo que hace cargar_datos() del api.py de Python.
+  # Inyecta filtro de país/moneda en BASE_CTE (replica .replace() de Python).
   def self.cte_con_pais(iso_pais, moneda = nil)
     extra = ""
-    if iso_pais && !iso_pais.to_s.strip.empty?
-      extra += " AND b.g_country = '#{iso_pais}'"
-    end
-    if moneda && !moneda.to_s.strip.empty?
-      extra += " AND JSONExtractString(b.final_cost, 'currency_iso') = '#{moneda}'"
-    end
+    extra += " AND b.g_country = '#{iso_pais}'" if iso_pais && !iso_pais.to_s.strip.empty?
+    extra += " AND JSONExtractString(b.final_cost, 'currency_iso') = '#{moneda}'" if moneda && !moneda.to_s.strip.empty?
     return BASE_CTE if extra.empty?
     BASE_CTE.gsub(
       "AND b.status_cd IN (100, 102)",
@@ -66,13 +62,12 @@ module QueriesService
     TASA_DEFAULT
   end
 
-  # ══════════════════════════════════════════════════════════════════════
-  # BASE_CTE — paridad EXACTA con api.py Python (líneas 94-165)
-  # NO usa columnas b.cancel_lat/b.end_lat (no existen en ClickHouse).
-  # Las calcula con extract() regex sobre b.events y JSONExtractString
-  # sobre b.end_geojson.
-  # Single-quoted heredoc para evitar interpolación accidental Ruby.
-  # ══════════════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════════════════
+  # EVASIÓN — BASE_CTE con paridad EXACTA al api.py Python (líneas 94-165)
+  # NO usa columnas inexistentes (b.cancel_lat, b.end_lat, b.driver_lat).
+  # Las extrae con extract() regex sobre b.events y JSONExtractString sobre
+  # b.end_geojson.
+  # ════════════════════════════════════════════════════════════════════════
   BASE_CTE = <<~'SQL'
     WITH base AS (
         SELECT
@@ -145,9 +140,6 @@ module QueriesService
     )
   SQL
 
-  # ══════════════════════════════════════════════════════════════════════
-  # Sufijos por query — se combinan con BASE_CTE
-  # ══════════════════════════════════════════════════════════════════════
   KPIS_SUFFIX = <<~'SQL'
     SELECT
         count()                                              AS total,
@@ -199,9 +191,288 @@ module QueriesService
     GROUP BY id_driver ORDER BY conf DESC, total DESC LIMIT 10
   SQL
 
-  # Queries completas pre-armadas (mismo patrón que api.py Python)
   Q_KPIS        = BASE_CTE + KPIS_SUFFIX
   Q_TENDENCIA   = BASE_CTE + TENDENCIA_SUFFIX
   Q_CIUDADES    = BASE_CTE + CIUDADES_SUFFIX
   Q_TOP_DRIVERS = BASE_CTE + TOP_DRIVERS_SUFFIX
+
+  # ════════════════════════════════════════════════════════════════════════
+  # AUTH — gestión de usuarios del portal (tabla dashboard_users)
+  # ════════════════════════════════════════════════════════════════════════
+  Q_USER_BY_USUARIO = <<~'SQL'
+    SELECT usuario, password_hash, nombre, email, rol, activo
+    FROM picapmongoprod.dashboard_users FINAL
+    WHERE usuario = '%{usuario}' AND activo = 1
+    LIMIT 1
+  SQL
+
+  Q_ALL_USERS = <<~'SQL'
+    SELECT usuario, nombre, email, rol,
+           formatDateTime(creado_en, '%Y-%m-%d %H:%M') AS creado_en
+    FROM picapmongoprod.dashboard_users FINAL
+    WHERE activo = 1
+    ORDER BY creado_en DESC
+  SQL
+
+  # ════════════════════════════════════════════════════════════════════════
+  # WALLET — paridad Python (api.py Q_WALLET, líneas 220-313)
+  # Usa WalletAccountTransactionFraudCommission, NO wallet_accounts.balance_cents
+  # Acepta filtro de país por %{filtro_pais} (insertado por el controller).
+  # ════════════════════════════════════════════════════════════════════════
+  Q_WALLET = <<~'SQL'
+    WITH evasores AS (
+        SELECT
+            b._id AS booking_id,
+            b.driver_id,
+            CASE
+                WHEN b.g_country = 'CO' THEN 'Colombia'
+                WHEN b.g_country = 'MX' THEN 'Mexico'
+                WHEN b.g_country = 'NI' THEN 'Nicaragua'
+                WHEN b.g_country = 'GT' THEN 'Guatemala'
+                ELSE 'Otro'
+            END AS pais,
+            toFloat64OrNull(JSONExtractString(b.estimated_cost,'cents')) / 100 AS costo_estimado,
+            dateDiff('minute',
+                parseDateTimeBestEffortOrNull(extract(ifNull(b.events,''), 'event_cd":20.*?created_at":"([^"]+)')),
+                parseDateTimeBestEffortOrNull(extract(ifNull(b.events,''), 'event_cd":26.*?created_at":"([^"]+)'))
+            ) AS minutos,
+            geoDistance(
+                toFloat64OrNull(extract(ifNull(b.events,''), 'event_cd":26.*?coordinates":\[\s*([+-]?\d+\.\d+)')),
+                toFloat64OrNull(extract(ifNull(b.events,''), 'event_cd":26.*?coordinates":\[.*?,\s*([+-]?\d+\.\d+)')),
+                toFloat64(JSONExtractString(b.end_geojson,'coordinates',1)),
+                toFloat64(JSONExtractString(b.end_geojson,'coordinates',2))
+            ) AS distancia
+        FROM picapmongoprod.bookings b
+        WHERE b.status_cd IN (100, 102)
+          AND b.g_country IN ('CO','MX','NI','GT')%{filtro_pais}
+          AND b.created_at >= toDateTime('%{fecha_desde} 00:00:00')
+          AND b.created_at <= toDateTime('%{fecha_hasta} 23:59:59')
+          AND NOT empty(b.origin_geojson)
+          AND NOT empty(b.end_geojson)
+    ),
+    confirmados AS (
+        SELECT
+            e.booking_id,
+            e.driver_id,
+            multiIf(
+                e.pais = 'Colombia',             e.costo_estimado * 0.12 * 1.05,
+                e.pais IN ('Mexico','Nicaragua'), e.costo_estimado * 0.10 * 1.05,
+                e.costo_estimado * 0.15 * 1.05
+            ) AS comision_esperada
+        FROM evasores e
+        WHERE e.minutos > 5
+          AND multiIf(
+                e.pais = 'Colombia',             e.distancia <= 450,
+                e.pais IN ('Mexico','Nicaragua'), e.distancia <= 280,
+                e.distancia <= 450
+              )
+    ),
+    cobros AS (
+        SELECT
+            w.booking_id,
+            abs(toFloat64OrNull(JSONExtractString(w.amount,'cents')) / 100)          AS cobrado,
+            toFloat64OrNull(JSONExtractString(w.amount_after_transaction,'cents')) / 100 AS saldo_post
+        FROM picapmongoprod.wallet_account_transactions w
+        WHERE w._type = 'WalletAccountTransactionFraudCommission'
+          AND w.created_at >= toDateTime('%{fecha_desde} 00:00:00')
+          AND w.created_at <= toDateTime('%{fecha_hasta} 23:59:59')
+          AND w.booking_id IN (SELECT booking_id FROM confirmados)
+    ),
+    por_driver AS (
+        SELECT
+            c.driver_id,
+            count()                                    AS n_evasiones,
+            round(sum(c.comision_esperada), 0)         AS esperada,
+            round(sum(ifNull(w.cobrado, 0)), 0)        AS cobrado,
+            round(sum(c.comision_esperada) - sum(ifNull(w.cobrado, 0)), 0) AS deuda,
+            countIf(ifNull(w.saldo_post, 0) >= 0)      AS n_pago,
+            countIf(ifNull(w.saldo_post, -1) < 0)      AS n_negativo,
+            multiIf(
+                countIf(ifNull(w.saldo_post,-1) < 0) = 0, 'AL DÍA',
+                countIf(ifNull(w.saldo_post, 0) >= 0) = 0, 'DEUDA TOTAL',
+                'DEUDA PARCIAL'
+            ) AS estado
+        FROM confirmados c
+        LEFT JOIN cobros w ON c.booking_id = w.booking_id
+        GROUP BY c.driver_id
+    )
+    SELECT
+        count()                                                      AS total_conductores,
+        countIf(estado = 'AL DÍA')                                  AS conductores_pagaron,
+        countIf(estado != 'AL DÍA')                                 AS conductores_no_pagaron,
+        countIf(estado = 'DEUDA PARCIAL')                           AS deuda_parcial,
+        countIf(estado = 'DEUDA TOTAL')                             AS deuda_total,
+        round(sum(esperada), 0)                                      AS comision_esperada,
+        round(sum(cobrado), 0)                                       AS cobrado_wallet,
+        round(sum(deuda), 0)                                         AS brecha_no_cobrada,
+        round(sumIf(cobrado, estado = 'AL DÍA'), 0)                 AS monto_pagado,
+        round(sumIf(cobrado, estado != 'AL DÍA'), 0)                AS monto_cobrado_en_negativo,
+        round(sumIf(deuda,   estado != 'AL DÍA'), 0)                AS monto_pendiente,
+        round(sum(cobrado) / greatest(sum(esperada), 1) * 100, 1)   AS pct_recuperado
+    FROM por_driver
+  SQL
+
+  # Recuperación: penalidad cobrada por día (para tendencia del panel 3)
+  Q_RESUMEN_PERIODO = <<~'SQL'
+    SELECT
+        toDate(w.created_at)                                                       AS dia,
+        round(sum(abs(toFloat64OrNull(JSONExtractString(w.amount,'cents'))/100)),0) AS cobrado_dia
+    FROM picapmongoprod.wallet_account_transactions w
+    WHERE w._type = 'WalletAccountTransactionFraudCommission'
+      AND w.created_at >= toDateTime('%{desde} 00:00:00')
+      AND w.created_at <= toDateTime('%{hasta} 23:59:59')
+    GROUP BY dia
+    ORDER BY dia
+  SQL
+
+  # Recuperación: penalidad por driver (top 10 evasores)
+  Q_WALLET_BY_DRIVER = <<~'SQL'
+    WITH confirmados AS (
+        SELECT
+            b._id AS booking_id, b.driver_id, b.g_country,
+            toFloat64OrNull(JSONExtractString(b.estimated_cost,'cents')) / 100 AS costo_est
+        FROM picapmongoprod.bookings b
+        WHERE b.status_cd IN (100, 102)
+          AND b.driver_id IN (%{ids})
+          AND b.created_at >= toDateTime('%{desde} 00:00:00')
+          AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+    ),
+    cobros AS (
+        SELECT w.booking_id,
+               abs(toFloat64OrNull(JSONExtractString(w.amount,'cents')) / 100) AS cobrado
+        FROM picapmongoprod.wallet_account_transactions w
+        WHERE w._type = 'WalletAccountTransactionFraudCommission'
+          AND w.booking_id IN (SELECT booking_id FROM confirmados)
+    )
+    SELECT
+        c.driver_id,
+        round(sum(multiIf(c.g_country='CO', c.costo_est*0.12*1.05,
+                          c.g_country IN ('MX','NI'), c.costo_est*0.10*1.05,
+                          c.costo_est*0.15*1.05)), 0)          AS penalidad_conf,
+        round(sum(ifNull(w.cobrado, 0)), 0)                    AS pagado,
+        round(sum(multiIf(c.g_country='CO', c.costo_est*0.12*1.05,
+                          c.g_country IN ('MX','NI'), c.costo_est*0.10*1.05,
+                          c.costo_est*0.15*1.05))
+              - sum(ifNull(w.cobrado, 0)), 0)                  AS deuda
+    FROM confirmados c
+    LEFT JOIN cobros w ON c.booking_id = w.booking_id
+    GROUP BY c.driver_id
+  SQL
+
+  # ════════════════════════════════════════════════════════════════════════
+  # RECONOCIMIENTO FACIAL
+  # ════════════════════════════════════════════════════════════════════════
+  Q_RF_RESUMEN = <<~'SQL'
+    SELECT
+        count()                                AS total_alertas,
+        countIf(tipo_alerta = 'RF + IMEI')     AS total_rf_imei,
+        countIf(tipo_alerta = 'RF')            AS total_rf,
+        countIf(tipo_alerta = 'IMEI')          AS total_imei,
+        countIf(nivel = 'FOTO_DUPLICADA')      AS total_duplicada,
+        countIf(nivel = 'ALERTA')              AS total_alerta,
+        countIf(nivel = 'REVISAR')             AS total_revisar,
+        countIf(nivel = 'POSIBLE')             AS total_posible,
+        round(maxIf(similitud, similitud > 0), 4) AS sim_max,
+        round(avgIf(similitud, similitud > 0), 4) AS sim_avg,
+        count(DISTINCT user_id_a)              AS pilotos
+    FROM picapmongoprod.alertas_reconocimiento
+    WHERE procesado_en >= toDateTime('%{desde} 00:00:00')
+      AND procesado_en <= toDateTime('%{hasta} 23:59:59')
+  SQL
+
+  Q_RF_DETALLE = <<~'SQL'
+    SELECT
+        ifNull(tipo_alerta, 'RF')   AS tipo_alerta,
+        nivel,
+        toFloat64(similitud)        AS similitud,
+        ifNull(mismo_imei, 'NO')    AS mismo_imei,
+        toString(nombre_a)          AS nombre_a,
+        toString(user_id_a)         AS user_id_a,
+        toString(url_a)             AS url_a,
+        toString(created_at_a)      AS created_at_a,
+        toString(nombre_b)          AS nombre_b,
+        toString(user_id_b)         AS user_id_b,
+        toString(url_b)             AS url_b,
+        toString(created_at_b)      AS created_at_b,
+        procesado_en
+    FROM picapmongoprod.alertas_reconocimiento
+    WHERE procesado_en >= toDateTime('%{desde} 00:00:00')
+      AND procesado_en <= toDateTime('%{hasta} 23:59:59')
+    ORDER BY
+        multiIf(tipo_alerta='RF + IMEI', 0, tipo_alerta='RF', 1, 2),
+        similitud DESC
+    LIMIT 300
+  SQL
+
+  # ════════════════════════════════════════════════════════════════════════
+  # STUBS — queries placeholder (se reescribirán en bloques B-F con queries
+  # correctas de Python). Por ahora existen para que los controllers no
+  # rompan con NameError. Pueden devolver datos incorrectos hasta entonces.
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Pagos TC — usado por pagos_controller#tc (stub simple)
+  TC_BASE_CTE = <<~'SQL'
+    WITH pagos_tc AS (
+        SELECT
+            b._id              AS booking_id,
+            b.driver_id,
+            b.passenger_id,
+            toDate(toTimeZone(b.created_at, 'America/Bogota')) AS fecha,
+            b.g_adm_area_lv_1  AS ciudad,
+            b.g_country,
+            b.status_cd,
+            b.payment_method_cd,
+            toFloat64OrNull(JSONExtractString(b.final_cost,'cents')) / 100 AS monto,
+            b.created_at
+        FROM picapmongoprod.bookings b
+        WHERE toString(b.payment_method_cd) = '3'
+          AND b.status_cd IN (4, 107, 108)
+          AND b.created_at >= toDateTime('%{desde} 00:00:00')
+          AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+          %{filtro}
+    )
+  SQL
+
+  # Pagos stats — global (stub)
+  Q_PAGOS_STATS = <<~'SQL'
+    SELECT
+        CASE b.g_country
+            WHEN 'CO' THEN 'Colombia'
+            WHEN 'MX' THEN 'Mexico'
+            WHEN 'NI' THEN 'Nicaragua'
+            WHEN 'GT' THEN 'Guatemala'
+            ELSE b.g_country
+        END                                    AS pais,
+        b.payment_method_cd                    AS medio_pago,
+        count()                                AS total_servicios,
+        round(sum(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100), 0) AS monto_total_cop
+    FROM picapmongoprod.bookings b
+    WHERE b.created_at >= toDateTime('%{desde} 00:00:00')
+      AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+      AND b.payment_method_cd IS NOT NULL
+    GROUP BY pais, medio_pago
+    ORDER BY total_servicios DESC
+    LIMIT 50
+  SQL
+
+  # Estafa — stub simple (se reescribirá en bloque D con la query agregada del Python)
+  Q_ESTAFA = <<~'SQL'
+    SELECT
+        b._id                                          AS booking_id,
+        b.driver_id,
+        pd.name                                        AS nombre_piloto,
+        b.passenger_id,
+        toTimeZone(b.created_at, 'America/Bogota')     AS creado_en,
+        b.cancelation_reason_cd,
+        b.g_country,
+        b.g_adm_area_lv_1                              AS ciudad,
+        toFloat64OrNull(JSONExtractString(b.final_cost,'cents')) / 100 AS monto
+    FROM picapmongoprod.bookings b
+    LEFT JOIN picapmongoprod.passengers pd ON pd._id = b.driver_id
+    WHERE toInt64OrZero(b.cancelation_reason_cd) IN (21, 13)
+      AND b.created_at >= toDateTime('%{desde} 00:00:00')
+      AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+    ORDER BY b.created_at DESC
+    LIMIT 500
+  SQL
 end
