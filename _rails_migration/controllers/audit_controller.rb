@@ -46,8 +46,12 @@ module Api
       tipo    = params[:tipo].to_s.strip.downcase
       modulo  = params[:modulo].to_s.strip
       q       = params[:q].to_s.strip
-      limit   = [[params[:limit].to_i, 1].max, 5000].min
-      limit   = 500 if limit == 0
+      # BUG fixeado: el cálculo viejo dejaba limit=1 cuando params[:limit]
+      # estaba vacío (porque [0, 1].max = 1, no 0, así que el fallback
+      # "limit = 500 if limit == 0" nunca disparaba). Resultado: SQL con
+      # LIMIT 1 y solo se mostraba 1 evento aunque hubiera 26+.
+      raw_limit = params[:limit].to_i
+      limit     = raw_limit <= 0 ? 500 : [raw_limit, 5000].min
 
       # ts es DateTime nativo en CH. NO castear (revierte fix erróneo previo).
       where = [
