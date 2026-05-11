@@ -49,9 +49,13 @@ module Api
       limit   = [[params[:limit].to_i, 1].max, 5000].min
       limit   = 500 if limit == 0
 
+      # NOTA: ts está como String en la tabla (Python clickhouse_connect lo
+      # toleraba). Casteamos con parseDateTimeBestEffort para que el WHERE
+      # funcione tanto si la columna es String como DateTime.
+      ts_cast = "parseDateTimeBestEffortOrNull(toString(ts))"
       where = [
-        "ts >= toDateTime('#{desde} 00:00:00')",
-        "ts <= toDateTime('#{hasta} 23:59:59')",
+        "#{ts_cast} >= toDateTime('#{desde} 00:00:00')",
+        "#{ts_cast} <= toDateTime('#{hasta} 23:59:59')",
       ]
       if usuario.present?
         u_safe = usuario.gsub("'", "''")
@@ -69,12 +73,12 @@ module Api
       w = where.join(" AND ")
 
       eventos = ch.query(<<~SQL)
-        SELECT id, formatDateTime(ts,'%Y-%m-%d %H:%M:%S') AS ts,
+        SELECT id, formatDateTime(#{ts_cast},'%Y-%m-%d %H:%M:%S') AS ts,
                usuario, rol, tipo, modulo, accion,
                substring(detalles, 1, 1000) AS detalles, ip, user_agent
         FROM picapmongoprod.dashboard_audit_log
         WHERE #{w}
-        ORDER BY ts DESC
+        ORDER BY #{ts_cast} DESC
         LIMIT #{limit}
       SQL
 
