@@ -16,12 +16,15 @@ module Api
       # (Python clickhouse_connect lo toleraba, ClickHouse directo no). Por eso
       # usamos parseDateTimeBestEffortOrNull(toString(...)) — funciona para
       # columnas String o DateTime.
+      # OJO: en CH formatDateTime, %M = nombre del mes (May, Jun...). Para
+      # minutos hay que usar %i. (Python usaba strftime nativo donde %M sí
+      # era minutos — por eso el bug no aparecía en producción.)
       rows = ch.query(<<~SQL)
         SELECT id, titulo, descripcion, dias_semana, hora, email, creado_por,
                activo,
-               formatDateTime(parseDateTimeBestEffortOrNull(toString(ultima_ejecucion)), '%Y-%m-%d %H:%M') AS ultima_ejecucion,
-               formatDateTime(parseDateTimeBestEffortOrNull(toString(creado_en)),        '%Y-%m-%d %H:%M') AS creado_en,
-               formatDateTime(parseDateTimeBestEffortOrNull(toString(actualizado_en)),   '%Y-%m-%d %H:%M') AS actualizado_en,
+               formatDateTime(parseDateTimeBestEffortOrNull(toString(ultima_ejecucion)), '%Y-%m-%d %H:%i') AS ultima_ejecucion,
+               formatDateTime(parseDateTimeBestEffortOrNull(toString(creado_en)),        '%Y-%m-%d %H:%i') AS creado_en,
+               formatDateTime(parseDateTimeBestEffortOrNull(toString(actualizado_en)),   '%Y-%m-%d %H:%i') AS actualizado_en,
                frecuencia, dia_mes, mes_referencia, fecha_ejecucion,
                marcado_hecho_periodo
         FROM picapmongoprod.cronograma_tareas FINAL
@@ -65,9 +68,9 @@ module Api
       return render json: { ok: false, error: err }, status: :bad_request if err
       existente = ch.query(<<~SQL).first
         SELECT creado_por,
-               formatDateTime(parseDateTimeBestEffortOrNull(toString(creado_en)),       '%Y-%m-%d %H:%M:%S') AS creado_en,
+               formatDateTime(parseDateTimeBestEffortOrNull(toString(creado_en)),       '%Y-%m-%d %H:%i:%S') AS creado_en,
                marcado_hecho_periodo,
-               formatDateTime(parseDateTimeBestEffortOrNull(toString(ultima_ejecucion)),'%Y-%m-%d %H:%M:%S') AS ultima_ejecucion
+               formatDateTime(parseDateTimeBestEffortOrNull(toString(ultima_ejecucion)),'%Y-%m-%d %H:%i:%S') AS ultima_ejecucion
         FROM picapmongoprod.cronograma_tareas FINAL WHERE id = '#{tid}' LIMIT 1
       SQL
       return render json: { ok: false, error: "Tarea no encontrada" }, status: :not_found unless existente
@@ -102,8 +105,8 @@ module Api
       existente = ch.query(<<~SQL).first
         SELECT titulo, descripcion, dias_semana, hora, email, creado_por,
                activo,
-               formatDateTime(parseDateTimeBestEffortOrNull(toString(ultima_ejecucion)),'%Y-%m-%d %H:%M:%S') AS ultima_ejecucion,
-               formatDateTime(parseDateTimeBestEffortOrNull(toString(creado_en)),       '%Y-%m-%d %H:%M:%S') AS creado_en,
+               formatDateTime(parseDateTimeBestEffortOrNull(toString(ultima_ejecucion)),'%Y-%m-%d %H:%i:%S') AS ultima_ejecucion,
+               formatDateTime(parseDateTimeBestEffortOrNull(toString(creado_en)),       '%Y-%m-%d %H:%i:%S') AS creado_en,
                frecuencia, dia_mes, mes_referencia, fecha_ejecucion
         FROM picapmongoprod.cronograma_tareas FINAL WHERE id = '#{tid}' LIMIT 1
       SQL

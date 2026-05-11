@@ -69,12 +69,20 @@ module Api
       end
       w = where.join(" AND ")
 
-      # IMPORTANTE: aliasing a `ts_fmt` (no a `ts`) — ClickHouse confunde el
-      # alias con la columna original y rompe el ORDER BY si compartían nombre.
+      # IMPORTANTE:
+      # - Alias a `ts_fmt` (no a `ts`) — ClickHouse rompe ORDER BY si el
+      #   alias sombra la columna original (DateTime vs String aliasado).
+      # - Format: `%i` = minutos en ClickHouse formatDateTime. `%M` significa
+      #   nombre largo del mes (¡May!), por eso veíamos "16:May:56".
+      # - Sanitizar detalles y user_agent: tabs/newlines rompen el parser
+      #   TabSeparated del ClickhouseClient y truncan el response.
       eventos_rows = ch.query(<<~SQL)
-        SELECT id, formatDateTime(ts,'%Y-%m-%d %H:%M:%S') AS ts_fmt,
+        SELECT id,
+               formatDateTime(ts,'%Y-%m-%d %H:%i:%S') AS ts_fmt,
                usuario, rol, tipo, modulo, accion,
-               substring(detalles, 1, 1000) AS detalles, ip, user_agent
+               replaceRegexpAll(substring(detalles, 1, 1000), '[\\t\\n\\r]', ' ') AS detalles,
+               ip,
+               replaceRegexpAll(user_agent, '[\\t\\n\\r]', ' ') AS user_agent
         FROM picapmongoprod.dashboard_audit_log
         WHERE #{w}
         ORDER BY ts DESC
