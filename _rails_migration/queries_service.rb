@@ -907,6 +907,239 @@ module QueriesService
     LIMIT 3000
   SQL
 
+  # ════════════════════════════════════════════════════════════════════════
+  # AUDITORÍA COMERCIAL (Bloque F, paridad api.py 4047-4395)
+  # Auditoría de tarifas/comisiones/créditos de empresas (companies + fare_configs).
+  # Solo Colombia, solo bookings status_cd=4 (finalizados). Filtra opcional por
+  # company_id, tarifa_id, moneda, último servicio en rango, anti-test.
+  # ════════════════════════════════════════════════════════════════════════
+  Q_AUDITORIA_BASE = <<~'SQL'
+    WITH bookings_filtered AS (
+        SELECT
+            company_id,
+            created_at,
+            _id AS booking_id,
+            toFloat64OrNull(JSONExtractString(final_cost,'cents')) / 100 AS final_cost
+        FROM picapmongoprod.bookings
+        WHERE status_cd = 4
+          AND g_country = 'CO'
+          AND created_at >= toDateTime('%{desde} 00:00:00')
+          AND created_at <= toDateTime('%{hasta} 23:59:59')
+    ),
+    last_booking AS (
+        SELECT company_id, max(created_at) AS last_created_at
+        FROM bookings_filtered
+        GROUP BY company_id
+    ),
+    fare_configs_ext AS (
+        SELECT DISTINCT
+            _id,
+            company_parent_id  AS company_parent_id_extracted,
+            service_type_id    AS service_type_id_extracted,
+            geo_fence_id       AS geo_fence_id_extracted,
+            toFloat64OrNull(JSONExtractString(base_fare,'cents'))         / 100 AS base_fare,
+            toFloat64OrNull(JSONExtractString(minimum_fare,'cents'))       / 100 AS minimum_fare,
+            toFloat64OrNull(JSONExtractString(distance_fare,'cents'))      / 100 AS distance_fare,
+            toFloat64OrNull(JSONExtractString(hour_fare,'cents'))          / 100 AS hour_fare,
+            toFloat64OrNull(JSONExtractString(extra_stop_fare,'cents'))    / 100 AS extra_stop_fare,
+            toFloat64OrNull(JSONExtractString(package_fare,'cents'))       / 100 AS package_fare,
+            toFloat64OrNull(JSONExtractString(hour_base_fare,'cents'))     / 100 AS hour_base_fare,
+            toFloat64OrNull(JSONExtractString(hour_standby_fare,'cents'))  / 100 AS hour_standby_fare,
+            company_commission_percentage AS utilidad_corporativa
+        FROM picapmongoprod.fare_configs FINAL
+        %{filtro_tarifa}
+    ),
+    company_auth_ext AS (
+        SELECT company_id AS company_id_extracted,
+               active     AS active_extracted
+        FROM picapmongoprod.company_authorization_logs
+    ),
+    base AS (
+        SELECT
+            CASE
+                WHEN a.active_extracted = 'false' THEN 'inactivo'
+                ELSE 'activo'
+            END AS estado,
+            com._id                                                       AS id_company,
+            lb.last_created_at                                            AS last_service,
+            com.name                                                      AS linea_de_negocio,
+            com.commercial_manager_id                                     AS commercial_manager,
+            d.name                                                        AS name_manager,
+            fc._id                                                        AS tarifa_id,
+            JSONExtractString(tst.name,'es')                              AS type_service,
+            if(JSONExtractString(ci.name,'es') IS NULL,'Colombia',
+               JSONExtractString(ci.name,'es'))                           AS ciudad,
+            JSONExtractString(com.max_wallet_negative,'currency_iso')     AS moneda,
+            fc.base_fare, fc.minimum_fare, fc.distance_fare,
+            fc.hour_fare, fc.extra_stop_fare, fc.package_fare,
+            fc.hour_base_fare, fc.hour_standby_fare,
+            toFloat64OrNull(com.commission_percentage)                    AS comission,
+            fc.utilidad_corporativa,
+            toFloat64OrNull(JSONExtractString(com.max_wallet_negative,'cents')) / 100 AS credit,
+            toFloat64OrNull(JSONExtractString(com.max_declared_value,'cents'))  / 100 AS valor_declarado,
+            ROW_NUMBER() OVER (PARTITION BY fc._id ORDER BY lb.last_created_at DESC) AS rn
+        FROM picapmongoprod.companies com
+        INNER JOIN picapmongoprod.countries co ON co._id = com.geo_fence_id
+        LEFT JOIN fare_configs_ext fc ON fc.company_parent_id_extracted = com._id
+        LEFT JOIN picapmongoprod.service_types tst ON tst._id = fc.service_type_id_extracted
+        LEFT JOIN last_booking lb ON com._id = lb.company_id
+        LEFT JOIN company_auth_ext a ON com._id = a.company_id_extracted
+        LEFT JOIN picapmongoprod.cities ci ON ci._id = fc.geo_fence_id_extracted
+        LEFT JOIN picapmongoprod.passengers d ON com.commercial_manager_id = d._id
+        WHERE com._type = 'Company'
+          AND fc._id IS NOT NULL
+          %{filtro_company}
+          %{filtro_moneda}
+          %{anti_test}
+    )
+    SELECT
+        estado, id_company, last_service, linea_de_negocio,
+        commercial_manager, name_manager, tarifa_id, type_service,
+        ciudad, moneda, base_fare, minimum_fare, distance_fare,
+        hour_fare, extra_stop_fare, package_fare, hour_base_fare,
+        hour_standby_fare, comission, utilidad_corporativa, credit,
+        valor_declarado
+    FROM base
+    WHERE rn = 1
+      %{filtro_last_service}
+    ORDER BY last_service DESC, name_manager
+    LIMIT 5000
+  SQL
+
+  # ════════════════════════════════════════════════════════════════════════
+  # PIBOX B2B — Alertas de fraude (Bloque F, paridad api.py 6770-7351)
+  # Detecta servicios B2B con:
+  #   - Tiempo < 5 min (no recogió/no entregó)
+  #   - Mismo punto GPS sin retorno a origen ni reserva (fraude claro)
+  #   - Montos excesivos por tipo servicio (Mensajería >400k, Carga Carry >800k,
+  #     Carga Moto >600k, Cruz Verde Mostrador >80k)
+  # Excluye clientes test/qa/onboarding/demo y TADA (con excepción Cruz Verde Integ.)
+  # ════════════════════════════════════════════════════════════════════════
+  Q_PIBOX_BASE = <<~'SQL'
+    WITH servicios_pibox AS (
+        SELECT
+            b._id AS booking_id,
+            b.driver_id,
+            b.passenger_id,
+            b.company_id,
+            toTimeZone(b.created_at, 'America/Bogota') AS fecha_servicio,
+            b.status_cd,
+            b.requested_service_type_id,
+            CONCAT(p.name, ' ', COALESCE(p.last_name, '')) AS piloto_nombre,
+            p.email AS piloto_email,
+            p.phone AS piloto_telefono,
+            c.name AS cliente_nombre,
+            JSONExtractString(vt.name, 'es') AS tipo_vehiculo,
+            CASE b.g_country
+                WHEN 'CO' THEN 'Colombia'
+                WHEN 'MX' THEN 'México'
+                WHEN 'NI' THEN 'Nicaragua'
+                WHEN 'GT' THEN 'Guatemala'
+                ELSE b.g_country
+            END AS pais,
+            CASE
+                WHEN b.g_adm_area_lv_1 = 'MN' THEN 'Managua'
+                WHEN b.g_adm_area_lv_1 = 'Guatemala Department' THEN 'Guatemala'
+                WHEN b.g_adm_area_lv_1 = '' THEN 'Sin ciudad'
+                ELSE b.g_adm_area_lv_1
+            END AS ciudad,
+            toFloat64OrZero(JSONExtractString(b.company_final_cost, 'cents')) / 100 AS monto_pagado,
+            JSONExtractString(b.company_final_cost, 'currency_iso') AS moneda,
+            JSONExtractFloat(b.origin_geojson, 'coordinates', 1) AS origin_longitude,
+            JSONExtractFloat(b.origin_geojson, 'coordinates', 2) AS origin_latitude,
+            JSONExtractFloat(b.end_geojson, 'coordinates', 1) AS destination_longitude,
+            JSONExtractFloat(b.end_geojson, 'coordinates', 2) AS destination_latitude,
+            extract(COALESCE(b.events,''), 'event_cd":22.*?created_at":"([^"]+)') AS ev_recogido,
+            extract(COALESCE(b.events,''), 'event_cd":24.*?created_at":"([^"]+)') AS ev_finalizado,
+            IF(
+                lower(COALESCE(toString(b.return_to_origin), '')) IN ('true', '1', 't'),
+                1, 0
+            ) AS return_to_origin,
+            COALESCE(toString(b.original_booking_reservation_id), '') AS original_booking_reservation_id,
+            IF(COALESCE(toString(b.original_booking_reservation_id), '') = '', 0, 1) AS tiene_reserva,
+            b.updated_at,
+            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
+        FROM picapmongoprod.bookings b FINAL
+        LEFT JOIN picapmongoprod.passengers p FINAL ON b.driver_id = p._id
+        LEFT JOIN picapmongoprod.companies c FINAL ON b.company_id = c._id
+        LEFT JOIN picapmongoprod.driver_vehicle_enrollments dve FINAL
+            ON b.driver_id = dve.driver_id AND dve.enrollment_status_cd = 3
+        LEFT JOIN picapmongoprod.vehicles v FINAL ON dve.vehicle_id = v._id
+        LEFT JOIN picapmongoprod.vehicle_types vt FINAL ON v.vehicle_type_id = vt._id
+        WHERE
+            b.status_cd IN (4, 107, 108)
+            AND b.company_id IS NOT NULL
+            AND b.company_id != ''
+            AND toDate(b.created_at) BETWEEN '%{fecha_desde}' AND '%{fecha_hasta}'
+            AND NOT (b.events LIKE '%"event_cd":103%')
+            AND LOWER(c.name) NOT LIKE '%tada%'
+            AND LOWER(c.name) NOT LIKE '%test%'
+            AND LOWER(c.name) NOT LIKE '%prueba%'
+            AND LOWER(c.name) NOT LIKE '%qa%'
+            AND LOWER(c.name) NOT LIKE '%onboarding%'
+            AND LOWER(c.name) NOT LIKE '%demo%'
+            %{filtros_adicionales}
+    ),
+    con_tiempos AS (
+        SELECT
+            sp.*,
+            dateDiff('minute',
+                parseDateTimeBestEffortOrNull(ev_recogido),
+                parseDateTimeBestEffortOrNull(ev_finalizado)
+            ) AS minutos_servicio,
+            IF(
+                abs(origin_latitude - destination_latitude) < %{tolerancia_gps}
+                AND abs(origin_longitude - destination_longitude) < %{tolerancia_gps},
+                1, 0
+            ) AS flag_mismo_punto,
+            IF(
+                abs(origin_latitude - destination_latitude) < %{tolerancia_gps}
+                AND abs(origin_longitude - destination_longitude) < %{tolerancia_gps}
+                AND return_to_origin = 0
+                AND tiene_reserva = 0,
+                1, 0
+            ) AS flag_alerta_mismo_punto,
+            round(geoDistance(origin_longitude, origin_latitude,
+                             destination_longitude, destination_latitude), 2) AS distancia_recorrido
+        FROM servicios_pibox sp
+        WHERE sp.rn = 1
+    )
+    SELECT * FROM con_tiempos
+  SQL
+
+  # Anti-test expr para auditoría (replica _ANTI_TEST_EXPR del Python)
+  AUDITORIA_ANTI_TEST_EXPR = <<~'SQL'.gsub("\n", " ").strip
+    NOT multiSearchAnyCaseInsensitive(
+        lowerUTF8(concat(
+            ifNull(com.name,''), ' ',
+            ifNull(d.name,''), ' ',
+            ifNull(com.commercial_manager_id,'')
+        )),
+        ['test','testeo','pruebas','qa','dummy','sandbox',
+         'demo','ejemplo','testing','user test','internal',
+         'liliana peña','liliana pena']
+    )
+  SQL
+
+  # Helper auditoría: construye los 5 filtros dinámicos
+  def self.auditoria_filtros(company_id: "", tarifa_id: "", moneda: "",
+                             anti_test: true, last_desde: "", last_hasta: "")
+    fc = company_id.to_s.empty? ? "" : "AND com._id = '#{company_id.gsub("'", "''")}'"
+    ft = tarifa_id.to_s.empty? ? "" : "WHERE _id = '#{tarifa_id.gsub("'", "''")}'"
+    fm = moneda.to_s.empty?    ? "" : "AND JSONExtractString(com.max_wallet_negative,'currency_iso') = '#{moneda.gsub("'", "''")}'"
+    at = anti_test ? "AND #{AUDITORIA_ANTI_TEST_EXPR}" : ""
+    fls = []
+    fls << "AND toTimeZone(last_service,'America/Bogota') >= '#{last_desde} 00:00:00'" unless last_desde.to_s.empty?
+    fls << "AND toTimeZone(last_service,'America/Bogota') <= '#{last_hasta} 23:59:59'" unless last_hasta.to_s.empty?
+    {
+      filtro_company:      fc,
+      filtro_tarifa:       ft,
+      filtro_moneda:       fm,
+      anti_test:           at,
+      filtro_last_service: fls.join(" "),
+    }
+  end
+
   # Pagos stats — global (stub)
   Q_PAGOS_STATS = <<~'SQL'
     SELECT
