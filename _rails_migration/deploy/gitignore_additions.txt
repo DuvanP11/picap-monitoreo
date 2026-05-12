@@ -1,0 +1,29 @@
+# Líneas a CONFIRMAR que están en tu .gitignore (Rails 7.1 las pone por default).
+# Si alguna no está, añadila:
+
+# Secretos — NUNCA commitearlos
+/config/master.key
+/.env
+/.env.*
+/.env.production
+/.env.development
+
+# Logs y temporales
+/log/*
+!/log/.keep
+/tmp/*
+!/tmp/.keep
+/storage/*
+!/storage/.keep
+
+# Bundler local
+/.bundle
+/vendor/bundle
+
+# OS files
+.DS_Store
+.byebug_history
+
+# DB local (sqlite)
+/db/*.sqlite3
+/db/*.sqlite3-*
