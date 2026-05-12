@@ -1171,6 +1171,10 @@ module QueriesService
     ORDER BY dia
   SQL
 
+  # OJO BACKSLASHES: en Ruby `<<~'SQL'` (single-quoted heredoc), `\\` se
+  # convierte a `\`. Por eso `[^\\\\]` (4 backslashes) produce `[^\\]` (2 en SQL)
+  # que es lo que CH necesita para "cualquier char que no sea backslash".
+  # Igualmente `\s` se preserva literal (no es una secuencia de escape Ruby).
   Q_CEDULA_DETALLE = <<~'SQL'
     SELECT
         creacion_cuenta, id_user, name_user, pais_codigo,
@@ -1183,7 +1187,7 @@ module QueriesService
             toString(p.g_country)                      AS pais_codigo,
             JSONExtractString(pwd.rekognition_metadata, 'fiscal_number') AS rekognition_cc,
             extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)') AS cc_antecedentes,
-            trim(extract(pwd.people_police_records, 'Apellidos y Nombres:\s*([^\\]+)')) AS nombre_antecedentes,
+            trim(extract(pwd.people_police_records, 'Apellidos y Nombres:\s*([^\\\\]+)')) AS nombre_antecedentes,
             CASE
                 WHEN JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
                    = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
