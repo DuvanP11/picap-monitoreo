@@ -142,7 +142,10 @@ module Api
         tolerancia_gps:      TOLERANCIA_GPS,
         filtros_adicionales: filtros.join(" "),
       )
-      ch.query(sql)
+      # Pibox usa FINAL en 6 tablas (bookings + passengers + companies +
+      # driver_vehicle_enrollments + vehicles + vehicle_types) sobre 30 días
+      # de bookings B2B — costoso. 600s para tener margen.
+      ch.query(sql, timeout: 600)
     end
 
     # Lógica de exclusión por nombre de cliente (paridad _pibox_debe_excluirse)
