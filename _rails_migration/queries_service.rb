@@ -827,6 +827,86 @@ module QueriesService
     FROM por_user
   SQL
 
+  # ════════════════════════════════════════════════════════════════════════
+  # RECAUDOS (Bloque E, paridad api.py 3866-3942)
+  # Audita WalletAccountCounterDeliveryTransaction — el piloto recauda al
+  # cliente y abona a Picap. Si la suma negativa (recaudo) + positiva (abono)
+  # cuadran a 0, está OK. Diferencia → deuda en alguna dirección.
+  # Clasificación:
+  #   Correcto      → balance_neto = 0
+  #   Pagado_demas  → balance_neto > 0 (Picap le debe al piloto)
+  #   Debe_dinero   → balance_neto < 0 (piloto debe a Picap)
+  #   Revisar       → balance_neto IS NULL OR (pos>0 AND neg>0 AND neto ≈ 0
+  #                   AND cnt_total > 2 → mucha actividad neta cero, atípico)
+  # ════════════════════════════════════════════════════════════════════════
+  Q_RECAUDOS = <<~'SQL'
+    WITH deduplicated AS (
+        SELECT
+            toTimeZone(wat.created_at, 'America/Bogota') AS fecha_tx,
+            wat.booking_id AS id_booking,
+            wat._id,
+            wat._type AS tipo_tx,
+            JSONExtractString(wat.amount, 'currency_iso') AS moneda,
+            toFloat64OrNull(JSONExtractString(wat.amount, 'cents')) / 100 AS valor,
+            ROW_NUMBER() OVER (PARTITION BY wat._id ORDER BY wat.created_at DESC) AS rn
+        FROM picapmongoprod.wallet_account_transactions wat
+        WHERE wat._type = 'WalletAccountCounterDeliveryTransaction'
+          AND wat.created_at >= toDateTime('%{desde} 00:00:00')
+          AND wat.created_at <= toDateTime('%{hasta} 23:59:59')
+          %{filtro_moneda}
+    ),
+    base AS (
+        SELECT fecha_tx, id_booking, _id, tipo_tx, moneda, valor
+        FROM deduplicated
+        WHERE rn = 1
+    ),
+    bookings_en_rango AS (
+        SELECT DISTINCT id_booking
+        FROM base
+        WHERE fecha_tx >= toDateTime('%{desde} 00:00:00')
+          AND fecha_tx <= toDateTime('%{hasta} 23:59:59')
+    ),
+    agregado AS (
+        SELECT
+            b.id_booking,
+            any(b.fecha_tx)                                              AS fecha_tx,
+            b.tipo_tx,
+            b.moneda,
+            sumIf(b.valor, b.valor < 0)                                  AS suma_negativos,
+            sumIf(b.valor, b.valor > 0)                                  AS suma_positivos,
+            sumIf(b.valor, b.valor > 0) + sumIf(b.valor, b.valor < 0)    AS balance_neto,
+            countIf(b.valor < 0)                                         AS cnt_negativos,
+            countIf(b.valor > 0)                                         AS cnt_positivos,
+            count()                                                      AS cnt_total
+        FROM base b
+        INNER JOIN bookings_en_rango br ON b.id_booking = br.id_booking
+        GROUP BY b.id_booking, b.tipo_tx, b.moneda
+    )
+    SELECT
+        id_booking,
+        toString(fecha_tx) AS fecha_tx,
+        tipo_tx,
+        moneda,
+        round(suma_negativos, 2)  AS suma_negativos,
+        round(suma_positivos, 2)  AS suma_positivos,
+        round(balance_neto, 2)    AS balance_neto,
+        cnt_negativos,
+        cnt_positivos,
+        cnt_total,
+        CASE
+            WHEN balance_neto IS NULL OR (cnt_positivos > 0 AND cnt_negativos > 0
+                 AND abs(suma_positivos + suma_negativos) < 0.01
+                 AND cnt_total > 2)                          THEN 'Revisar'
+            WHEN balance_neto = 0                            THEN 'Correcto'
+            WHEN balance_neto > 0                            THEN 'Pagado_demas'
+            WHEN balance_neto < 0                            THEN 'Debe_dinero'
+            ELSE 'Revisar'
+        END AS clasificacion
+    FROM agregado
+    ORDER BY abs(balance_neto) DESC
+    LIMIT 3000
+  SQL
+
   # Pagos stats — global (stub)
   Q_PAGOS_STATS = <<~'SQL'
     SELECT
