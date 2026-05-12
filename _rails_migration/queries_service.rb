@@ -1140,6 +1140,67 @@ module QueriesService
     }
   end
 
+  # ════════════════════════════════════════════════════════════════════════
+  # CÉDULA (Bloque G, paridad api.py 2794-2878)
+  # Compara fiscal_number (OCR) vs CC extraída del texto de antecedentes
+  # ════════════════════════════════════════════════════════════════════════
+  Q_CEDULA_AGG = <<~'SQL'
+    SELECT
+        toDate(creacion_cuenta)         AS dia,
+        count()                         AS total_dia,
+        countIf(cc_igual = 'alerta')    AS alertas_dia
+    FROM (
+        SELECT
+            toTimeZone(p.created_at, 'America/Bogota') AS creacion_cuenta,
+            CASE
+                WHEN JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
+                   = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+                THEN 'ok' ELSE 'alerta'
+            END                                          AS cc_igual,
+            JSONExtractString(pwd.rekognition_metadata, 'fiscal_number') AS rk_cc,
+            extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)') AS pr_cc,
+            ROW_NUMBER() OVER (PARTITION BY p._id ORDER BY p.created_at DESC) AS rn
+        FROM picapmongoprod.passengers_w_data pwd
+        LEFT JOIN picapmongoprod.passengers p ON pwd._id = p._id
+        WHERE p.created_at BETWEEN toDateTime('%{desde} 00:00:00')
+                               AND toDateTime('%{hasta} 23:59:59')
+          %{filtro_pais}
+    )
+    WHERE rn = 1 AND rk_cc != '' AND pr_cc != ''
+    GROUP BY dia
+    ORDER BY dia
+  SQL
+
+  Q_CEDULA_DETALLE = <<~'SQL'
+    SELECT
+        creacion_cuenta, id_user, name_user, pais_codigo,
+        rekognition_cc, cc_antecedentes, nombre_antecedentes, cc_igual
+    FROM (
+        SELECT
+            toTimeZone(p.created_at, 'America/Bogota') AS creacion_cuenta,
+            toString(pwd._id)                          AS id_user,
+            toString(p.name)                           AS name_user,
+            toString(p.g_country)                      AS pais_codigo,
+            JSONExtractString(pwd.rekognition_metadata, 'fiscal_number') AS rekognition_cc,
+            extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)') AS cc_antecedentes,
+            trim(extract(pwd.people_police_records, 'Apellidos y Nombres:\s*([^\\]+)')) AS nombre_antecedentes,
+            CASE
+                WHEN JSONExtractString(pwd.rekognition_metadata, 'fiscal_number')
+                   = extract(pwd.people_police_records, 'Cédula de Ciudadanía Nº\s*([0-9]+)')
+                THEN 'ok' ELSE 'alerta'
+            END                                        AS cc_igual,
+            ROW_NUMBER() OVER (PARTITION BY p._id ORDER BY p.created_at DESC) AS rn
+        FROM picapmongoprod.passengers_w_data pwd
+        LEFT JOIN picapmongoprod.passengers p ON pwd._id = p._id
+        WHERE p.created_at BETWEEN toDateTime('%{desde} 00:00:00')
+                               AND toDateTime('%{hasta} 23:59:59')
+          %{filtro_pais}
+    )
+    WHERE rn = 1 AND rekognition_cc != '' AND cc_antecedentes != ''
+    ORDER BY creacion_cuenta DESC
+    LIMIT %{limit_filas}
+  SQL
+
   # Pagos stats — global (stub)
   Q_PAGOS_STATS = <<~'SQL'
     SELECT
