@@ -1,23 +1,20 @@
-# Rails app deploy a Render — Picap Monitoreo
-# Servicio paralelo al Python (no toca picap-monitoreo.onrender.com).
-# URL nueva: https://picap-monitoreo-rails.onrender.com
+# Rails app deploy a Render — Picap Monitoreo (Docker runtime)
 #
-# Después de validar 1-2 días, podés:
-#   1) Cambiar el DNS / bookmarks del equipo
-#   2) Apagar el servicio Python en Render
+# Después del bug del Ruby native runtime de Render (RUBIES_ROOT null),
+# nos fuimos a Docker. El Dockerfile es el default de Rails 7.1 — robusto.
 
 services:
   - type: web
     name: picap-monitoreo-rails
-    runtime: ruby
-    region: oregon                    # mismo region que tu Python (cambia si es otro)
-    plan: free                        # spinea-down después de 15min idle como Python
-    buildCommand: ./bin/render-build.sh
-    startCommand: bundle exec puma -C config/puma.rb
-    healthCheckPath: /up              # Rails 7.1 trae /up por defecto
+    runtime: docker
+    region: oregon
+    plan: free
+    healthCheckPath: /up
+    # El CMD del Dockerfile es ./bin/rails server. Lo sobreescribimos para
+    # usar Puma con nuestra config (que lee $PORT que Render inyecta).
+    dockerCommand: bundle exec puma -C config/puma.rb
 
     envVars:
-      # ── Rails core ──────────────────────────────────────
       - key: RAILS_ENV
         value: production
       - key: RAILS_LOG_TO_STDOUT
@@ -25,16 +22,13 @@ services:
       - key: RAILS_SERVE_STATIC_FILES
         value: enabled
       - key: WEB_CONCURRENCY
-        value: "1"                    # free plan: 1 worker
+        value: "1"
       - key: RAILS_MAX_THREADS
         value: "5"
-      - key: RUBY_VERSION
-        value: 3.2.2
 
-      # ── Secretos (sync:false → te los pide al crear el servicio) ──
-      - key: RAILS_MASTER_KEY        # contenido de config/master.key
+      # Secretos
+      - key: RAILS_MASTER_KEY
         sync: false
-
       - key: CLICKHOUSE_HOST
         sync: false
       - key: CLICKHOUSE_PORT
@@ -49,11 +43,8 @@ services:
         value: "true"
       - key: CLICKHOUSE_READ_TIMEOUT
         value: "300"
-
-      - key: TOKEN_SECRET            # HMAC SHA-256 — debe ser EL MISMO que en Python
-        sync: false                  # si querés que las sesiones existentes sigan válidas
-
-      # ── SMTP (opcional, para cronograma email) ──
+      - key: TOKEN_SECRET
+        sync: false
       - key: SMTP_EMAIL
         sync: false
       - key: SMTP_PASSWORD
