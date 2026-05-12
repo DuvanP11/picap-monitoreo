@@ -593,6 +593,240 @@ module QueriesService
     parts.join(" ")
   end
 
+  # ════════════════════════════════════════════════════════════════════════
+  # ESTAFA (Bloque D, paridad api.py 3406-3863)
+  # Detecta servicios con patrón financiero de estafa:
+  #   Vía A: bookings cancelados por denuncia (cancelation_reason_cd=21) o
+  #          seguridad (cd=13) Y con evento 26 confirmado.
+  #   Vía B: servicios de mensajería (requested_service_type_id =
+  #          '5c71b03a58b9ba10fa6393cf'), cualquier estado, cuyas pd.indications
+  #          contengan al menos una palabra de KW_ESTAFA (51 keywords del
+  #          EstafaController).
+  # Para no traer millones de mensajerías limpias, se pre-filtra en SQL con
+  # multiSearchAnyCaseInsensitive(indications, %{kws_estafa}).
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Detalle: hasta %{limit_filas} filas enriquecidas con país, ciudad, IMEI,
+  # nombre, estado de suspensión, etc. Una fila por booking (LIMIT 1 BY _id).
+  Q_ESTAFA_BASE = <<~'SQL'
+    WITH
+    mensajeria_type AS (SELECT '5c71b03a58b9ba10fa6393cf' AS id),
+    bk_raw AS (
+        SELECT
+            b._id,
+            b.driver_id,
+            b.passenger_id,
+            b.company_id,
+            toString(b.requested_service_type_id) AS service_type_id,
+            toTimeZone(coalesce(b.scheduled_at, b.created_at), 'America/Bogota') AS fecha_servicio,
+            CASE toInt64OrZero(b.cancelation_reason_cd)
+                WHEN 21 THEN 'user_denounce'
+                WHEN 13 THEN 'Security_issues'
+                WHEN 0  THEN 'completed/active'
+                ELSE concat('other_cancel_', toString(toInt64OrZero(b.cancelation_reason_cd)))
+            END AS cancelation_reason,
+            JSONExtractInt(
+                arrayFirst(
+                    x -> JSONExtractInt(x, 'event_cd') = 26,
+                    JSONExtract(ifNull(b.events, '[]'), 'Array(String)')
+                ),
+                'event_cd'
+            ) AS estado_cancelacion,
+            toInt64OrZero(b.cancelation_reason_cd) AS cancel_reason_cd,
+            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
+        FROM picapmongoprod.bookings b
+        WHERE (
+            toInt64OrZero(b.cancelation_reason_cd) IN (21, 13)
+            OR toString(b.requested_service_type_id) = (SELECT id FROM mensajeria_type)
+        )
+          AND b.created_at >= toDateTime('%{desde} 00:00:00')
+          AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+          %{filtro_pais}
+    ),
+    bk AS (
+        SELECT * FROM bk_raw
+        WHERE rn = 1
+          AND (
+              (cancel_reason_cd IN (21, 13) AND estado_cancelacion = 26)
+              OR service_type_id = (SELECT id FROM mensajeria_type)
+          )
+    ),
+    pax AS (
+        SELECT
+            p._id AS id_user,
+            p.name AS name_user,
+            toString(p.is_driver_suspended) AS status_driver_suspend,
+            toString(p.suspended)           AS status_user_suspend,
+            toString(p.expelled)            AS status_expelled,
+            p.g_country AS pais,
+            p.g_adm_area_lv_1 AS departamento,
+            p.g_adm_area_lv_2 AS city
+        FROM picapmongoprod.passengers p
+        WHERE p._id IN (SELECT passenger_id FROM bk)
+    ),
+    sess AS (
+        SELECT
+            passenger_id AS id_user,
+            imei,
+            active AS status_imei,
+            ROW_NUMBER() OVER (PARTITION BY passenger_id ORDER BY created_at DESC) AS rn
+        FROM picapmongoprod.sessions
+        WHERE passenger_id IN (SELECT passenger_id FROM bk)
+        QUALIFY rn = 1
+    )
+    SELECT
+        bk.fecha_servicio,
+        bk._id          AS booking_id,
+        bk.driver_id,
+        bk.passenger_id AS user_id,
+        bk.service_type_id,
+        bk.cancel_reason_cd,
+        c.name          AS name_company,
+        pax.name_user,
+        pax.status_driver_suspend,
+        pax.status_user_suspend,
+        pax.status_expelled,
+        sess.status_imei,
+        sess.imei       AS imei_sesion,
+        pax.pais,
+        pax.departamento,
+        pax.city,
+        bk.cancelation_reason,
+        pd.indications
+    FROM bk
+    LEFT JOIN pax  ON bk.passenger_id = pax.id_user
+    LEFT JOIN sess ON bk.passenger_id = sess.id_user
+    LEFT JOIN picapmongoprod.companies c ON bk.company_id = c._id
+    INNER JOIN picapmongoprod.packages pd ON pd.booking_id = bk._id
+    WHERE (
+        bk.cancel_reason_cd IN (21, 13)
+        OR multiSearchAnyCaseInsensitive(coalesce(pd.indications, ''), %{kws_estafa}) > 0
+    )
+    ORDER BY bk.fecha_servicio DESC
+    LIMIT 1 BY bk._id
+    LIMIT %{limit_filas}
+  SQL
+
+  # Agregado por día — total real sin LIMIT
+  Q_ESTAFA_AGREGADO = <<~'SQL'
+    WITH
+    mensajeria_type AS (SELECT '5c71b03a58b9ba10fa6393cf' AS id),
+    bk_raw AS (
+        SELECT
+            b._id,
+            b.passenger_id,
+            toTimeZone(coalesce(b.scheduled_at, b.created_at), 'America/Bogota') AS fecha_servicio,
+            toString(b.requested_service_type_id) AS service_type_id,
+            toInt64OrZero(b.cancelation_reason_cd) AS cancel_reason_cd,
+            JSONExtractInt(
+                arrayFirst(
+                    x -> JSONExtractInt(x, 'event_cd') = 26,
+                    JSONExtract(ifNull(b.events, '[]'), 'Array(String)')
+                ),
+                'event_cd'
+            ) AS estado_cancelacion,
+            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
+        FROM picapmongoprod.bookings b
+        WHERE (
+            toInt64OrZero(b.cancelation_reason_cd) IN (21, 13)
+            OR toString(b.requested_service_type_id) = (SELECT id FROM mensajeria_type)
+        )
+          AND b.created_at >= toDateTime('%{desde} 00:00:00')
+          AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+          %{filtro_pais}
+    ),
+    bk AS (
+        SELECT * FROM bk_raw
+        WHERE rn = 1
+          AND (
+              (cancel_reason_cd IN (21, 13) AND estado_cancelacion = 26)
+              OR service_type_id = (SELECT id FROM mensajeria_type)
+          )
+    )
+    SELECT
+        dia,
+        count() AS total_dia,
+        countIf(has_kw) AS estafa_dia
+    FROM (
+        SELECT
+            bk._id AS booking_id,
+            toDate(bk.fecha_servicio) AS dia,
+            multiSearchAnyCaseInsensitive(coalesce(pd.indications, ''), %{kws_estafa}) > 0 AS has_kw
+        FROM bk
+        INNER JOIN picapmongoprod.packages pd ON pd.booking_id = bk._id
+        WHERE (
+            bk.cancel_reason_cd IN (21, 13)
+            OR multiSearchAnyCaseInsensitive(coalesce(pd.indications, ''), %{kws_estafa}) > 0
+        )
+        LIMIT 1 BY bk._id
+    )
+    GROUP BY dia
+    ORDER BY dia
+  SQL
+
+  # Cuentas (passenger_id) únicas con / sin servicio clasificado como estafa
+  Q_ESTAFA_CUENTAS = <<~'SQL'
+    WITH
+    mensajeria_type AS (SELECT '5c71b03a58b9ba10fa6393cf' AS id),
+    bk_raw AS (
+        SELECT
+            b._id,
+            b.passenger_id,
+            toString(b.requested_service_type_id) AS service_type_id,
+            toInt64OrZero(b.cancelation_reason_cd) AS cancel_reason_cd,
+            JSONExtractInt(
+                arrayFirst(
+                    x -> JSONExtractInt(x, 'event_cd') = 26,
+                    JSONExtract(ifNull(b.events, '[]'), 'Array(String)')
+                ),
+                'event_cd'
+            ) AS estado_cancelacion,
+            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
+        FROM picapmongoprod.bookings b
+        WHERE (
+            toInt64OrZero(b.cancelation_reason_cd) IN (21, 13)
+            OR toString(b.requested_service_type_id) = (SELECT id FROM mensajeria_type)
+        )
+          AND b.created_at >= toDateTime('%{desde} 00:00:00')
+          AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+          %{filtro_pais}
+    ),
+    bk AS (
+        SELECT * FROM bk_raw
+        WHERE rn = 1
+          AND (
+              (cancel_reason_cd IN (21, 13) AND estado_cancelacion = 26)
+              OR service_type_id = (SELECT id FROM mensajeria_type)
+          )
+    ),
+    booking_user AS (
+        SELECT
+            bk._id AS booking_id,
+            bk.passenger_id AS user_id,
+            multiSearchAnyCaseInsensitive(coalesce(pd.indications, ''), %{kws_estafa}) > 0 AS has_kw
+        FROM bk
+        INNER JOIN picapmongoprod.packages pd ON pd.booking_id = bk._id
+        WHERE (
+            bk.cancel_reason_cd IN (21, 13)
+            OR multiSearchAnyCaseInsensitive(coalesce(pd.indications, ''), %{kws_estafa}) > 0
+        )
+        LIMIT 1 BY bk._id
+    ),
+    por_user AS (
+        SELECT
+            user_id,
+            max(has_kw) AS user_has_estafa
+        FROM booking_user
+        WHERE user_id != ''
+        GROUP BY user_id
+    )
+    SELECT
+        count()                            AS total_cuentas,
+        countIf(user_has_estafa)           AS cuentas_estafa,
+        count() - countIf(user_has_estafa) AS cuentas_ok
+    FROM por_user
+  SQL
+
   # Pagos stats — global (stub)
   Q_PAGOS_STATS = <<~'SQL'
     SELECT
