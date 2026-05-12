@@ -1,25 +1,26 @@
 # app/controllers/api/pagos_controller.rb
-# Replica los endpoints /api/pagos/{tc,promo} y /api/pagos_stats.
+# Replica /api/pagos/{tc,promo} con clasificación GPS-based (api.py 3066-3302):
+#   OK             → driver recibió pago wallet (pd.pagado > 0)
+#   Mala práctica  → pagado=0 AND geoDistance(cancel → dest) ≤ radio país
+#   Fraude         → pagado=0 AND (sin GPS OR geoDistance > radio)
+# Radio: CO 450m | MX/NI 280m | resto 450m
 #
-# Shape EXACTO que el frontend espera (visto en dashboard.html):
+# Shape EXACTO que el frontend espera:
 #   kpis:     { total, ok, mala_practica, fraude, monto_mp, monto_fraude, monto_total }
 #   trend:    [{ fecha, ok, mala_practica, fraude }]
 #   ciudades: [{ ciudad, pais, total, mala_practica, fraude }]
 #   duo:      [{ driver_id, passenger_id, servicios, monto_total, n_fraude, n_mp }]
-#
-# IMPORTANTE: el frontend hace d.driver_id.slice(0,12) — necesita driver_id
-# como string. Si devolvemos {id:...} el .slice() crashea.
 
 module Api
   class PagosController < ApplicationController
     before_action :authenticate_user!
 
-    # GET /api/pagos/tc?desde=&hasta=&pais=
+    # GET /api/pagos/tc?desde=&hasta=&pais=&ciudad=
     def tc
       render_pagos(:tc)
     end
 
-    # GET /api/pagos/promo?desde=&hasta=&pais=
+    # GET /api/pagos/promo?desde=&hasta=&pais=&ciudad=
     def promo
       render_pagos(:promo)
     end
@@ -47,123 +48,69 @@ module Api
     private
 
     def render_pagos(tipo)
+      desde    = desde_param
+      hasta    = hasta_param
       pais_iso = iso_pais
-      filtro = pais_iso.present? ? " AND b.g_country = '#{pais_iso}'" : ""
-      ciudad = params[:ciudad].to_s.strip
-      filtro += " AND b.g_adm_area_lv_1 = '#{ciudad.gsub("'","''")}'" if ciudad.present?
+      ciudad   = params[:ciudad].to_s.strip
+      filtro   = QueriesService.pagos_filtro(pais_iso, ciudad)
 
-      # Por ahora TC usa status_cd como proxy. Promo retorna vacío válido
-      # (su lógica real usa wallet_account_transactions con _type IN PromoCodeXxx).
-      # En Bloque C lo reemplazamos con GPS-based del Python.
-      base_filter = if tipo == :promo
-        # 1=0 → 0 filas; el frontend muestra "Sin datos" sin crash
-        "1 = 0 AND b.status_cd IN (4, 100, 102, 107, 108)"
+      queries = if tipo == :tc
+        {
+          kpis:     QueriesService::Q_TC_KPIS,
+          trend:    QueriesService::Q_TC_TREND,
+          ciudades: QueriesService::Q_TC_CIUDADES,
+          duo:      QueriesService::Q_TC_DUO,
+        }
       else
-        "toString(b.payment_method_cd) = '3' AND b.status_cd IN (4, 100, 102, 107, 108)"
+        {
+          kpis:     QueriesService::Q_PROMO_KPIS,
+          trend:    QueriesService::Q_PROMO_TREND,
+          ciudades: QueriesService::Q_PROMO_CIUDADES,
+          duo:      QueriesService::Q_PROMO_DUO,
+        }
       end
 
-      where_clause = <<~SQL.strip
-        WHERE #{base_filter}
-          AND b.created_at >= toDateTime('#{desde_param} 00:00:00')
-          AND b.created_at <= toDateTime('#{hasta_param} 23:59:59')
-          #{filtro}
-      SQL
+      # Ejecuta cada query con rescue aislado — si una rompe, el panel sigue
+      data = {}
+      queries.each do |key, sql_tpl|
+        begin
+          sql = QueriesService.format(sql_tpl, desde: desde, hasta: hasta, filtro: filtro)
+          data[key] = ch.query(sql)
+        rescue => e
+          Rails.logger.warn("[PagosController##{tipo}/#{key}] #{e.message[0,200]}")
+          data[key] = []
+        end
+      end
 
-      # KPIs globales
-      kpis_sql = <<~SQL
-        SELECT
-            count()                                                                        AS total,
-            countIf(b.status_cd IN (4, 100, 102))                                          AS ok,
-            countIf(b.status_cd = 107)                                                     AS mala_practica,
-            countIf(b.status_cd = 108)                                                     AS fraude,
-            round(sumIf(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100,
-                        b.status_cd = 107), 0)                                             AS monto_mp,
-            round(sumIf(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100,
-                        b.status_cd = 108), 0)                                             AS monto_fraude,
-            round(sum(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100), 0)    AS monto_total
-        FROM picapmongoprod.bookings b
-        #{where_clause}
-      SQL
-
-      # Tendencia por día
-      trend_sql = <<~SQL
-        SELECT
-            toDate(toTimeZone(b.created_at, 'America/Bogota')) AS fecha,
-            countIf(b.status_cd IN (4, 100, 102)) AS ok,
-            countIf(b.status_cd = 107)            AS mala_practica,
-            countIf(b.status_cd = 108)            AS fraude
-        FROM picapmongoprod.bookings b
-        #{where_clause}
-        GROUP BY fecha ORDER BY fecha
-      SQL
-
-      # Por ciudad+país
-      ciudades_sql = <<~SQL
-        SELECT
-            if(b.g_adm_area_lv_1='' OR b.g_adm_area_lv_1 IS NULL, 'Sin ciudad', b.g_adm_area_lv_1) AS ciudad,
-            CASE
-                WHEN b.g_country = 'CO' THEN 'Colombia'
-                WHEN b.g_country = 'MX' THEN 'Mexico'
-                WHEN b.g_country = 'NI' THEN 'Nicaragua'
-                WHEN b.g_country = 'GT' THEN 'Guatemala'
-                ELSE b.g_country
-            END                                  AS pais,
-            count()                              AS total,
-            countIf(b.status_cd = 107)           AS mala_practica,
-            countIf(b.status_cd = 108)           AS fraude
-        FROM picapmongoprod.bookings b
-        #{where_clause}
-        GROUP BY ciudad, pais
-        ORDER BY total DESC
-        LIMIT 10
-      SQL
-
-      # Pares dúo (driver + pasajero recurrentes con anomalías)
-      duo_sql = <<~SQL
-        SELECT
-            toString(b.driver_id)                                  AS driver_id,
-            toString(b.passenger_id)                               AS passenger_id,
-            count()                                                AS servicios,
-            round(sum(toFloat64OrNull(JSONExtractString(b.final_cost,'cents'))/100), 0) AS monto_total,
-            countIf(b.status_cd = 108)                             AS n_fraude,
-            countIf(b.status_cd = 107)                             AS n_mp
-        FROM picapmongoprod.bookings b
-        #{where_clause}
-          AND b.driver_id IS NOT NULL AND b.driver_id != ''
-          AND b.passenger_id IS NOT NULL AND b.passenger_id != ''
-          AND b.status_cd IN (107, 108)
-        GROUP BY b.driver_id, b.passenger_id
-        HAVING servicios >= 2
-        ORDER BY servicios DESC, monto_total DESC
-        LIMIT 20
-      SQL
-
-      k = ch.query(kpis_sql).first || {}
+      kpi_row = data[:kpis].first || {}
 
       render json: limpiar({
         ok: true,
-        desde: desde_param, hasta: hasta_param,
+        desde: desde, hasta: hasta,
         pais_filtro: pais_param,
         kpis: {
-          total:         k["total"].to_i,
-          ok:            k["ok"].to_i,
-          mala_practica: k["mala_practica"].to_i,
-          fraude:        k["fraude"].to_i,
-          monto_mp:      k["monto_mp"].to_f,
-          monto_fraude:  k["monto_fraude"].to_f,
-          monto_total:   k["monto_total"].to_f,
+          total:         kpi_row["total"].to_i,
+          ok:            kpi_row["ok"].to_i,
+          mala_practica: kpi_row["mala_practica"].to_i,
+          fraude:        kpi_row["fraude"].to_i,
+          monto_mp:      kpi_row["monto_mp"].to_f,
+          monto_fraude:  kpi_row["monto_fraude"].to_f,
+          monto_total:   kpi_row["monto_total"].to_f,
         },
-        trend: ch.query(trend_sql).map { |r|
-          { fecha: r["fecha"].to_s, ok: r["ok"].to_i,
-            mala_practica: r["mala_practica"].to_i, fraude: r["fraude"].to_i }
-        },
-        ciudades: ch.query(ciudades_sql).map { |r|
-          { ciudad: r["ciudad"], pais: r["pais"],
-            total: r["total"].to_i,
+        trend: data[:trend].map { |r|
+          { fecha:         r["fecha"].to_s[0, 10],
+            ok:            r["ok"].to_i,
             mala_practica: r["mala_practica"].to_i,
-            fraude: r["fraude"].to_i }
+            fraude:        r["fraude"].to_i }
         },
-        duo: ch.query(duo_sql).map { |r|
+        ciudades: data[:ciudades].map { |r|
+          { ciudad:        r["ciudad"].to_s,
+            pais:          r["pais"].to_s,
+            total:         r["total"].to_i,
+            mala_practica: r["mala_practica"].to_i,
+            fraude:        r["fraude"].to_i }
+        },
+        duo: data[:duo].map { |r|
           { driver_id:    r["driver_id"].to_s,
             passenger_id: r["passenger_id"].to_s,
             servicios:    r["servicios"].to_i,

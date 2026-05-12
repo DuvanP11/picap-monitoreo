@@ -405,33 +405,193 @@ module QueriesService
   SQL
 
   # ════════════════════════════════════════════════════════════════════════
-  # STUBS — queries placeholder (se reescribirán en bloques B-F con queries
-  # correctas de Python). Por ahora existen para que los controllers no
-  # rompan con NameError. Pueden devolver datos incorrectos hasta entonces.
+  # PAGOS — TC + PromoCode (Bloque C, paridad api.py líneas 3066-3302)
+  # Clasificación GPS:
+  #   OK            → driver recibió pago wallet (pd.pagado > 0)
+  #   Mala práctica → pagado=0 AND geoDistance(cancel → dest) ≤ radio país
+  #   Fraude        → pagado=0 AND (sin GPS OR geoDistance > radio)
+  # Radio: CO 450m | MX/NI 280m | resto 450m
   # ════════════════════════════════════════════════════════════════════════
 
-  # Pagos TC — usado por pagos_controller#tc (stub simple)
+  # CTE base TC: bookings con payment_method_cd='3', verification_required=false,
+  # finalizados (4/107/108), con monto > 0, eventos y destino. Deduplica por _id.
+  # Cruza con wallet_account_transactions para saber si el driver cobró.
   TC_BASE_CTE = <<~'SQL'
-    WITH pagos_tc AS (
+    WITH b_raw AS (
         SELECT
-            b._id              AS booking_id,
+            b._id AS booking_id,
             b.driver_id,
             b.passenger_id,
-            toDate(toTimeZone(b.created_at, 'America/Bogota')) AS fecha,
-            b.g_adm_area_lv_1  AS ciudad,
-            b.g_country,
             b.status_cd,
-            b.payment_method_cd,
-            toFloat64OrNull(JSONExtractString(b.final_cost,'cents')) / 100 AS monto,
-            b.created_at
+            b.g_country,
+            b.g_adm_area_lv_1 AS ciudad_raw,
+            toDate(toTimeZone(b.created_at,'America/Bogota')) AS fecha,
+            toInt64(JSONExtractFloat(b.final_cost,'cents'))/100 AS monto,
+            toFloat64OrNull(extract(ifNull(b.events,''), 'event_cd":26.*?coordinates":\[\s*([+-]?\d+\.\d+)')) AS cancel_lon,
+            toFloat64OrNull(extract(ifNull(b.events,''), 'event_cd":26.*?coordinates":\[.*?,\s*([+-]?\d+\.\d+)')) AS cancel_lat,
+            toFloat64(JSONExtractString(b.end_geojson,'coordinates',1)) AS end_lon,
+            toFloat64(JSONExtractString(b.end_geojson,'coordinates',2)) AS end_lat,
+            multiIf(b.g_country='CO',450,b.g_country IN ('MX','NI'),280,450) AS radio,
+            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
         FROM picapmongoprod.bookings b
-        WHERE toString(b.payment_method_cd) = '3'
-          AND b.status_cd IN (4, 107, 108)
-          AND b.created_at >= toDateTime('%{desde} 00:00:00')
-          AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+        WHERE b.payment_method_cd='3'
+          AND b.verification_required='false'
+          AND b.status_cd IN (4,107,108)
+          AND b.created_at>=toDateTime('%{desde} 00:00:00')
+          AND b.created_at<=toDateTime('%{hasta} 23:59:59')
+          AND toInt64(JSONExtractFloat(b.final_cost,'cents'))>0
+          AND b.events IS NOT NULL
+          AND b.end_geojson IS NOT NULL
           %{filtro}
+    ),
+    b AS (SELECT * FROM b_raw WHERE rn=1),
+    pd AS (
+        SELECT booking_id,
+               sum(toInt64(JSONExtractFloat(amount,'cents'))) AS pagado
+        FROM picapmongoprod.wallet_account_transactions
+        WHERE _type='WalletAccountTransactionBookingDriverPayment'
+          AND toInt64(JSONExtractFloat(amount,'cents'))>0
+          AND created_at>=toDateTime('%{desde} 00:00:00')
+          AND created_at<=toDateTime('%{hasta} 23:59:59')
+        GROUP BY booking_id
     )
   SQL
+
+  # CTE base Promo: bookings finalizados que tienen al menos una transacción
+  # de promoción (Multiple/Referral/ExpirePromo). Mismo set de campos que TC.
+  PROMO_BASE_CTE = <<~'SQL'
+    WITH promo AS (
+        SELECT DISTINCT booking_id
+        FROM picapmongoprod.wallet_account_transactions
+        WHERE _type IN (
+            'WalletAccountTransactionPromoCodeMultipleUse',
+            'WalletAccountTransactionPromoCodeReferral',
+            'WalletAccountTransactionExpirePromoBalance'
+        )
+        AND created_at>=toDateTime('%{desde} 00:00:00')
+        AND created_at<=toDateTime('%{hasta} 23:59:59')
+    ),
+    b_raw AS (
+        SELECT
+            b._id AS booking_id,
+            b.driver_id,
+            b.passenger_id,
+            b.status_cd,
+            b.g_country,
+            b.g_adm_area_lv_1 AS ciudad_raw,
+            toDate(toTimeZone(b.created_at,'America/Bogota')) AS fecha,
+            toInt64(JSONExtractFloat(b.final_cost,'cents'))/100 AS monto,
+            toFloat64OrNull(extract(ifNull(b.events,''), 'event_cd":26.*?coordinates":\[\s*([+-]?\d+\.\d+)')) AS cancel_lon,
+            toFloat64OrNull(extract(ifNull(b.events,''), 'event_cd":26.*?coordinates":\[.*?,\s*([+-]?\d+\.\d+)')) AS cancel_lat,
+            toFloat64(JSONExtractString(b.end_geojson,'coordinates',1)) AS end_lon,
+            toFloat64(JSONExtractString(b.end_geojson,'coordinates',2)) AS end_lat,
+            multiIf(b.g_country='CO',450,b.g_country IN ('MX','NI'),280,450) AS radio,
+            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
+        FROM picapmongoprod.bookings b
+        INNER JOIN promo ON b._id=promo.booking_id
+        WHERE b.status_cd IN (4,107,108)
+          AND b.created_at>=toDateTime('%{desde} 00:00:00')
+          AND b.created_at<=toDateTime('%{hasta} 23:59:59')
+          AND toInt64(JSONExtractFloat(b.final_cost,'cents'))>0
+          AND b.events IS NOT NULL
+          AND b.end_geojson IS NOT NULL
+          %{filtro}
+    ),
+    b AS (SELECT * FROM b_raw WHERE rn=1),
+    pd AS (
+        SELECT booking_id,
+               sum(toInt64(JSONExtractFloat(amount,'cents'))) AS pagado
+        FROM picapmongoprod.wallet_account_transactions
+        WHERE _type='WalletAccountTransactionBookingDriverPayment'
+          AND toInt64(JSONExtractFloat(amount,'cents'))>0
+          AND created_at>=toDateTime('%{desde} 00:00:00')
+          AND created_at<=toDateTime('%{hasta} 23:59:59')
+        GROUP BY booking_id
+    )
+  SQL
+
+  # ── Sufijos clasificación + JOIN comunes para TC y Promo ──────────────
+  # Cada SELECT usa: count(), ${PAGOS_CLS}, ${PAGOS_MONTO} sobre el JOIN.
+  PAGOS_CLS = <<~'SQL'.strip
+    countIf(coalesce(pd.pagado,0)>0) AS ok,
+    countIf(coalesce(pd.pagado,0)=0
+        AND b.cancel_lon IS NOT NULL AND b.cancel_lat IS NOT NULL
+        AND geoDistance(b.cancel_lon,b.cancel_lat,b.end_lon,b.end_lat)<=b.radio) AS mala_practica,
+    countIf(coalesce(pd.pagado,0)=0
+        AND (b.cancel_lon IS NULL OR b.cancel_lat IS NULL
+             OR geoDistance(b.cancel_lon,b.cancel_lat,b.end_lon,b.end_lat)>b.radio)) AS fraude
+  SQL
+
+  PAGOS_MONTO = <<~'SQL'.strip
+    round(sumIf(b.monto, coalesce(pd.pagado,0)=0
+        AND b.cancel_lon IS NOT NULL AND b.cancel_lat IS NOT NULL
+        AND geoDistance(b.cancel_lon,b.cancel_lat,b.end_lon,b.end_lat)<=b.radio),0) AS monto_mp,
+    round(sumIf(b.monto, coalesce(pd.pagado,0)=0
+        AND (b.cancel_lon IS NULL OR b.cancel_lat IS NULL
+             OR geoDistance(b.cancel_lon,b.cancel_lat,b.end_lon,b.end_lat)>b.radio)),0) AS monto_fraude,
+    round(sum(b.monto),0) AS monto_total
+  SQL
+
+  PAGOS_JOIN = "FROM b LEFT JOIN pd ON b.booking_id=pd.booking_id".freeze
+
+  PAGOS_PAIS_CASE   = "CASE b.g_country WHEN 'CO' THEN 'Colombia' WHEN 'MX' THEN 'Mexico' WHEN 'NI' THEN 'Nicaragua' WHEN 'GT' THEN 'Guatemala' ELSE b.g_country END".freeze
+  PAGOS_CIUDAD_CASE = "multiIf(b.ciudad_raw='' OR b.ciudad_raw IS NULL,'Sin ciudad',b.ciudad_raw='MN','Managua',b.ciudad_raw='Guatemala Department','Guatemala',b.ciudad_raw)".freeze
+
+  # ── Sufijos por tipo (KPIS / TREND / CIUDADES / DUO) ──────────────────
+  KPIS_SUFFIX_PAGOS = <<~SQL
+    SELECT count() AS total, #{PAGOS_CLS}, #{PAGOS_MONTO}
+    #{PAGOS_JOIN}
+  SQL
+
+  TREND_SUFFIX_PAGOS = <<~SQL
+    SELECT b.fecha AS fecha, #{PAGOS_CLS}
+    #{PAGOS_JOIN}
+    GROUP BY b.fecha ORDER BY b.fecha
+  SQL
+
+  CIUDADES_SUFFIX_PAGOS = <<~SQL
+    SELECT #{PAGOS_CIUDAD_CASE} AS ciudad,
+           #{PAGOS_PAIS_CASE}   AS pais,
+           count() AS total, #{PAGOS_CLS}
+    #{PAGOS_JOIN}
+    GROUP BY ciudad, pais ORDER BY total DESC LIMIT 10
+  SQL
+
+  DUO_SUFFIX_PAGOS = <<~SQL
+    SELECT b.driver_id, b.passenger_id,
+           count() AS servicios,
+           round(sum(b.monto),0) AS monto_total,
+           countIf(coalesce(pd.pagado,0)=0
+               AND (b.cancel_lon IS NULL OR b.cancel_lat IS NULL
+                    OR geoDistance(b.cancel_lon,b.cancel_lat,b.end_lon,b.end_lat)>b.radio)) AS n_fraude,
+           countIf(coalesce(pd.pagado,0)=0
+               AND b.cancel_lon IS NOT NULL AND b.cancel_lat IS NOT NULL
+               AND geoDistance(b.cancel_lon,b.cancel_lat,b.end_lon,b.end_lat)<=b.radio) AS n_mp
+    #{PAGOS_JOIN}
+    WHERE coalesce(pd.pagado,0)=0
+    GROUP BY b.driver_id, b.passenger_id
+    HAVING servicios >= 2
+    ORDER BY servicios DESC, monto_total DESC LIMIT 20
+  SQL
+
+  # ── 8 queries finales (4 TC + 4 Promo) ────────────────────────────────
+  Q_TC_KPIS     = TC_BASE_CTE + KPIS_SUFFIX_PAGOS
+  Q_TC_TREND    = TC_BASE_CTE + TREND_SUFFIX_PAGOS
+  Q_TC_CIUDADES = TC_BASE_CTE + CIUDADES_SUFFIX_PAGOS
+  Q_TC_DUO      = TC_BASE_CTE + DUO_SUFFIX_PAGOS
+
+  Q_PROMO_KPIS     = PROMO_BASE_CTE + KPIS_SUFFIX_PAGOS
+  Q_PROMO_TREND    = PROMO_BASE_CTE + TREND_SUFFIX_PAGOS
+  Q_PROMO_CIUDADES = PROMO_BASE_CTE + CIUDADES_SUFFIX_PAGOS
+  Q_PROMO_DUO      = PROMO_BASE_CTE + DUO_SUFFIX_PAGOS
+
+  # Helper: filtro adicional por país/ciudad (replica _pagos_filtro Python)
+  def self.pagos_filtro(pais_iso, ciudad = nil)
+    parts = []
+    parts << "AND b.g_country='#{pais_iso}'" if pais_iso && !pais_iso.to_s.strip.empty?
+    parts << "AND b.g_adm_area_lv_1='#{ciudad.to_s.gsub("'", "''")}'" if ciudad && !ciudad.to_s.strip.empty?
+    parts.join(" ")
+  end
 
   # Pagos stats — global (stub)
   Q_PAGOS_STATS = <<~'SQL'
