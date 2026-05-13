@@ -96,41 +96,79 @@ module Api
              status: :internal_server_error
     end
 
-    # GET /api/estadisticas_bloqueos?desde=&hasta=
-    # Solo devuelve los stats agregados (sin las listas grandes)
+    # GET /api/estadisticas_bloqueos?desde=&hasta=&pais=&driver_id=
+    # Devuelve el resumen agregado + breakdown por país para la pestaña
+    # "Estadística General" del frontend. Shape específica:
+    #   resumen: { total_bloqueados, pilotos_bloqueados, usuarios_bloqueados,
+    #              total_suspendidos, total_expulsados, reactivados,
+    #              siguen_bloqueados, pct_reactivados, pct_pilotos, pct_usuarios }
+    #   por_pais: [{ pais, total, pilotos, usuarios, suspendidos, expulsados,
+    #                reactivados, pct_reactivados }, ...]
     def estadisticas
-      sql = QueriesService.format(
-        QueriesService::Q_BLOQUEOS,
-        fecha_desde: desde_param, fecha_hasta: hasta_param
-      )
-      rows = ch.query(sql)
+      desde     = desde_param
+      hasta     = hasta_param
+      pais_fil  = pais_param
+      driver_id = params[:driver_id].to_s.strip
 
-      rows.each do |r|
-        r["pais_nombre"] = MotivoMapper::PAISES_MAP[r["pais_codigo"]] || r["pais_codigo"]
-        r["motivo_mapeado"] = MotivoMapper.mapear_segun_tipo(
-          r["tipo_usuario"],
-          comentario_driver: r["comentario_driver"],
-          comentario_user:   r["comentario_user"],
-          comentario_expulsion_user: r["comentario_expulsion_user"],
-        )
+      # 1) Resumen global
+      res = ch.query(QueriesService.format(
+        QueriesService::Q_STATS_BLOQUEOS_RESUMEN, desde: desde, hasta: hasta
+      )).first || {}
+
+      total       = res["total_bloqueados"].to_i
+      suspendidos = res["total_suspendidos"].to_i
+      reactiv     = res["reactivados"].to_i
+      pilotos     = res["pilotos_bloqueados"].to_i
+      usuarios    = res["usuarios_bloqueados"].to_i
+      div         = total > 0 ? total : 1   # evita / 0
+
+      resumen = {
+        total_bloqueados:     total,
+        pilotos_bloqueados:   pilotos,
+        usuarios_bloqueados:  usuarios,
+        total_suspendidos:    suspendidos,
+        total_expulsados:     res["total_expulsados"].to_i,
+        reactivados:          reactiv,
+        siguen_bloqueados:    res["siguen_bloqueados"].to_i,
+        pct_reactivados:      suspendidos > 0 ? (reactiv.to_f / suspendidos * 100).round(1) : 0,
+        pct_pilotos:          (pilotos.to_f  / div * 100).round(1),
+        pct_usuarios:         (usuarios.to_f / div * 100).round(1),
+      }
+
+      # 2) Por país (con filtro opcional driver_id)
+      filtro_driver = driver_id.empty? ? "" : "AND p._id = '#{driver_id.gsub("'", "''")}'"
+      paises = ch.query(QueriesService.format(
+        QueriesService::Q_STATS_BLOQUEOS_PAIS,
+        desde: desde, hasta: hasta, filtro_driver: filtro_driver
+      ))
+
+      # Normalizar tipos numéricos (CH puede devolver como string)
+      paises = paises.map do |p|
+        {
+          pais:            p["pais"].to_s,
+          total:           p["total"].to_i,
+          pilotos:         p["pilotos"].to_i,
+          usuarios:        p["usuarios"].to_i,
+          suspendidos:     p["suspendidos"].to_i,
+          expulsados:      p["expulsados"].to_i,
+          reactivados:     p["reactivados"].to_i,
+          pct_reactivados: p["pct_reactivados"].to_f,
+        }
       end
 
-      bloqueados  = rows.select { |r| r["esta_activo"] == "bloqueado" }
-      reactivados = rows.select { |r| r["esta_activo"] == "activo" }
+      # Filtro client-side por país (si llegó ?pais=Colombia)
+      paises = paises.select { |p| p[:pais] == pais_fil } if pais_fil.present?
 
       render json: limpiar({
-        ok: true,
-        desde: desde_param, hasta: hasta_param,
-        stats_bloqueados:  top10_stats(bloqueados),
-        stats_reactivados: top10_stats(reactivados),
-        totales: {
-          bloqueados: bloqueados.size,
-          reactivados: reactivados.size,
-        },
+        desde: desde, hasta: hasta,
+        resumen:  resumen,
+        por_pais: paises,
       })
     rescue => e
       Rails.logger.error("[BloqueosController#estadisticas] #{e.class}: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :internal_server_error
+      Rails.logger.error(e.backtrace.first(8).join("\n"))
+      render json: { error: e.message, detalle: e.backtrace.first(5).join("\n") },
+             status: :internal_server_error
     end
 
     private

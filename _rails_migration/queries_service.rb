@@ -1141,6 +1141,88 @@ module QueriesService
   end
 
   # ════════════════════════════════════════════════════════════════════════
+  # BLOQUEOS — Estadística General (api.py 5677-5751)
+  # Diferente de Q_BLOQUEOS (que devuelve filas individuales para tablas).
+  # Estos 2 queries dan el resumen agregado + breakdown por país que la
+  # pestaña "Estadística General" del frontend usa.
+  # ════════════════════════════════════════════════════════════════════════
+  Q_STATS_BLOQUEOS_RESUMEN = <<~'SQL'
+    SELECT
+        count()                                                        AS total_bloqueados,
+        countIf(driver_enrollment_status_cd = 3)                       AS pilotos_bloqueados,
+        countIf(driver_enrollment_status_cd != 3)                      AS usuarios_bloqueados,
+        countIf(lower(ifNull(toString(expelled),'')) != 'true')        AS total_suspendidos,
+        countIf(lower(ifNull(toString(expelled),'')) = 'true')         AS total_expulsados,
+        countIf(
+            lower(ifNull(toString(expelled),'')) != 'true'
+            AND lower(ifNull(toString(suspended),'')) = 'false'
+            AND lower(ifNull(toString(expelled),''))  = 'false'
+            AND ifNull(is_driver_suspended, 0) = 0
+        )                                                              AS reactivados,
+        countIf(
+            lower(ifNull(toString(expelled),'')) != 'true'
+            AND NOT (
+                lower(ifNull(toString(suspended),'')) = 'false'
+                AND lower(ifNull(toString(expelled),''))  = 'false'
+                AND ifNull(is_driver_suspended, 0) = 0
+            )
+        )                                                              AS siguen_bloqueados
+    FROM picapmongoprod.passengers p
+    WHERE p._id IN (
+        SELECT passenger_id FROM picapmongoprod.passenger_suspensions
+        WHERE created_at IS NOT NULL
+          AND created_at >= toDateTime('%{desde} 00:00:00')
+          AND created_at <= toDateTime('%{hasta} 23:59:59')
+        UNION DISTINCT
+        SELECT driver_id FROM picapmongoprod.driver_suspensions
+        WHERE created_at IS NOT NULL
+          AND created_at >= toDateTime('%{desde} 00:00:00')
+          AND created_at <= toDateTime('%{hasta} 23:59:59')
+    )
+  SQL
+
+  Q_STATS_BLOQUEOS_PAIS = <<~'SQL'
+    SELECT
+        CASE
+            WHEN p.g_country = 'CO' THEN 'Colombia'
+            WHEN p.g_country = 'MX' THEN 'Mexico'
+            WHEN p.g_country = 'NI' THEN 'Nicaragua'
+            WHEN p.g_country = 'GT' THEN 'Guatemala'
+            ELSE ifNull(p.g_country, 'Otro')
+        END                                                            AS pais,
+        count()                                                        AS total,
+        countIf(p.driver_enrollment_status_cd = 3)                     AS pilotos,
+        countIf(p.driver_enrollment_status_cd != 3)                    AS usuarios,
+        countIf(lower(ifNull(toString(p.expelled),'')) != 'true')      AS suspendidos,
+        countIf(lower(ifNull(toString(p.expelled),'')) = 'true')       AS expulsados,
+        countIf(
+            lower(ifNull(toString(p.suspended),'')) = 'false'
+            AND lower(ifNull(toString(p.expelled),''))  = 'false'
+            AND ifNull(p.is_driver_suspended, 0) = 0
+        )                                                              AS reactivados,
+        round(countIf(
+            lower(ifNull(toString(p.suspended),'')) = 'false'
+            AND lower(ifNull(toString(p.expelled),''))  = 'false'
+            AND ifNull(p.is_driver_suspended, 0) = 0
+        ) / count() * 100, 1)                                          AS pct_reactivados
+    FROM picapmongoprod.passengers p
+    WHERE p._id IN (
+        SELECT passenger_id FROM picapmongoprod.passenger_suspensions
+        WHERE created_at IS NOT NULL
+          AND created_at >= toDateTime('%{desde} 00:00:00')
+          AND created_at <= toDateTime('%{hasta} 23:59:59')
+        UNION DISTINCT
+        SELECT driver_id FROM picapmongoprod.driver_suspensions
+        WHERE created_at IS NOT NULL
+          AND created_at >= toDateTime('%{desde} 00:00:00')
+          AND created_at <= toDateTime('%{hasta} 23:59:59')
+    )
+    %{filtro_driver}
+    GROUP BY pais
+    ORDER BY total DESC
+  SQL
+
+  # ════════════════════════════════════════════════════════════════════════
   # CÉDULA (Bloque G, paridad api.py 2794-2878)
   # Compara fiscal_number (OCR) vs CC extraída del texto de antecedentes
   # ════════════════════════════════════════════════════════════════════════
