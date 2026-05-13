@@ -50,6 +50,12 @@ module ClickhouseClient
 
     raise "ClickHouse HTTP #{resp.code}: #{resp.body[0..200]}" unless resp.is_a?(Net::HTTPSuccess)
 
+    # INSERT/ALTER/DELETE devuelven body vacío en CH; SELECT siempre devuelve
+    # al menos {"meta":[],"data":[]}. Empty body = mutación exitosa, no hay
+    # filas que procesar. Sin este guard, JSON.parse("") truena con
+    # "unexpected end of input at line 1 column 1" y rompe todos los POSTs.
+    return [] if resp.body.nil? || resp.body.strip.empty?
+
     parsed = JSON.parse(resp.body)
     cols   = parsed["meta"].map { |m| m["name"] }
     parsed["data"].map { |row| cols.zip(row).to_h }
