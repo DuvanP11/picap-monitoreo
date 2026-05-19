@@ -83,11 +83,11 @@ def get_client():
     #   CLICKHOUSE_PASSWORD, CLICKHOUSE_DATABASE
     import os as _os
     return clickhouse_connect.get_client(
-        host=_os.environ.get("CLICKHOUSE_HOST", "clickhouse.picap.io"),
-        port=int(_os.environ.get("CLICKHOUSE_PORT", "8443")),
-        username=_os.environ.get("CLICKHOUSE_USER", "dperilla"),
-        password=_os.environ.get("CLICKHOUSE_PASSWORD", ""),
-        database=_os.environ.get("CLICKHOUSE_DATABASE", "picapmongoprod"),
+        host=_os.environ.get("CLICKHOUSE_HOST", "TU HOST"),
+        port=int(_os.environ.get("CLICKHOUSE_PORT", "TU PORT")),
+        username=_os.environ.get("CLICKHOUSE_USER", "TU USUARIO"),
+        password=_os.environ.get("CLICKHOUSE_PASSWORD", "TU CONTRASEÑA"),
+        database=_os.environ.get("CLICKHOUSE_DATABASE", "TU DATABASE"),
         secure=True
     )
 
