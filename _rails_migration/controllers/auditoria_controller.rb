@@ -50,13 +50,105 @@ module Api
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
-    # GET /api/auditoria/exportar — pendiente (Bloque H)
+    # GET /api/auditoria/exportar?desde=&hasta=&moneda=&company_id=&tarifa_id=&last_desde=&last_hasta=
+    # Puerto del Python api.py:4751-4841 (auditoria_exportar). 2 hojas: Comisiones + Créditos.
     def exportar
-      render json: { ok: false, error: "Auditoría export: pendiente (Bloque H)" },
-             status: :service_unavailable
+      rows = run_auditoria
+      filtrar_por_id!(rows, "company")
+      desde = desde_param
+      hasta = hasta_param
+
+      xlsx = ExcelExportService.build("Auditoria_Pibox") do |x|
+        # ── Hoja 1: Comisiones ──
+        x.add_sheet("Comisiones") do |s|
+          s.banner("Auditoría Pibox — Comisiones",
+                   "#{desde} → #{hasta}  ·  Total filas: #{rows.size}", 13)
+          s.headers([
+            "Estado", "Company ID", "Tarifa ID", "Línea de negocio", "KAM",
+            "Tipo servicio", "Ciudad", "Moneda", "Comisión (%)",
+            "Utilidad corp. (%)", "Crédito", "Alertas", "Último servicio",
+          ])
+
+          wb = s.ws.workbook
+          style_alerta = wb.styles.add_style(
+            b: true, sz: 10, fg_color: "991B1B", bg_color: "FEE2E2",
+            alignment: { horizontal: :center, vertical: :center, wrap_text: true },
+            border: { style: :thin, color: "EEEEEE" }
+          )
+          style_ok = wb.styles.add_style(
+            b: true, sz: 10, fg_color: "166534", bg_color: "DCFCE7",
+            alignment: { horizontal: :center, vertical: :center },
+            border: { style: :thin, color: "EEEEEE" }
+          )
+
+          rows.each do |r|
+            alertas_txt = r[:alertas_comision].join(", ")
+            s.data_row(
+              [
+                r[:estado], r[:id_company], r[:tarifa_id], r[:linea_de_negocio],
+                r[:name_manager], r[:type_service], r[:ciudad], r[:moneda],
+                r[:comission], r[:utilidad_corporativa], r[:credit],
+                alertas_txt, r[:last_service],
+              ],
+              cell_styles: { 12 => (r[:ok_comision] ? style_ok : style_alerta) },
+              right_align: [9, 10, 11],
+            )
+          end
+          s.finalize(freeze_row: 4)
+        end
+
+        # ── Hoja 2: Créditos ──
+        x.add_sheet("Créditos", tab_color: "7C3AED") do |s|
+          s.banner("Auditoría Pibox — Créditos",
+                   "#{desde} → #{hasta}  ·  Total filas: #{rows.size}", 13)
+          s.headers([
+            "Estado", "Company ID", "Tarifa ID", "Línea de negocio", "KAM",
+            "Tipo servicio", "Ciudad", "Moneda", "Crédito",
+            "Utilidad corp. (%)", "Comisión (%)", "Alertas crédito", "Último servicio",
+          ])
+
+          wb = s.ws.workbook
+          style_alerta = wb.styles.add_style(
+            b: true, sz: 10, fg_color: "991B1B", bg_color: "FEE2E2",
+            alignment: { horizontal: :center, vertical: :center, wrap_text: true },
+            border: { style: :thin, color: "EEEEEE" }
+          )
+          style_ok = wb.styles.add_style(
+            b: true, sz: 10, fg_color: "166534", bg_color: "DCFCE7",
+            alignment: { horizontal: :center, vertical: :center },
+            border: { style: :thin, color: "EEEEEE" }
+          )
+
+          rows.each do |r|
+            alertas_txt = r[:alertas_credito].join(", ")
+            s.data_row(
+              [
+                r[:estado], r[:id_company], r[:tarifa_id], r[:linea_de_negocio],
+                r[:name_manager], r[:type_service], r[:ciudad], r[:moneda],
+                r[:credit], r[:utilidad_corporativa], r[:comission],
+                alertas_txt, r[:last_service],
+              ],
+              cell_styles: { 12 => (r[:ok_credito] ? style_ok : style_alerta) },
+              right_align: [9, 10, 11],
+            )
+          end
+          s.finalize(freeze_row: 4)
+        end
+      end
+
+      send_xlsx(xlsx)
+    rescue => e
+      Rails.logger.error("[AuditoriaController#exportar] #{e.class}: #{e.message}")
+      Rails.logger.error(e.backtrace.first(8).join("\n"))
+      render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
     private
+
+    def send_xlsx(xlsx)
+      send_data xlsx[:data], type: xlsx[:mimetype],
+                filename: xlsx[:filename], disposition: "attachment"
+    end
 
     def run_auditoria
       filtros = QueriesService.auditoria_filtros(

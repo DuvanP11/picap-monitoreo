@@ -133,12 +133,87 @@ module Api
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
-    # GET /api/audit/export — pendiente de Excel (Bloque H)
+    # GET /api/audit/export?desde=&hasta=&usuario=&tipo=&modulo=&q=
+    # Puerto del Python api.py:8272-8363 (audit_logs_export). Solo admins.
     def export
       require_admin!
       return if performed?
-      render json: { ok: false, error: "Excel export: pendiente (Bloque H — openpyxl-equiv)" },
-             status: :service_unavailable
+
+      desde   = desde_param
+      hasta   = hasta_param
+      usuario = params[:usuario].to_s.strip
+      tipo    = params[:tipo].to_s.strip.downcase
+      modulo  = params[:modulo].to_s.strip
+      q       = params[:q].to_s.strip
+
+      where = [
+        "ts >= toDateTime('#{desde} 00:00:00')",
+        "ts <= toDateTime('#{hasta} 23:59:59')",
+      ]
+      if usuario.present?
+        u_safe = usuario.gsub("'", "''")
+        where << "positionCaseInsensitive(usuario, '#{u_safe}') > 0"
+      end
+      where << "tipo = '#{tipo}'" if TIPOS_VALIDOS.include?(tipo)
+      if modulo.present?
+        m_safe = modulo.gsub("'", "''")
+        where << "modulo = '#{m_safe}'"
+      end
+      if q.present?
+        q_safe = q.gsub("'", "''")
+        where << "(positionCaseInsensitive(accion, '#{q_safe}') > 0 " \
+                 "OR positionCaseInsensitive(detalles, '#{q_safe}') > 0)"
+      end
+      w = where.join(" AND ")
+
+      sql = <<~SQL
+        SELECT formatDateTime(ts, '%Y-%m-%d %H:%i:%S') AS fecha,
+               usuario,
+               rol,
+               tipo,
+               modulo,
+               accion,
+               replaceRegexpAll(substring(detalles, 1, 1000), '[\\t\\n\\r]', ' ') AS detalles,
+               ip,
+               replaceRegexpAll(user_agent, '[\\t\\n\\r]', ' ') AS user_agent
+        FROM picapmongoprod.dashboard_audit_log
+        WHERE #{w}
+        ORDER BY ts DESC
+        LIMIT 100000
+      SQL
+      rows = ch.query(sql)
+
+      xlsx = ExcelExportService.build("audit_logs_#{desde}_#{hasta}") do |x|
+        x.add_sheet("audit_log") do |s|
+          s.banner("Logs de Auditoría — Dashboard Portal",
+                   "#{desde} → #{hasta}  ·  Eventos: #{rows.size}", 9)
+          s.headers([
+            "Fecha", "Usuario", "Rol", "Tipo", "Módulo",
+            "Acción", "Detalles", "IP", "User Agent",
+          ])
+          rows.each do |r|
+            s.data_row([
+              r["fecha"].to_s, r["usuario"].to_s, r["rol"].to_s,
+              r["tipo"].to_s, r["modulo"].to_s, r["accion"].to_s,
+              r["detalles"].to_s, r["ip"].to_s, r["user_agent"].to_s,
+            ])
+          end
+          s.finalize(freeze_row: 4)
+        end
+      end
+
+      send_xlsx(xlsx)
+    rescue => e
+      Rails.logger.error("[AuditController#export] #{e.class}: #{e.message}")
+      Rails.logger.error(e.backtrace.first(8).join("\n"))
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    private
+
+    def send_xlsx(xlsx)
+      send_data xlsx[:data], type: xlsx[:mimetype],
+                filename: xlsx[:filename], disposition: "attachment"
     end
   end
 end

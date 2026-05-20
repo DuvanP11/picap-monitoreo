@@ -118,13 +118,74 @@ module Api
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
-    # GET /api/pibox/export — pendiente Excel (Bloque H)
+    # GET /api/pibox/export?desde=&hasta=&pais=&cliente_id=&piloto_id=
+    # Puerto del Python api.py:7356-7471 (pibox_export). 1 hoja con alertas detectadas.
     def export
-      render json: { ok: false, error: "Pibox export: pendiente (Bloque H)" },
-             status: :service_unavailable
+      servicios = cargar_servicios
+      alertas_out = []
+      servicios.each do |servicio|
+        next if debe_excluirse?(servicio)
+        analizar_servicio(servicio).each { |alerta| alertas_out << alerta }
+      end
+
+      if alertas_out.empty?
+        render json: { ok: false, error: "No hay alertas para exportar en este período" },
+               status: :not_found
+        return
+      end
+
+      xlsx = ExcelExportService.build("alertas_pibox") do |x|
+        x.add_sheet("Alertas Pibox") do |s|
+          s.banner("Alertas Pibox B2B — Auditoría de Fraude",
+                   "#{desde_param} → #{hasta_param}  ·  Alertas: #{alertas_out.size}", 12)
+          s.headers([
+            "Booking ID", "Fecha", "País", "Ciudad", "Piloto", "Piloto ID",
+            "Cliente", "Tipo servicio", "Tipo vehículo", "Tipo alerta",
+            "Severidad", "Observación",
+          ])
+
+          wb = s.ws.workbook
+          style_alta = wb.styles.add_style(
+            b: true, sz: 10, fg_color: "991B1B", bg_color: "FEE2E2",
+            alignment: { horizontal: :center, vertical: :center },
+            border: { style: :thin, color: "EEEEEE" }
+          )
+          style_media = wb.styles.add_style(
+            b: true, sz: 10, fg_color: "92400E", bg_color: "FEF3C7",
+            alignment: { horizontal: :center, vertical: :center },
+            border: { style: :thin, color: "EEEEEE" }
+          )
+
+          alertas_out.each do |a|
+            sev = a[:severidad].to_s
+            sev_style = sev == "ALTA" ? style_alta : style_media
+            s.data_row(
+              [
+                a[:booking_id], a[:fecha_servicio].to_s[0, 16],
+                a[:pais], a[:ciudad], a[:piloto_nombre], a[:piloto_id],
+                a[:cliente_nombre], a[:tipo_servicio_nombre], a[:tipo_vehiculo],
+                a[:tipo_alerta], sev, a[:observacion],
+              ],
+              cell_styles: { 11 => sev_style },
+            )
+          end
+          s.finalize(freeze_row: 4)
+        end
+      end
+
+      send_xlsx(xlsx)
+    rescue => e
+      Rails.logger.error("[PiboxController#export] #{e.class}: #{e.message}")
+      Rails.logger.error(e.backtrace.first(8).join("\n"))
+      render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
     private
+
+    def send_xlsx(xlsx)
+      send_data xlsx[:data], type: xlsx[:mimetype],
+                filename: xlsx[:filename], disposition: "attachment"
+    end
 
     def cargar_servicios
       pais       = params[:pais].to_s.strip
