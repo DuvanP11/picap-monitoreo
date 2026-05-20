@@ -3585,11 +3585,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <!-- Fila de filtros client-side: KAM + Tipo de alerta -->
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;padding-top:6px;border-top:1px dashed var(--border)">
           <span style="font-size:11px;color:var(--text3);font-weight:600">🔎 Filtros rápidos (sobre datos cargados):</span>
-          <input class="aud-search-input" id="aud-kam-filter"
-            placeholder="Comercial / KAM..." autocomplete="off" spellcheck="false"
-            title="Filtra las alertas por nombre del KAM/comercial responsable. Funciona como búsqueda parcial: 'mar' encuentra 'María', 'Marcela', etc."
-            oninput="aplicarFiltrosClientAud()"
-            style="max-width:200px">
+          <select class="aud-sel" id="aud-kam-filter"
+            onchange="aplicarFiltrosClientAud()"
+            title="Lista de comerciales (KAM) presentes en los datos cargados. Se actualiza según el país, fechas y demás filtros de servidor que hayas aplicado al pulsar 'Actualizar'."
+            style="max-width:260px">
+            <option value="">Todos los comerciales</option>
+          </select>
           <select class="aud-sel" id="aud-tipo-alerta-filter" onchange="aplicarFiltrosClientAud()"
             title="Filtra por tipo de alerta detectada. Las opciones disponibles dependen del tab activo (Comisiones o Créditos).">
             <option value="">Todos los tipos de alerta</option>
@@ -9834,9 +9835,45 @@ function _audActualizarContadorFiltros() {
   const kam  = (document.getElementById('aud-kam-filter')?.value || '').trim();
   const tipo = (document.getElementById('aud-tipo-alerta-filter')?.value || '').trim();
   const partes = [];
-  if (kam)  partes.push(`KAM ≈ "${kam}"`);
+  if (kam)  partes.push(`KAM: ${kam}`);
   if (tipo) partes.push(`Tipo: ${tipo}`);
   span.textContent = partes.length ? `· activo: ${partes.join(' · ')}` : '';
+}
+
+// Pobla el dropdown de comerciales con los name_manager únicos de los datos
+// cargados (union de comisiones + créditos). Preserva la selección actual si
+// sigue presente en la nueva lista.
+function _audPopulateKamDropdown() {
+  const sel = document.getElementById('aud-kam-filter');
+  if (!sel) return;
+
+  const set = new Set();
+  const collect = (a) => {
+    const nm = String(a?.name_manager || '').trim();
+    if (nm) set.add(nm);
+  };
+  (_audComData?.alertas  || []).forEach(collect);
+  (_audCredData?.alertas || []).forEach(collect);
+
+  const sorted  = Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  const current = sel.value;
+
+  sel.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = sorted.length
+    ? `Todos los comerciales (${sorted.length})`
+    : 'Todos los comerciales';
+  sel.appendChild(placeholder);
+  for (const name of sorted) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+  if (current && sorted.includes(current)) {
+    sel.value = current;
+  }
 }
 
 // Re-pinta los paneles de alertas (Comisiones y Créditos) con los filtros
@@ -9930,6 +9967,7 @@ async function cargarAuditoriaComisiones() {
     if(data.error) throw new Error(data.error);
     _audComData   = data;
     _audComLoaded = true;
+    _audPopulateKamDropdown();
     renderAudComStats(data);
     renderAudComAlertas(data.alertas || []);
   } catch(err) {
@@ -10115,6 +10153,7 @@ async function cargarAuditoriaCreditos() {
     if(data.error) throw new Error(data.error);
     _audCredData   = data;
     _audCredLoaded = true;
+    _audPopulateKamDropdown();
     renderAudCredStats(data);
     renderAudCredAlertas(data.alertas || []);
   } catch(err) {
