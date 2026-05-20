@@ -9894,6 +9894,42 @@ function limpiarFiltrosClientAud() {
   aplicarFiltrosClientAud();
 }
 
+// Marca una alerta (tarifa_id + ambito) como ajustada por el comercial.
+// POST /api/auditoria/resolver. Después recarga el tab activo para que la fila
+// desaparezca. El backend persiste la marca en picapmongoprod.auditoria_resoluciones.
+function marcarAjustado(tarifaId, ambito, btn) {
+  if (!tarifaId) { alert('Tarifa ID no disponible'); return; }
+  const ambitoLabel = ambito === 'credito' ? 'Crédito' : 'Comisión';
+  const motivo = prompt(
+    `¿Marcar esta línea de ${ambitoLabel} como ya ajustada por el comercial?\n\n` +
+    `La fila desaparecerá del listado en el próximo refresh.\n\n` +
+    `Motivo (opcional, ej: "Comisión actualizada a 12% el 20/05"):`,
+    ''
+  );
+  if (motivo === null) return; // canceló
+  if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+
+  fetch(`${API}/api/auditoria/resolver`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+    body: JSON.stringify({ tarifa_id: tarifaId, ambito: ambito, motivo: motivo || '' })
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (!d.ok) throw new Error(d.error || 'Error desconocido');
+    // Recargar el tab correspondiente para que la fila marcada desaparezca.
+    if (ambito === 'credito') {
+      if (typeof cargarAuditoriaCred === 'function') cargarAuditoriaCred();
+    } else {
+      if (typeof cargarAuditoriaCom === 'function') cargarAuditoriaCom();
+    }
+  })
+  .catch(err => {
+    alert('Error al marcar como ajustado: ' + err.message);
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Ajustado'; }
+  });
+}
+
 function setAudPeriod(days, btn) {
   document.querySelectorAll('#view-auditoria .pbtn').forEach(b => b.classList.remove('active'));
   if(btn) btn.classList.add('active');
@@ -10105,6 +10141,7 @@ function renderAudComAlertas(alertas) {
       <td class="right">${(a.utilidad_corporativa||0).toFixed(2)}%</td>
       <td class="right" style="color:${(a.credit||0)>0?'#22c55e':'#ef4444'}">${(a.credit||0).toLocaleString('es-CO')}</td>
       <td style="font-size:10px;color:var(--text3)">${(a.last_service||'').slice(0,10)}</td>
+      <td style="text-align:center"><button class="pbtn" style="font-size:10px;background:#22c55e;color:#fff;border-color:#16a34a" onclick="marcarAjustado('${a.tarifa_id||''}','comision',this)" title="Marcar esta línea como ya ajustada por el comercial. Desaparecerá del listado.">✓ Ajustado</button></td>
     </tr>`;
   }).join('');
 
@@ -10124,7 +10161,7 @@ function renderAudComAlertas(alertas) {
           <th>Alertas</th><th>Company / Tarifa ID</th><th>Línea de negocio</th>
           <th>KAM</th><th>Servicio</th><th>Ciudad</th><th>Estado</th>
           <th class="right">Comisión</th><th class="right">Utilidad</th>
-          <th class="right">Crédito</th><th>Último svc</th>
+          <th class="right">Crédito</th><th>Último svc</th><th>Acción</th>
         </tr></thead>
         <tbody>${filas}</tbody>
       </table>
@@ -10297,6 +10334,7 @@ function renderAudCredAlertas(alertas) {
       <td class="right">${(a.comission||0).toFixed(2)}%</td>
       <td style="font-size:11px">${a.ciudad||'—'}</td>
       <td style="font-size:10px;color:var(--text3)">${(a.last_service||'').slice(0,10)}</td>
+      <td style="text-align:center"><button class="pbtn" style="font-size:10px;background:#22c55e;color:#fff;border-color:#16a34a" onclick="marcarAjustado('${a.tarifa_id||''}','credito',this)" title="Marcar esta línea como ya ajustada por el comercial. Desaparecerá del listado.">✓ Ajustado</button></td>
     </tr>`;
   }).join('');
 
@@ -10316,7 +10354,7 @@ function renderAudCredAlertas(alertas) {
           <th>Alertas</th><th>Company / Tarifa ID</th><th>Línea de negocio</th>
           <th>KAM</th><th>Servicio</th>
           <th class="right">Crédito</th><th class="right">Utilidad</th>
-          <th class="right">Comisión</th><th>Ciudad</th><th>Último svc</th>
+          <th class="right">Comisión</th><th>Ciudad</th><th>Último svc</th><th>Acción</th>
         </tr></thead>
         <tbody>${filas}</tbody>
       </table>

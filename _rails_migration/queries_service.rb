@@ -1138,6 +1138,24 @@ module QueriesService
     )
   SQL
 
+  # DDL de tabla para tracking de alertas marcadas como "ajustadas por el comercial".
+  # ReplacingMergeTree con `actualizado_en` como version → insertar con la misma
+  # (tarifa_id, ambito) sobreescribe la anterior. Para desmarcar: insertar con
+  # activo=0. Para marcar: insertar con activo=1.
+  Q_AUDITORIA_RESOLUCIONES_DDL = <<~'SQL'
+    CREATE TABLE IF NOT EXISTS picapmongoprod.auditoria_resoluciones (
+        id              UUID DEFAULT generateUUIDv4(),
+        tarifa_id       String,
+        ambito          String,
+        motivo          String DEFAULT '',
+        resuelto_por    String,
+        resuelto_en     DateTime DEFAULT now(),
+        actualizado_en  DateTime DEFAULT now(),
+        activo          UInt8 DEFAULT 1
+    ) ENGINE = ReplacingMergeTree(actualizado_en)
+    ORDER BY (tarifa_id, ambito)
+  SQL
+
   # Helper auditoría: construye los 5 filtros dinámicos
   def self.auditoria_filtros(company_id: "", tarifa_id: "", moneda: "",
                              anti_test: true, last_desde: "", last_hasta: "")

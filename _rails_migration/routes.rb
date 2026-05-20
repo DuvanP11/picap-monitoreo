@@ -35,9 +35,11 @@ Rails.application.routes.draw do
 
     # Auditoría Pibox
     namespace :auditoria do
-      get  "comisiones",    to: "/api/auditoria#comisiones"
-      get  "creditos",      to: "/api/auditoria#creditos"
-      get  "exportar",      to: "/api/auditoria#exportar"
+      get    "comisiones",  to: "/api/auditoria#comisiones"
+      get    "creditos",    to: "/api/auditoria#creditos"
+      get    "exportar",    to: "/api/auditoria#exportar"
+      post   "resolver",    to: "/api/auditoria#resolver"
+      delete "resolver",    to: "/api/auditoria#desresolver"
     end
 
     # Reconocimiento facial

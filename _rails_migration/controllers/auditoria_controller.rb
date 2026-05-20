@@ -12,16 +12,74 @@ module Api
       rows = run_auditoria
       filtrar_por_id!(rows, "company")
       resumen = resumen_alertas(rows, :alertas_comision)
-      alertas = rows.reject { |r| r[:ok_comision] }.sort_by { |r| -r[:alertas_comision].size }
+      alertas = rows.reject { |r| r[:ok_comision] || r[:resuelto_comision] }
+                    .sort_by { |r| -r[:alertas_comision].size }
       render json: limpiar({
         ok: true,
         desde: desde_param, hasta: hasta_param,
         resumen: resumen,
         alertas: alertas.first(500),
         total_filas: rows.size,
+        resueltas_count: rows.count { |r| r[:resuelto_comision] },
       })
     rescue => e
       Rails.logger.error("[AuditoriaController#comisiones] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # POST /api/auditoria/resolver { tarifa_id, ambito (comision|credito), motivo? }
+    # Marca una alerta como ajustada por el comercial. Quita la fila del listado
+    # de alertas hasta que alguien la desmarque (DELETE) o el dato fuente cambie.
+    def resolver
+      tarifa_id = params[:tarifa_id].to_s.strip
+      ambito    = params[:ambito].to_s.strip.downcase
+      motivo    = params[:motivo].to_s.strip[0, 500]
+
+      return render(json: { ok: false, error: "tarifa_id requerido" }, status: :bad_request) if tarifa_id.empty?
+      return render(json: { ok: false, error: "ambito debe ser 'comision' o 'credito'" }, status: :bad_request) unless %w[comision credito].include?(ambito)
+
+      init_resoluciones_table
+
+      esc = ->(v) { v.to_s.gsub("\\", "\\\\\\\\").gsub("'", "''") }
+      sql = <<~SQL
+        INSERT INTO picapmongoprod.auditoria_resoluciones
+        (id, tarifa_id, ambito, motivo, resuelto_por, resuelto_en, actualizado_en, activo)
+        VALUES
+        ('#{SecureRandom.uuid}', '#{esc.(tarifa_id)}', '#{ambito}',
+         '#{esc.(motivo)}', '#{esc.(current_usuario)}',
+         now(), now(), 1)
+      SQL
+      ch.query(sql)
+      render json: { ok: true, tarifa_id: tarifa_id, ambito: ambito }
+    rescue => e
+      Rails.logger.error("[AuditoriaController#resolver] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # DELETE /api/auditoria/resolver?tarifa_id=...&ambito=...
+    # Desmarca: inserta un nuevo registro con activo=0 (más nuevo gana).
+    def desresolver
+      tarifa_id = params[:tarifa_id].to_s.strip
+      ambito    = params[:ambito].to_s.strip.downcase
+
+      return render(json: { ok: false, error: "tarifa_id requerido" }, status: :bad_request) if tarifa_id.empty?
+      return render(json: { ok: false, error: "ambito inválido" }, status: :bad_request) unless %w[comision credito].include?(ambito)
+
+      init_resoluciones_table
+
+      esc = ->(v) { v.to_s.gsub("\\", "\\\\\\\\").gsub("'", "''") }
+      sql = <<~SQL
+        INSERT INTO picapmongoprod.auditoria_resoluciones
+        (id, tarifa_id, ambito, motivo, resuelto_por, resuelto_en, actualizado_en, activo)
+        VALUES
+        ('#{SecureRandom.uuid}', '#{esc.(tarifa_id)}', '#{ambito}',
+         '', '#{esc.(current_usuario)}',
+         now(), now(), 0)
+      SQL
+      ch.query(sql)
+      render json: { ok: true, tarifa_id: tarifa_id, ambito: ambito }
+    rescue => e
+      Rails.logger.error("[AuditoriaController#desresolver] #{e.class}: #{e.message}")
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
@@ -30,7 +88,8 @@ module Api
       rows = run_auditoria
       filtrar_por_id!(rows, "company")
       resumen = resumen_alertas(rows, :alertas_credito)
-      alertas = rows.reject { |r| r[:ok_credito] }.sort_by { |r| -(r[:credit] || 0).abs }
+      alertas = rows.reject { |r| r[:ok_credito] || r[:resuelto_credito] }
+                    .sort_by { |r| -(r[:credit] || 0).abs }
       dist = {
         credit_9999: rows.count { |r| r[:credit] == 9999 },
         credit_0:    rows.count { |r| r[:credit] == 0 },
@@ -151,6 +210,8 @@ module Api
     end
 
     def run_auditoria
+      init_resoluciones_table
+
       filtros = QueriesService.auditoria_filtros(
         company_id: params[:company_id].to_s.strip,
         tarifa_id:  params[:tarifa_id].to_s.strip,
@@ -164,6 +225,10 @@ module Api
         desde: desde_param, hasta: hasta_param, **filtros
       )
       raw_rows = ch.query(sql)
+
+      # Cargar (tarifa_id, ambito) ya marcadas como resueltas
+      resolved = load_resoluciones
+      key      = ->(t, a) { [t.to_s, a] }
 
       raw_rows.map do |r|
         row = {}
@@ -185,8 +250,43 @@ module Api
         row[:alertas_credito]  = clasificar_credito(row)
         row[:ok_comision]      = row[:alertas_comision] == ["Correcto"]
         row[:ok_credito]       = row[:alertas_credito]  == ["Correcto"]
+        # Marcas de ajuste manual del comercial
+        row[:resuelto_comision] = resolved[key.(row[:tarifa_id], "comision")] || nil
+        row[:resuelto_credito]  = resolved[key.(row[:tarifa_id], "credito")]  || nil
         row
       end
+    end
+
+    # Crea la tabla auditoria_resoluciones si no existe.
+    # CREATE TABLE IF NOT EXISTS es idempotente y barato (metadata only),
+    # corre en cada request sin necesidad de memo.
+    def init_resoluciones_table
+      ch.query(QueriesService::Q_AUDITORIA_RESOLUCIONES_DDL)
+    rescue => e
+      Rails.logger.warn("[AuditoriaController#init_resoluciones_table] #{e.message}")
+    end
+
+    # Devuelve { [tarifa_id, ambito] => {motivo, por, en} } de las resoluciones activas
+    # (más recientes por tarifa_id+ambito según actualizado_en).
+    def load_resoluciones
+      sql = <<~SQL
+        SELECT tarifa_id, ambito,
+               argMax(motivo,         actualizado_en) AS motivo,
+               argMax(resuelto_por,   actualizado_en) AS por,
+               argMax(formatDateTime(resuelto_en, '%Y-%m-%d %H:%M'), actualizado_en) AS en,
+               argMax(activo,         actualizado_en) AS activo
+        FROM picapmongoprod.auditoria_resoluciones
+        GROUP BY tarifa_id, ambito
+      SQL
+      ch.query(sql).each_with_object({}) do |r, h|
+        next unless r["activo"].to_i == 1
+        h[[r["tarifa_id"], r["ambito"]]] = {
+          motivo: r["motivo"], por: r["por"], en: r["en"]
+        }
+      end
+    rescue => e
+      Rails.logger.warn("[AuditoriaController#load_resoluciones] #{e.message}")
+      {}
     end
 
     # Reglas de comisiones (paridad Python _clasificar_comision)
