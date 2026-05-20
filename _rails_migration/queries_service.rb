@@ -1133,7 +1133,8 @@ module QueriesService
         )),
         ['test','testeo','pruebas','qa','dummy','sandbox',
          'demo','ejemplo','testing','user test','internal',
-         'liliana peña','liliana pena']
+         'liliana peña','liliana pena',
+         'pibox admin']
     )
   SQL
 
