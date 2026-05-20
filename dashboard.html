@@ -9879,13 +9879,59 @@ function _audPopulateKamDropdown() {
 // Re-pinta los paneles de alertas (Comisiones y Créditos) con los filtros
 // vigentes, sin volver a llamar al backend. Llamado por onchange/oninput.
 function aplicarFiltrosClientAud() {
-  if (_audComData && _audComData.alertas) {
-    renderAudComAlertas(_audComData.alertas);
-  }
-  if (_audCredData && _audCredData.alertas) {
-    renderAudCredAlertas(_audCredData.alertas);
-  }
+  if (_audComData)  renderAudComAlertas(_audComData);
+  if (_audCredData) renderAudCredAlertas(_audCredData);
   _audActualizarContadorFiltros();
+}
+
+// Render de la sección "Observaciones" que aparece bajo la tabla de alertas
+// cuando hay una búsqueda por ID activa. Lista filas que están OK o ya marcadas
+// como ajustadas, para que el usuario verifique el estado completo de la
+// company/tarifa que está buscando.
+function _audRenderObservacionesHTML(observaciones, ambito) {
+  if (!observaciones || !observaciones.length) return '';
+  const resueltoKey = ambito === 'credito' ? 'resuelto_credito' : 'resuelto_comision';
+  const filas = observaciones.map(o => {
+    const estado = o.estado_observacion || 'ok';
+    const badge  = estado === 'ajustado'
+      ? `<span class="aud-badge" style="background:#dbeafe;color:#1e40af;border:1px solid #93c5fd">✅ Ajustado</span>`
+      : `<span class="aud-badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">🟢 OK</span>`;
+    const r = o[resueltoKey];
+    const tooltip = r
+      ? `Marcado por ${r.por||'?'} el ${r.en||'?'}${r.motivo ? ' · Motivo: '+r.motivo : ''}`
+      : 'Sin alertas para esta línea';
+    return `<tr>
+      <td>${badge}</td>
+      <td>
+        <div class="aud-id-cell">
+          <span class="aud-id-label">Company</span>
+          <span class="aud-id-val" title="Click para copiar" onclick="navigator.clipboard.writeText('${o.id_company||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${o.id_company||'—'}</span>
+          <span class="aud-id-label" style="margin-top:3px">Tarifa</span>
+          <span class="aud-id-val" title="Click para copiar" onclick="navigator.clipboard.writeText('${o.tarifa_id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${o.tarifa_id||'—'}</span>
+        </div>
+      </td>
+      <td style="font-size:11px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${o.linea_de_negocio||''}">${o.linea_de_negocio||'—'}</td>
+      <td style="font-size:11px">${o.name_manager||'—'}</td>
+      <td style="font-size:11px">${o.type_service||'—'}</td>
+      <td style="font-size:11px">${o.ciudad||'—'}</td>
+      <td style="font-size:10px;color:var(--text3)" title="${tooltip}">${(o.last_service||'').slice(0,10)}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div style="margin-top:20px;padding-top:14px;border-top:2px dashed var(--border)">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;font-weight:600">
+        📋 Observaciones (${observaciones.length}) — encontradas vía búsqueda por ID. Filas OK o ya ajustadas, no requieren acción.
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="aud-table">
+          <thead><tr>
+            <th>Estado</th><th>Company / Tarifa ID</th><th>Línea de negocio</th>
+            <th>KAM</th><th>Servicio</th><th>Ciudad</th><th>Último svc</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 function limpiarFiltrosClientAud() {
@@ -10005,7 +10051,7 @@ async function cargarAuditoriaComisiones() {
     _audComLoaded = true;
     _audPopulateKamDropdown();
     renderAudComStats(data);
-    renderAudComAlertas(data.alertas || []);
+    renderAudComAlertas(data);
   } catch(err) {
     const e = `<div style="color:#ef4444;text-align:center;padding:24px">Error: ${err.message}</div>`;
     document.getElementById('aud-com-stats-content').innerHTML   = e;
@@ -10100,15 +10146,24 @@ function renderAudComStats(data) {
     </div>`;
 }
 
-function renderAudComAlertas(alertas) {
+function renderAudComAlertas(data) {
+  // Acepta el data object completo del response (con alertas + observaciones),
+  // o un array (compat legacy).
+  data = data || {};
+  let alertas       = Array.isArray(data) ? data : (data.alertas       || []);
+  let observaciones = Array.isArray(data) ? []   : (data.observaciones || []);
   // Aplicar filtros rápidos client-side (KAM + tipo de alerta) ANTES de pintar.
   alertas = _audAplicarFiltros(alertas, 'comision');
+  // Observaciones se filtran solo por KAM (no tienen tipos de alerta)
+  const _kfCom = (document.getElementById('aud-kam-filter')?.value || '').trim().toLowerCase();
+  if (_kfCom) observaciones = observaciones.filter(o => String(o.name_manager||'').toLowerCase().includes(_kfCom));
+  const _obsHtmlCom = _audRenderObservacionesHTML(observaciones, 'comision');
   if(!alertas.length) {
     const totalCargado = (_audComData?.alertas || []).length;
     const filtroActivo = _audHayFiltrosActivos();
-    document.getElementById('aud-com-alertas-content').innerHTML = filtroActivo
+    document.getElementById('aud-com-alertas-content').innerHTML = (filtroActivo
       ? `<div style="text-align:center;padding:32px;color:var(--text3);font-size:13px">🔍 No hay alertas de comisiones que coincidan con los filtros (de ${totalCargado} cargadas). <button class="pbtn" onclick="limpiarFiltrosClientAud()" style="font-size:11px;margin-left:8px">Limpiar filtros</button></div>`
-      : '<div style="text-align:center;padding:32px;color:var(--green);font-size:14px;font-weight:600">✅ Sin alertas de comisiones.</div>';
+      : '<div style="text-align:center;padding:32px;color:var(--green);font-size:14px;font-weight:600">✅ Sin alertas de comisiones.</div>') + _obsHtmlCom;
     _audActualizarContadorFiltros();
     return;
   }
@@ -10165,7 +10220,7 @@ function renderAudComAlertas(alertas) {
         </tr></thead>
         <tbody>${filas}</tbody>
       </table>
-    </div>`;
+    </div>` + _obsHtmlCom;
   _audActualizarContadorFiltros();
 }
 
@@ -10192,7 +10247,7 @@ async function cargarAuditoriaCreditos() {
     _audCredLoaded = true;
     _audPopulateKamDropdown();
     renderAudCredStats(data);
-    renderAudCredAlertas(data.alertas || []);
+    renderAudCredAlertas(data);
   } catch(err) {
     const e = `<div style="color:#ef4444;text-align:center;padding:24px">Error: ${err.message}</div>`;
     document.getElementById('aud-cred-stats-content').innerHTML   = e;
@@ -10295,14 +10350,20 @@ function renderAudCredStats(data) {
     </div>`;
 }
 
-function renderAudCredAlertas(alertas) {
+function renderAudCredAlertas(data) {
+  data = data || {};
+  let alertas       = Array.isArray(data) ? data : (data.alertas       || []);
+  let observaciones = Array.isArray(data) ? []   : (data.observaciones || []);
   alertas = _audAplicarFiltros(alertas, 'credito');
+  const _kfCred = (document.getElementById('aud-kam-filter')?.value || '').trim().toLowerCase();
+  if (_kfCred) observaciones = observaciones.filter(o => String(o.name_manager||'').toLowerCase().includes(_kfCred));
+  const _obsHtmlCred = _audRenderObservacionesHTML(observaciones, 'credito');
   if(!alertas.length) {
     const totalCargado = (_audCredData?.alertas || []).length;
     const filtroActivo = _audHayFiltrosActivos();
-    document.getElementById('aud-cred-alertas-content').innerHTML = filtroActivo
+    document.getElementById('aud-cred-alertas-content').innerHTML = (filtroActivo
       ? `<div style="text-align:center;padding:32px;color:var(--text3);font-size:13px">🔍 No hay alertas de créditos que coincidan con los filtros (de ${totalCargado} cargadas). <button class="pbtn" onclick="limpiarFiltrosClientAud()" style="font-size:11px;margin-left:8px">Limpiar filtros</button></div>`
-      : '<div style="text-align:center;padding:32px;color:var(--green);font-size:14px;font-weight:600">✅ Sin alertas de créditos.</div>';
+      : '<div style="text-align:center;padding:32px;color:var(--green);font-size:14px;font-weight:600">✅ Sin alertas de créditos.</div>') + _obsHtmlCred;
     _audActualizarContadorFiltros();
     return;
   }
@@ -10358,7 +10419,7 @@ function renderAudCredAlertas(alertas) {
         </tr></thead>
         <tbody>${filas}</tbody>
       </table>
-    </div>`;
+    </div>` + _obsHtmlCred;
   _audActualizarContadorFiltros();
 }
 

@@ -14,11 +14,23 @@ module Api
       resumen = resumen_alertas(rows, :alertas_comision)
       alertas = rows.reject { |r| r[:ok_comision] || r[:resuelto_comision] }
                     .sort_by { |r| -r[:alertas_comision].size }
+      # Cuando hay búsqueda activa (q con ≥4 chars), también devolver las filas
+      # que están OK o ya fueron marcadas como ajustadas — para que el usuario
+      # vea el estado completo de la company/tarifa que busca.
+      search_active = params[:q].to_s.strip.length >= 4
+      observaciones = if search_active
+        rows.select { |r| r[:ok_comision] || r[:resuelto_comision] }
+            .map { |r| r.merge(estado_observacion: r[:resuelto_comision] ? "ajustado" : "ok") }
+      else
+        []
+      end
       render json: limpiar({
         ok: true,
         desde: desde_param, hasta: hasta_param,
         resumen: resumen,
         alertas: alertas.first(500),
+        observaciones: observaciones.first(500),
+        search_active: search_active,
         total_filas: rows.size,
         resueltas_count: rows.count { |r| r[:resuelto_comision] },
       })
@@ -90,6 +102,13 @@ module Api
       resumen = resumen_alertas(rows, :alertas_credito)
       alertas = rows.reject { |r| r[:ok_credito] || r[:resuelto_credito] }
                     .sort_by { |r| -(r[:credit] || 0).abs }
+      search_active = params[:q].to_s.strip.length >= 4
+      observaciones = if search_active
+        rows.select { |r| r[:ok_credito] || r[:resuelto_credito] }
+            .map { |r| r.merge(estado_observacion: r[:resuelto_credito] ? "ajustado" : "ok") }
+      else
+        []
+      end
       dist = {
         credit_9999: rows.count { |r| r[:credit] == 9999 },
         credit_0:    rows.count { |r| r[:credit] == 0 },
@@ -101,8 +120,11 @@ module Api
         desde: desde_param, hasta: hasta_param,
         resumen: resumen,
         alertas: alertas.first(500),
+        observaciones: observaciones.first(500),
+        search_active: search_active,
         dist_credito: dist,
         total_filas: rows.size,
+        resueltas_count: rows.count { |r| r[:resuelto_credito] },
       })
     rescue => e
       Rails.logger.error("[AuditoriaController#creditos] #{e.class}: #{e.message}")
