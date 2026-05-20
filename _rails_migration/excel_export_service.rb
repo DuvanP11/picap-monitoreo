@@ -139,9 +139,14 @@ class ExcelExportService
 
     # @param vals [Array] valores en orden de columnas
     # @param right_align [Array<Integer>] índices (1-based) de columnas a alinear derecha
-    def data_row(vals, right_align: [])
+    # @param cell_styles [Hash{Integer=>Object}] override de estilo por columna (1-based);
+    #        tiene prioridad sobre right_align. Útil para colorear celdas individuales
+    #        (ej. "Resultado": rojo si alerta, verde si OK).
+    def data_row(vals, right_align: [], cell_styles: {})
       styles = vals.each_index.map do |i|
-        right_align.include?(i + 1) ? @s_data_right : @s_data
+        col = i + 1
+        next cell_styles[col] if cell_styles.key?(col)
+        right_align.include?(col) ? @s_data_right : @s_data
       end
       @ws.add_row(vals, style: styles)
       @current_row += 1

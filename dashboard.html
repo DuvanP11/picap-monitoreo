@@ -3711,7 +3711,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
           placeholder="Pega cédula, ID o nombre..." style="width:200px"
           oninput="renderCedulaResults()">
 
-        <button class="apply-btn" onclick="exportarCedulaAlertas()" style="background:#16a34a">
+        <button class="apply-btn" onclick="exportarCedulaAlertas(this)" style="background:#16a34a">
           <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:middle;margin-right:4px"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round"/></svg>
           Exportar Excel
         </button>
@@ -9435,16 +9435,13 @@ function renderCedulaAlertas(data) {
   `;
 }
 
-function exportarCedulaAlertas() {
+function exportarCedulaAlertas(btn) {
   const desde = document.getElementById('ced-from')?.value || '';
   const hasta = document.getElementById('ced-to')?.value   || '';
   const pais  = document.getElementById('ced-pais')?.value || '';
-  const token = _sesionToken || localStorage.getItem('picap_token') || '';
-  if (!token) { alert('Sin autenticación — recarga la página'); return; }
-  let url = `${API}/api/cedula-alertas/exportar?desde=${desde}&hasta=${hasta}&token=${encodeURIComponent(token)}`;
-  if (pais) url += `&pais=${encodeURIComponent(pais)}`;
-  // Descarga directa
-  window.location.href = url;
+  // Usar el helper genérico: fetch + blob + X-Token header (NO window.location.href,
+  // que no manda headers personalizados y causaba 401).
+  exportarExcel('api/cedula-alertas/exportar', {desde, hasta, pais}, btn, 'Picap_CedulaAlertas');
 }
 
 
