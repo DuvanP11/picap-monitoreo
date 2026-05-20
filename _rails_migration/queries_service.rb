@@ -78,7 +78,23 @@ module QueriesService
             CASE
                 WHEN b.g_adm_area_lv_1 = 'MN' THEN 'Managua'
                 WHEN b.g_adm_area_lv_1 = 'Guatemala Department' THEN 'Guatemala'
-                WHEN b.g_adm_area_lv_1 = '' THEN 'Sin ciudad'
+                WHEN b.g_adm_area_lv_1 = '' OR b.g_adm_area_lv_1 IS NULL THEN 'Sin ciudad'
+                -- Normalización de variantes (bookings.g_adm_area_lv_1 tiene
+                -- mayúsculas/acentos/abreviaciones distintas para la misma ciudad).
+                WHEN lowerUTF8(trim(b.g_adm_area_lv_1)) IN (
+                    'bogotá d.c', 'bogota d.c', 'bogotá d.c.', 'bogota d.c.',
+                    'bogotá dc', 'bogota dc', 'bogotá', 'bogota',
+                    'd.c.', 'd. c.', 'dc'
+                ) THEN 'Bogotá D.C.'
+                WHEN lowerUTF8(trim(b.g_adm_area_lv_1)) IN (
+                    'cdmx', 'ciudad de méxico', 'ciudad de mexico',
+                    'distrito federal', 'df', 'mexico city'
+                ) THEN 'Ciudad de México'
+                WHEN lowerUTF8(trim(b.g_adm_area_lv_1)) IN ('medellín', 'medellin') THEN 'Medellín'
+                WHEN lowerUTF8(trim(b.g_adm_area_lv_1)) IN ('cali', 'santiago de cali') THEN 'Cali'
+                WHEN lowerUTF8(trim(b.g_adm_area_lv_1)) IN ('barranquilla') THEN 'Barranquilla'
+                WHEN lowerUTF8(trim(b.g_adm_area_lv_1)) IN ('monterrey') THEN 'Monterrey'
+                WHEN lowerUTF8(trim(b.g_adm_area_lv_1)) IN ('guadalajara') THEN 'Guadalajara'
                 ELSE b.g_adm_area_lv_1
             END AS ciudad,
             JSONExtractString(b.final_cost, 'currency_iso') AS moneda,
