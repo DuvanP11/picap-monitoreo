@@ -10363,7 +10363,7 @@ function exportarAuditoriaExcel() {
   const btn = document.querySelector('.aud-export-btn');
   if(btn) { btn.disabled = true; btn.textContent = '⏳ Generando...'; }
 
-  fetch(url)
+  fetch(url, { headers: { 'X-Token': _sesionToken } })
     .then(r => {
       if(!r.ok) {
         // Si no es OK, intentar leer como texto para mostrar el error real
@@ -10406,7 +10406,7 @@ async function exportarExcel(endpoint, params, btnEl, filename) {
       .filter(([,v]) => v !== null && v !== undefined && v !== '')
       .map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
     const url = `${API}/${endpoint}?${qs}`;
-    const r = await fetch(url);
+    const r = await fetch(url, { headers: { 'X-Token': _sesionToken } });
     if(!r.ok) {
       const txt = await r.text();
       const msg = txt.includes('<html') || txt.includes('<!DOCTYPE')
