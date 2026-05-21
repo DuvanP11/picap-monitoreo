@@ -10787,11 +10787,20 @@ function exportarPagos(btn, tipo) {
     `Picap_Pagos_${(tipo || 'tc').toUpperCase()}`);
 }
 
+// v2: exporta el sub-tab activo (Picash o Ida y Vuelta) con todas las columnas
+// que se ven en la tabla, incluyendo Estado real y Balance Picash.
 function exportarRecaudos(btn) {
-  const desde  = _recDesde || daysAgo(14);
-  const hasta  = _recHasta  || today();
-  const moneda = document.getElementById('rec-moneda')?.value || '';
-  exportarExcel('api/exportar/recaudos', {desde, hasta, moneda}, btn, 'Picap_Recaudos');
+  const desde = _recDesde || daysAgo(30);
+  const hasta = _recHasta || today();
+  const pais  = document.getElementById('rec-moneda')?.value || '';
+  // Detectar tab activo: 'stats' → Picash, 'alertas' → Ida y Vuelta
+  const tabActivoId = document.querySelector('.rec-tab.active')?.id || 'rec-tab-stats';
+  const tipo = tabActivoId === 'rec-tab-alertas' ? 'ida_y_vuelta' : 'picash';
+  const filename = tipo === 'picash' ? 'Picap_Recaudos_Picash' : 'Picap_Recaudos_IdaVuelta';
+
+  const params = { desde, hasta, tipo };
+  if (pais) params.pais = pais;
+  exportarExcel('api/exportar/recaudos', params, btn, filename);
 }
 
 

@@ -289,41 +289,85 @@ module Api
       handle_error(e, "pagos")
     end
 
-    # GET /api/exportar/recaudos?desde=&hasta=&moneda=
+    # GET /api/exportar/recaudos?desde=&hasta=&pais=&tipo=picash|ida_y_vuelta
+    # Recaudos v2 — exporta detalle por booking. Si no se pasa `tipo`, genera 2 hojas
+    # (Picash + Ida y Vuelta). Si se especifica, solo esa hoja.
     def recaudos
       desde, hasta = desde_param, hasta_param
-      moneda = params[:moneda].to_s.strip
-      filtro_moneda = moneda.empty? ? "" : "AND JSONExtractString(wat.amount,'currency_iso')='#{moneda.gsub("'", "''")}'"
+      pais  = params[:pais].to_s.strip
+      tipo  = params[:tipo].to_s.strip.downcase   # picash | ida_y_vuelta | (vacío = ambas)
+      tipo  = "" unless %w[picash ida_y_vuelta ida_vuelta].include?(tipo)
 
-      sql = QueriesService.format(QueriesService::Q_RECAUDOS,
-                                   desde: desde, hasta: hasta, filtro_moneda: filtro_moneda)
+      esc = ->(v) { v.to_s.gsub("'", "''") }
+      filtro_pais = pais.empty? ? "" : "AND b.g_country = '#{esc.(pais[0,2].upcase)}'"
+
+      sql = QueriesService.format(
+        QueriesService::Q_RECAUDOS_DETALLE,
+        desde: desde, hasta: hasta,
+        filtro_pais: filtro_pais,
+        limit_filas: 20_000,
+      )
       rows = ch.query(sql, timeout: 300)
 
-      xlsx = ExcelExportService.build("Picap_Recaudos") do |x|
-        x.add_sheet("Detalle") do |s|
-          s.banner("Recaudos — Detalle",
-                   "Período: #{desde} → #{hasta}  ·  Registros: #{rows.size}", 11)
-          s.headers([
-            "Fecha tx", "Booking ID", "Tipo tx", "Moneda",
-            "Suma negativos", "Suma positivos", "Balance neto",
-            "Cnt negativos", "Cnt positivos", "Cnt total", "Clasificación",
-          ])
-          rows.each do |r|
-            s.data_row([
-              r["fecha_tx"].to_s[0, 16],
-              r["id_booking"].to_s,
-              r["tipo_tx"].to_s,
-              r["moneda"].to_s,
-              r["suma_negativos"].to_f.round(2),
-              r["suma_positivos"].to_f.round(2),
-              r["balance_neto"].to_f.round(2),
-              r["cnt_negativos"].to_i,
-              r["cnt_positivos"].to_i,
-              r["cnt_total"].to_i,
-              r["clasificacion"].to_s,
-            ], right_align: [5, 6, 7, 8, 9, 10])
+      # Enriquecer con balance Picash + estado_real
+      driver_ids = rows.map { |r| r["driver_id"].to_s }.uniq.reject(&:empty?)
+      balances   = recaudos_balances_picash(driver_ids)
+      rows = rows.map do |r|
+        bal = balances[r["driver_id"].to_s]
+        r["balance_picash"] = bal
+        r["estado_real"]    = recaudos_estado_real(r["debe"].to_s, bal)
+        r
+      end
+
+      picash_rows     = rows.select { |r| r["tipo_deuda"].to_s == "PICASH" }
+      idayvuelta_rows = rows.select { |r| r["tipo_deuda"].to_s == "IDA Y VUELTA" }
+
+      sheets = case tipo
+      when "picash"                    then [["Recaudos Picash",       picash_rows]]
+      when "ida_y_vuelta", "ida_vuelta" then [["Recaudos Ida y Vuelta", idayvuelta_rows]]
+      else
+        [["Recaudos Picash", picash_rows], ["Recaudos Ida y Vuelta", idayvuelta_rows]]
+      end
+
+      fname_suffix = case tipo
+      when "picash"                    then "Picash"
+      when "ida_y_vuelta", "ida_vuelta" then "IdaVuelta"
+      else "Todos"
+      end
+
+      xlsx = ExcelExportService.build("Picap_Recaudos_#{fname_suffix}") do |x|
+        sheets.each do |(sheet_name, sheet_rows)|
+          x.add_sheet(sheet_name) do |s|
+            s.banner(sheet_name,
+                     "Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 15)
+            s.headers([
+              "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
+              "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
+              "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
+              "Balance Picash", "Estado booking", "Estado real",
+            ])
+            sheet_rows.each do |r|
+              bal = r["balance_picash"]
+              s.data_row([
+                r["fecha_servicio"].to_s[0, 19],
+                r["booking_id"].to_s,
+                r["driver_id"].to_s,
+                r["nombre_piloto"].to_s,
+                r["company_id"].to_s,
+                r["comercio"].to_s,
+                r["ciudad"].to_s,
+                r["moneda"].to_s,
+                r["valor_servicio"].to_f.round(2),
+                r["total_positivo"].to_f.round(2),
+                r["total_negativo"].to_f.round(2),
+                r["recaudo_neto"].to_f.round(2),
+                bal.nil? ? "" : bal.to_f.round(2),
+                r["debe"].to_s,
+                r["estado_real"].to_s,
+              ], right_align: [9, 10, 11, 12, 13])
+            end
+            s.finalize(freeze_row: 4)
           end
-          s.finalize(freeze_row: 4)
         end
       end
 
@@ -333,6 +377,47 @@ module Api
     end
 
     private
+
+    # Helper: balance Picash actual por piloto (copia simplificada del de
+    # RecaudosController). Devuelve { driver_id => balance_total_Float }.
+    def recaudos_balances_picash(driver_ids)
+      return {} if driver_ids.empty?
+      esc = ->(v) { v.to_s.gsub("'", "''") }
+      ids_csv = driver_ids.map { |id| "'#{esc.(id)}'" }.join(",")
+      sql = <<~SQL
+        WITH
+            picash_wallets AS (
+                SELECT _id AS account_id, passenger_id AS driver_id
+                FROM picapmongoprod.wallet_accounts
+                WHERE type_cd = 0 AND passenger_id IN (#{ids_csv})
+            ),
+            latest_balance AS (
+                SELECT account_id,
+                       argMax(toFloat64OrNull(JSONExtractString(amount_after_transaction, 'cents'))/100, created_at) AS balance
+                FROM picapmongoprod.wallet_account_transactions
+                WHERE account_id IN (SELECT account_id FROM picash_wallets)
+                  AND length(amount_after_transaction) > 2
+                GROUP BY account_id
+            )
+        SELECT pw.driver_id AS driver_id, sum(lb.balance) AS balance_total
+        FROM picash_wallets pw
+        LEFT JOIN latest_balance lb ON lb.account_id = pw.account_id
+        GROUP BY pw.driver_id
+      SQL
+      ch.query(sql, timeout: 120).each_with_object({}) do |r, h|
+        bal = r["balance_total"]
+        h[r["driver_id"]] = bal.nil? ? nil : bal.to_f
+      end
+    rescue => e
+      Rails.logger.warn("[ExportarController#recaudos_balances_picash] #{e.message}")
+      {}
+    end
+
+    def recaudos_estado_real(debe, balance)
+      return debe if debe != "DEBE"
+      return "DEBE" if balance.nil?
+      balance >= 0 ? "NO DEBE (saldado)" : "DEBE"
+    end
 
     # Sufijo para el detalle de evasión (similar a Q_KPIS pero columnas raw)
     DETALLE_SUFFIX_EVASION = <<~'SQL'
