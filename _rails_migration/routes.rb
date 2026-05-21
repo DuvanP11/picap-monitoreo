@@ -31,7 +31,8 @@ Rails.application.routes.draw do
     get  "estafa",          to: "estafa#index"
 
     # Recaudos
-    get  "recaudos",        to: "recaudos#index"
+    get  "recaudos",                to: "recaudos#index"
+    post "recaudos/enviar_email",   to: "recaudos#enviar_email"
 
     # Auditoría Pibox
     namespace :auditoria do

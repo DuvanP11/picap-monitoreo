@@ -3486,7 +3486,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
       </div>
 
       <!-- Tabs -->
-      <div class="export-bar"><button class="btn-export-xl" onclick="exportarRecaudos(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Excel</button></div><div class="rec-tabs">
+      <div class="export-bar" style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-export-xl" onclick="enviarRecaudosEmail(this)" style="background:#7C3AED" title="Enviar el reporte del sub-tab activo por email con resumen HTML + adjunto xlsx">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarRecaudos(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Excel</button>
+      </div><div class="rec-tabs">
         <div class="rec-tab active" id="rec-tab-stats"   onclick="switchRecTab('stats')">💵 Recaudos Picash</div>
         <div class="rec-tab"       id="rec-tab-alertas"  onclick="switchRecTab('alertas')">🔁 Recaudos Ida y Vuelta</div>
       </div>
@@ -10785,6 +10791,43 @@ function exportarPagos(btn, tipo) {
   exportarExcel('api/exportar/pagos',
     {desde, hasta, pais, tipo: tipo || 'tc'}, btn,
     `Picap_Pagos_${(tipo || 'tc').toUpperCase()}`);
+}
+
+// v2 (Fase 5): envía el reporte del sub-tab activo por email con plantilla HTML
+// corporativa + xlsx adjunto. POST /api/recaudos/enviar_email.
+async function enviarRecaudosEmail(btn) {
+  const tabActivoId = document.querySelector('.rec-tab.active')?.id || 'rec-tab-stats';
+  const tipo = tabActivoId === 'rec-tab-alertas' ? 'ida_y_vuelta' : 'picash';
+  const tipoNbr = tipo === 'picash' ? 'Picash' : 'Ida y Vuelta';
+  const desde = _recDesde || daysAgo(30);
+  const hasta = _recHasta || today();
+  const pais  = document.getElementById('rec-moneda')?.value || '';
+
+  const email = prompt(`Enviar reporte de Recaudos ${tipoNbr}\n\nPeríodo: ${desde} → ${hasta}\n\nIngresa el email destinatario:`, '');
+  if (!email) return;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { alert('Email inválido.'); return; }
+  const mensaje = prompt('Mensaje opcional (deja vacío para usar el default):', '') || '';
+
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Enviando...'; }
+  try {
+    const body = { email: email.trim(), desde, hasta, tipo, mensaje };
+    if (pais) body.pais = pais;
+    const r = await fetch(`${API}/api/recaudos/enviar_email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    alert(`✅ Reporte enviado a ${d.destinatario}\n${d.total} registros · adjunto: ${d.filename}`);
+  } catch(err) {
+    alert('Error al enviar email: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar por email';
+    }
+  }
 }
 
 // v2: exporta el sub-tab activo (Picash o Ida y Vuelta) con todas las columnas

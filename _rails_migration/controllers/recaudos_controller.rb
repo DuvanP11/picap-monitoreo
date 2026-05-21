@@ -62,7 +62,186 @@ module Api
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
+    # POST /api/recaudos/enviar_email
+    # Body: { email, asunto?, mensaje?, desde, hasta, pais?, tipo (picash|ida_y_vuelta) }
+    # Genera el xlsx del sub-tab y lo envía por email con plantilla HTML corporativa.
+    def enviar_email
+      destinatario = params[:email].to_s.strip
+      asunto       = params[:asunto].to_s.strip
+      mensaje      = params[:mensaje].to_s.strip[0, 1000]
+      desde        = desde_param
+      hasta        = hasta_param
+      pais         = params[:pais].to_s.strip
+      tipo         = params[:tipo].to_s.strip.downcase
+      tipo         = "picash" unless %w[picash ida_y_vuelta].include?(tipo)
+
+      unless destinatario.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
+        return render(json: { ok: false, error: "Email destinatario inválido" }, status: :bad_request)
+      end
+
+      # 1) Query + enriquecimiento (mismo flujo que index)
+      esc = ->(v) { v.to_s.gsub("'", "''") }
+      filtro_pais = pais.empty? ? "" : "AND b.g_country = '#{esc.(pais[0,2].upcase)}'"
+      sql = QueriesService.format(
+        QueriesService::Q_RECAUDOS_DETALLE,
+        desde: desde, hasta: hasta,
+        filtro_pais: filtro_pais,
+        limit_filas: 20_000,
+      )
+      rows = ch.query(sql, timeout: 300).map { |r| normalizar(r) }
+      driver_ids = rows.map { |r| r["driver_id"] }.compact.uniq.reject(&:empty?)
+      balances   = cargar_balances_picash(driver_ids)
+      rows.each do |r|
+        bal = balances[r["driver_id"]]
+        r["balance_picash"] = bal
+        r["estado_real"]    = calcular_estado_real(r["debe"], bal)
+      end
+
+      sub_rows = if tipo == "ida_y_vuelta"
+        rows.select { |r| r["tipo_deuda"] == "IDA Y VUELTA" }
+      else
+        rows.select { |r| r["tipo_deuda"] == "PICASH" }
+      end
+      stats     = calc_stats(sub_rows)
+      tipo_nbr  = tipo == "ida_y_vuelta" ? "Ida y Vuelta" : "Picash"
+
+      # 2) Construir xlsx
+      xlsx = construir_xlsx_recaudos(sub_rows, tipo_nbr, desde, hasta)
+      filename = "Picap_Recaudos_#{tipo == 'ida_y_vuelta' ? 'IdaVuelta' : 'Picash'}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+      # 3) Build HTML body + send
+      subject_default = "Reporte Recaudos #{tipo_nbr} · #{desde} → #{hasta}"
+      asunto_final    = asunto.empty? ? subject_default : asunto
+      html            = construir_html_email(tipo_nbr, desde, hasta, stats, mensaje, current_usuario)
+
+      RecaudosMailer.reporte(
+        destinatario:    destinatario,
+        asunto:          asunto_final,
+        html:            html,
+        adjunto_bytes:   xlsx[:data],
+        adjunto_nombre:  filename,
+      ).deliver_now
+
+      render json: { ok: true, destinatario: destinatario, filename: filename, total: sub_rows.size }
+    rescue Net::SMTPAuthenticationError => e
+      render json: { ok: false, error: "SMTP no autenticado. Verificá SMTP_EMAIL/SMTP_PASSWORD en envvars." }, status: :internal_server_error
+    rescue => e
+      Rails.logger.error("[RecaudosController#enviar_email] #{e.class}: #{e.message}")
+      Rails.logger.error(e.backtrace.first(8).join("\n"))
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
     private
+
+    # Construye el xlsx del sub-tab (mismas columnas que el export endpoint).
+    def construir_xlsx_recaudos(sub_rows, tipo_nbr, desde, hasta)
+      ExcelExportService.build("Picap_Recaudos_#{tipo_nbr.gsub(' ', '')}") do |x|
+        x.add_sheet("Recaudos #{tipo_nbr}") do |s|
+          s.banner("Recaudos #{tipo_nbr}",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{sub_rows.size}", 15)
+          s.headers([
+            "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
+            "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
+            "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
+            "Balance Picash", "Estado booking", "Estado real",
+          ])
+          sub_rows.each do |r|
+            bal = r["balance_picash"]
+            s.data_row([
+              r["fecha_servicio"].to_s[0, 19], r["booking_id"], r["driver_id"], r["nombre_piloto"],
+              r["company_id"], r["comercio"], r["ciudad"], r["moneda"],
+              r["valor_servicio"], r["total_positivo"], r["total_negativo"], r["recaudo_neto"],
+              bal.nil? ? "" : bal.to_f.round(2),
+              r["debe"], r["estado_real"],
+            ], right_align: [9, 10, 11, 12, 13])
+          end
+          s.finalize(freeze_row: 4)
+        end
+      end
+    end
+
+    # Construye el cuerpo HTML del email con styling Picap (#6B21A8).
+    def construir_html_email(tipo_nbr, desde, hasta, stats, mensaje_usuario, usuario)
+      fmt_num = ->(n) { (n || 0).to_i.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\1.').reverse }
+      fmt_money = ->(n) {
+        sign = (n || 0) < 0 ? "-" : ""
+        "$ #{sign}#{(n || 0).abs.to_i.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\1.').reverse}"
+      }
+      msj_html = mensaje_usuario.empty? ? "" : "<p style=\"background:#FFFBEB;border-left:4px solid #F59E0B;padding:12px 16px;margin:16px 0;border-radius:4px;color:#78350F\"><strong>Mensaje:</strong> #{ERB::Util.h(mensaje_usuario)}</p>"
+
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#F5F3FF;color:#1F2937;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:20px 0">
+            <tr><td align="center">
+              <table cellpadding="0" cellspacing="0" border="0" width="640" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+                <tr><td style="background:linear-gradient(90deg,#6B21A8 0%,#7C3AED 100%);padding:24px 28px;color:#ffffff">
+                  <div style="font-size:22px;font-weight:700;letter-spacing:-0.5px">📊 Reporte de Recaudos #{ERB::Util.h(tipo_nbr)}</div>
+                  <div style="font-size:13px;margin-top:6px;opacity:0.92">Período: #{desde} → #{hasta}</div>
+                </td></tr>
+                <tr><td style="padding:28px">
+                  <p style="margin:0 0 12px;font-size:14px">Hola,</p>
+                  <p style="margin:0 0 12px;font-size:14px;line-height:1.5">Te compartimos el reporte de recaudos del período indicado. Encontrarás el detalle completo de los servicios en el archivo Excel adjunto.</p>
+                  #{msj_html}
+                  <h3 style="color:#6B21A8;margin:24px 0 12px;font-size:15px">📈 Resumen ejecutivo</h3>
+                  <table cellpadding="0" cellspacing="6" border="0" width="100%" style="margin:0 -6px">
+                    <tr>
+                      <td style="background:#EDE9F5;border-top:3px solid #6B21A8;padding:12px;border-radius:6px;width:33%">
+                        <div style="font-size:22px;font-weight:700;color:#1F2937">#{fmt_num.(stats[:total])}</div>
+                        <div style="font-size:11px;color:#6B7280;margin-top:4px">Total servicios</div>
+                      </td>
+                      <td style="background:#FEE2E2;border-top:3px solid #EF4444;padding:12px;border-radius:6px;width:33%">
+                        <div style="font-size:22px;font-weight:700;color:#991B1B">#{fmt_num.(stats[:debe])}</div>
+                        <div style="font-size:11px;color:#7F1D1D;margin-top:4px">❌ Debe (neto booking)</div>
+                        <div style="font-size:12px;font-weight:600;color:#991B1B;margin-top:6px">#{fmt_money.(stats[:v_deuda])}</div>
+                      </td>
+                      <td style="background:#EDE9FE;border-top:3px solid #7C3AED;padding:12px;border-radius:6px;width:33%">
+                        <div style="font-size:22px;font-weight:700;color:#5B21B6">#{fmt_num.(stats[:debe_real])}</div>
+                        <div style="font-size:11px;color:#5B21B6;margin-top:4px">🔍 Debe real</div>
+                        <div style="font-size:12px;font-weight:600;color:#5B21B6;margin-top:6px">#{fmt_money.(stats[:v_deuda_real])}</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="background:#DCFCE7;border-top:3px solid #22C55E;padding:12px;border-radius:6px">
+                        <div style="font-size:22px;font-weight:700;color:#166534">#{fmt_num.(stats[:al_dia])}</div>
+                        <div style="font-size:11px;color:#166534;margin-top:4px">✅ Al día</div>
+                      </td>
+                      <td style="background:#FEF3C7;border-top:3px solid #F59E0B;padding:12px;border-radius:6px">
+                        <div style="font-size:22px;font-weight:700;color:#92400E">#{fmt_num.(stats[:pagado_demas])}</div>
+                        <div style="font-size:11px;color:#92400E;margin-top:4px">⚠ Pagado de más</div>
+                        <div style="font-size:12px;font-weight:600;color:#92400E;margin-top:6px">#{fmt_money.(stats[:v_demas])}</div>
+                      </td>
+                      <td style="background:#F1F5F9;border-top:3px solid #94A3B8;padding:12px;border-radius:6px">
+                        <div style="font-size:22px;font-weight:700;color:#475569">#{fmt_num.(stats[:sin_recaudo])}</div>
+                        <div style="font-size:11px;color:#475569;margin-top:4px">∅ Sin recaudo</div>
+                      </td>
+                    </tr>
+                  </table>
+                  <table cellpadding="12" cellspacing="6" border="0" width="100%" style="margin-top:6px">
+                    <tr>
+                      <td style="background:#FAFAFA;border:1px solid #E5E7EB;border-radius:6px;width:50%">
+                        <div style="font-size:11px;color:#6B7280">Valor total de servicios · #{stats[:moneda]}</div>
+                        <div style="font-size:18px;font-weight:700;color:#6B21A8;margin-top:4px">#{fmt_money.(stats[:v_servicios])}</div>
+                      </td>
+                      <td style="background:#FAFAFA;border:1px solid #E5E7EB;border-radius:6px;width:50%">
+                        <div style="font-size:11px;color:#6B7280">Total recaudado (positivos)</div>
+                        <div style="font-size:18px;font-weight:700;color:#22C55E;margin-top:4px">#{fmt_money.(stats[:v_recaudado])}</div>
+                      </td>
+                    </tr>
+                  </table>
+                  <p style="margin:24px 0 0;color:#6B7280;font-size:12px;line-height:1.5">📎 <strong>Adjunto:</strong> archivo Excel con el detalle por servicio (piloto, comercio, valor, recaudos, balance Picash, estado real).</p>
+                </td></tr>
+                <tr><td style="background:#F9FAFB;padding:16px 28px;text-align:center;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">
+                  Generado automáticamente · <strong style="color:#6B21A8">Picap Monitoreo</strong> · #{Time.now.strftime('%d/%m/%Y %H:%M')}<br>
+                  Por: #{ERB::Util.h(usuario || 'sistema')}
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </body></html>
+      HTML
+    end
 
     def normalizar(r)
       {
