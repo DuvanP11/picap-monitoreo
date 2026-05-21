@@ -39,12 +39,15 @@ module Api
 
       # Fase 3: enriquecer con balance Picash del piloto + estado_real
       driver_ids = rows.map { |r| r["driver_id"] }.compact.uniq.reject(&:empty?)
-      balances   = cargar_balances_picash(driver_ids)
+      balances   = cargar_balances_picash(driver_ids, hasta)
       rows.each do |r|
-        bal = balances[r["driver_id"]]
-        r["balance_picash"]     = bal
-        r["balance_picash_str"] = bal.nil? ? "" : bal.round(2).to_s
-        r["estado_real"]        = calcular_estado_real(r["debe"], bal)
+        b = balances[r["driver_id"]] || {}
+        r["balance_actual"]  = b[:actual]
+        r["balance_fin_mes"] = b[:fin_mes]
+        # estado_real usa el saldo ACTUAL del piloto (hoy) — si está saldado
+        # ahora, el debe del booking ya está cubierto aunque sea por otro
+        # servicio posterior.
+        r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_actual"])
       end
 
       picash     = rows.select { |r| r["tipo_deuda"] == "PICASH" }
@@ -90,11 +93,12 @@ module Api
       )
       rows = ch.query(sql, timeout: 300).map { |r| normalizar(r) }
       driver_ids = rows.map { |r| r["driver_id"] }.compact.uniq.reject(&:empty?)
-      balances   = cargar_balances_picash(driver_ids)
+      balances   = cargar_balances_picash(driver_ids, hasta)
       rows.each do |r|
-        bal = balances[r["driver_id"]]
-        r["balance_picash"] = bal
-        r["estado_real"]    = calcular_estado_real(r["debe"], bal)
+        b = balances[r["driver_id"]] || {}
+        r["balance_actual"]  = b[:actual]
+        r["balance_fin_mes"] = b[:fin_mes]
+        r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_actual"])
       end
 
       sub_rows = if tipo == "ida_y_vuelta"
@@ -150,17 +154,19 @@ module Api
             "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
             "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
             "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
-            "Balance Picash", "Estado booking", "Estado real",
+            "Saldo actual", "Saldo fin de mes", "Estado booking", "Estado real",
           ])
           sub_rows.each do |r|
-            bal = r["balance_picash"]
+            ba = r["balance_actual"]
+            bf = r["balance_fin_mes"]
             s.data_row([
               r["fecha_servicio"].to_s[0, 19], r["booking_id"], r["driver_id"], r["nombre_piloto"],
               r["company_id"], r["comercio"], r["ciudad"], r["moneda"],
               r["valor_servicio"], r["total_positivo"], r["total_negativo"], r["recaudo_neto"],
-              bal.nil? ? "" : bal.to_f.round(2),
+              ba.nil? ? "" : ba.to_f.round(2),
+              bf.nil? ? "" : bf.to_f.round(2),
               r["debe"], r["estado_real"],
-            ], right_align: [9, 10, 11, 12, 13])
+            ], right_align: [9, 10, 11, 12, 13, 14])
           end
           s.finalize(freeze_row: 4)
         end
@@ -274,47 +280,56 @@ module Api
       }
     end
 
-    # Fase 3: balance Picash actual por piloto.
-    # Suma el latest amount_after_transaction de cada wallet type_cd=0 del piloto.
-    # Si la suma >= 0 → piloto saldado (incluso si el booking dice DEBE).
-    # Devuelve { driver_id => balance_total_Float }. Sin wallet picash → no aparece.
-    def cargar_balances_picash(driver_ids)
+    # Balance Picash por piloto: { driver_id => {actual: Float, fin_mes: Float} }
+    # - actual: latest amount_after_transaction de cada wallet type_cd=0 SIN límite de fecha (saldo HOY).
+    # - fin_mes: latest amount_after_transaction CON created_at <= hasta 23:59:59 (saldo al cierre del rango).
+    # Si el piloto no tiene wallet Picash, no aparece en el hash.
+    def cargar_balances_picash(driver_ids, hasta)
       return {} if driver_ids.empty?
 
       esc = ->(v) { v.to_s.gsub("'", "''") }
-      ids_csv = driver_ids.map { |id| "'#{esc.(id)}'" }.join(",")
+      ids_csv  = driver_ids.map { |id| "'#{esc.(id)}'" }.join(",")
+      hasta_esc = esc.(hasta.to_s)
 
       sql = <<~SQL
         WITH
             picash_wallets AS (
                 SELECT _id AS account_id, passenger_id AS driver_id
                 FROM picapmongoprod.wallet_accounts
-                WHERE type_cd = 0
-                  AND passenger_id IN (#{ids_csv})
+                WHERE type_cd = 0 AND passenger_id IN (#{ids_csv})
             ),
-            latest_balance AS (
-                SELECT
-                    account_id,
-                    argMax(
-                        toFloat64OrNull(JSONExtractString(amount_after_transaction, 'cents')) / 100,
-                        created_at
-                    ) AS balance
+            latest_actual AS (
+                SELECT account_id,
+                       argMax(toFloat64OrNull(JSONExtractString(amount_after_transaction, 'cents'))/100, created_at) AS balance
                 FROM picapmongoprod.wallet_account_transactions
                 WHERE account_id IN (SELECT account_id FROM picash_wallets)
                   AND length(amount_after_transaction) > 2
                 GROUP BY account_id
+            ),
+            latest_fin_mes AS (
+                SELECT account_id,
+                       argMax(toFloat64OrNull(JSONExtractString(amount_after_transaction, 'cents'))/100, created_at) AS balance
+                FROM picapmongoprod.wallet_account_transactions
+                WHERE account_id IN (SELECT account_id FROM picash_wallets)
+                  AND length(amount_after_transaction) > 2
+                  AND created_at <= toDateTime('#{hasta_esc} 23:59:59')
+                GROUP BY account_id
             )
         SELECT
-            pw.driver_id AS driver_id,
-            sum(lb.balance) AS balance_total
+            pw.driver_id          AS driver_id,
+            sum(la.balance)       AS balance_actual,
+            sum(lf.balance)       AS balance_fin_mes
         FROM picash_wallets pw
-        LEFT JOIN latest_balance lb ON lb.account_id = pw.account_id
+        LEFT JOIN latest_actual la  ON la.account_id = pw.account_id
+        LEFT JOIN latest_fin_mes lf ON lf.account_id = pw.account_id
         GROUP BY pw.driver_id
       SQL
 
       ch.query(sql, timeout: 120).each_with_object({}) do |r, h|
-        bal = r["balance_total"]
-        h[r["driver_id"]] = bal.nil? ? nil : bal.to_f
+        h[r["driver_id"]] = {
+          actual:  r["balance_actual"].nil?  ? nil : r["balance_actual"].to_f,
+          fin_mes: r["balance_fin_mes"].nil? ? nil : r["balance_fin_mes"].to_f,
+        }
       end
     rescue => e
       Rails.logger.warn("[RecaudosController#cargar_balances_picash] #{e.message}")

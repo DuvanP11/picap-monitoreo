@@ -309,13 +309,14 @@ module Api
       )
       rows = ch.query(sql, timeout: 300)
 
-      # Enriquecer con balance Picash + estado_real
+      # Enriquecer con balance Picash actual + balance fin de mes + estado_real
       driver_ids = rows.map { |r| r["driver_id"].to_s }.uniq.reject(&:empty?)
-      balances   = recaudos_balances_picash(driver_ids)
+      balances   = recaudos_balances_picash(driver_ids, hasta)
       rows = rows.map do |r|
-        bal = balances[r["driver_id"].to_s]
-        r["balance_picash"] = bal
-        r["estado_real"]    = recaudos_estado_real(r["debe"].to_s, bal)
+        b = balances[r["driver_id"].to_s] || {}
+        r["balance_actual"]  = b[:actual]
+        r["balance_fin_mes"] = b[:fin_mes]
+        r["estado_real"]     = recaudos_estado_real(r["debe"].to_s, r["balance_actual"])
         r
       end
 
@@ -344,10 +345,11 @@ module Api
               "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
               "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
               "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
-              "Balance Picash", "Estado booking", "Estado real",
+              "Saldo actual", "Saldo fin de mes", "Estado booking", "Estado real",
             ])
             sheet_rows.each do |r|
-              bal = r["balance_picash"]
+              ba = r["balance_actual"]
+              bf = r["balance_fin_mes"]
               s.data_row([
                 r["fecha_servicio"].to_s[0, 19],
                 r["booking_id"].to_s,
@@ -361,10 +363,11 @@ module Api
                 r["total_positivo"].to_f.round(2),
                 r["total_negativo"].to_f.round(2),
                 r["recaudo_neto"].to_f.round(2),
-                bal.nil? ? "" : bal.to_f.round(2),
+                ba.nil? ? "" : ba.to_f.round(2),
+                bf.nil? ? "" : bf.to_f.round(2),
                 r["debe"].to_s,
                 r["estado_real"].to_s,
-              ], right_align: [9, 10, 11, 12, 13])
+              ], right_align: [9, 10, 11, 12, 13, 14])
             end
             s.finalize(freeze_row: 4)
           end
@@ -378,12 +381,14 @@ module Api
 
     private
 
-    # Helper: balance Picash actual por piloto (copia simplificada del de
-    # RecaudosController). Devuelve { driver_id => balance_total_Float }.
-    def recaudos_balances_picash(driver_ids)
+    # Balance Picash por piloto: { driver_id => {actual: Float, fin_mes: Float} }
+    # - actual: latest amount_after_transaction sin límite de fecha (HOY)
+    # - fin_mes: latest amount_after_transaction con created_at <= hasta (cierre del rango)
+    def recaudos_balances_picash(driver_ids, hasta)
       return {} if driver_ids.empty?
       esc = ->(v) { v.to_s.gsub("'", "''") }
-      ids_csv = driver_ids.map { |id| "'#{esc.(id)}'" }.join(",")
+      ids_csv   = driver_ids.map { |id| "'#{esc.(id)}'" }.join(",")
+      hasta_esc = esc.(hasta.to_s)
       sql = <<~SQL
         WITH
             picash_wallets AS (
@@ -391,22 +396,36 @@ module Api
                 FROM picapmongoprod.wallet_accounts
                 WHERE type_cd = 0 AND passenger_id IN (#{ids_csv})
             ),
-            latest_balance AS (
+            latest_actual AS (
                 SELECT account_id,
                        argMax(toFloat64OrNull(JSONExtractString(amount_after_transaction, 'cents'))/100, created_at) AS balance
                 FROM picapmongoprod.wallet_account_transactions
                 WHERE account_id IN (SELECT account_id FROM picash_wallets)
                   AND length(amount_after_transaction) > 2
                 GROUP BY account_id
+            ),
+            latest_fin_mes AS (
+                SELECT account_id,
+                       argMax(toFloat64OrNull(JSONExtractString(amount_after_transaction, 'cents'))/100, created_at) AS balance
+                FROM picapmongoprod.wallet_account_transactions
+                WHERE account_id IN (SELECT account_id FROM picash_wallets)
+                  AND length(amount_after_transaction) > 2
+                  AND created_at <= toDateTime('#{hasta_esc} 23:59:59')
+                GROUP BY account_id
             )
-        SELECT pw.driver_id AS driver_id, sum(lb.balance) AS balance_total
+        SELECT pw.driver_id AS driver_id,
+               sum(la.balance) AS balance_actual,
+               sum(lf.balance) AS balance_fin_mes
         FROM picash_wallets pw
-        LEFT JOIN latest_balance lb ON lb.account_id = pw.account_id
+        LEFT JOIN latest_actual la  ON la.account_id = pw.account_id
+        LEFT JOIN latest_fin_mes lf ON lf.account_id = pw.account_id
         GROUP BY pw.driver_id
       SQL
       ch.query(sql, timeout: 120).each_with_object({}) do |r, h|
-        bal = r["balance_total"]
-        h[r["driver_id"]] = bal.nil? ? nil : bal.to_f
+        h[r["driver_id"]] = {
+          actual:  r["balance_actual"].nil?  ? nil : r["balance_actual"].to_f,
+          fin_mes: r["balance_fin_mes"].nil? ? nil : r["balance_fin_mes"].to_f,
+        }
       end
     rescue => e
       Rails.logger.warn("[ExportarController#recaudos_balances_picash] #{e.message}")

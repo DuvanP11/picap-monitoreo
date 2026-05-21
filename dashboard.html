@@ -9725,19 +9725,24 @@ function renderRecTab(targetId, sec, tabName) {
       'NO DEBE (saldado)': '<span style="background:#dbeafe;color:#1e40af;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600" title="El booking dice DEBE pero el balance Picash actual del piloto está saldado (≥ 0)">🔵 SALDADO</span>',
     })[d] || d;
 
-    const balanceCell = (f) => {
-      if (f.balance_picash === null || f.balance_picash === undefined) {
+    const balanceCellFor = (val, tooltip) => {
+      if (val === null || val === undefined) {
         return '<span style="font-size:10px;color:var(--text3)" title="Sin wallet Picash registrada">—</span>';
       }
-      const bal = Number(f.balance_picash);
+      const bal = Number(val);
       const color = bal < 0 ? '#ef4444' : (bal > 0 ? '#22c55e' : '#94a3b8');
-      return `<span style="font-size:11px;font-weight:600;color:${color}" title="Balance Picash actual del piloto (suma de todas sus wallets type_cd=0)">${fmtMoney(bal)}</span>`;
+      return `<span style="font-size:11px;font-weight:600;color:${color}" title="${tooltip}">${fmtMoney(bal)}</span>`;
     };
 
     const rows = filas.map(f => `<tr>
         <td>${badgeFor(f.debe)}</td>
         <td>${badgeFor(f.estado_real)}</td>
-        <td style="font-size:10px;color:var(--text3)">${(f.fecha_servicio||'').slice(0,16)}</td>
+        <td style="font-size:10px;color:var(--text3)" title="Fecha del servicio (booking.created_at)">${(f.fecha_servicio||'').slice(0,16)}</td>
+        <td>
+          <span class="aud-id-val" style="font-size:10px;display:inline-block;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle"
+                title="Booking ID · click para copiar"
+                onclick="navigator.clipboard.writeText('${f.booking_id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${f.booking_id||'—'}</span>
+        </td>
         <td>
           <div class="aud-id-cell">
             <span class="aud-id-label">Piloto ID</span>
@@ -9758,21 +9763,24 @@ function renderRecTab(targetId, sec, tabName) {
         <td class="right" style="color:#22c55e">${fmtMoney(f.total_positivo)}</td>
         <td class="right" style="color:#ef4444">${fmtMoney(f.total_negativo)}</td>
         <td class="right" style="font-weight:700;color:${f.recaudo_neto<-0.01?'#ef4444':(f.recaudo_neto>0.01?'#f59e0b':'#22c55e')}">${fmtMoney(f.recaudo_neto)}</td>
-        <td class="right">${balanceCell(f)}</td>
+        <td class="right">${balanceCellFor(f.balance_actual,  'Saldo Picash del piloto AL DÍA DE HOY (latest amount_after_transaction). Determina el estado_real.')}</td>
+        <td class="right">${balanceCellFor(f.balance_fin_mes, 'Saldo Picash al CIERRE del rango de fecha consultado — refleja la situación al final del período.')}</td>
       </tr>`).join('');
 
     filasHtml = `
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
-        ${filas.length} servicios con recaudo · 1 fila por booking · "Estado real" considera el balance Picash actual del piloto
+        ${filas.length} servicios con recaudo · 1 fila por booking · "Estado real" considera el <strong>saldo actual</strong> del piloto (hoy)
       </div>
       <div style="overflow-x:auto;">
         <table class="aud-table">
           <thead><tr>
-            <th>Estado booking</th><th>Estado real</th><th>Fecha</th><th>Piloto</th><th>Comercio</th>
+            <th>Estado booking</th><th>Estado real</th><th>Fecha</th><th>Booking ID</th>
+            <th>Piloto</th><th>Comercio</th>
             <th>Ciudad</th><th>Moneda</th>
             <th class="right">Valor svc</th><th class="right">Recaudo +</th>
             <th class="right">Recaudo −</th><th class="right">Neto</th>
-            <th class="right">Balance Picash</th>
+            <th class="right">Saldo actual</th>
+            <th class="right">Saldo fin de mes</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -10846,7 +10854,31 @@ async function enviarRecaudosEmail(btn) {
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
     alert(`✅ Reporte enviado a ${d.destinatario}\n${d.total} registros · adjunto: ${d.filename}`);
   } catch(err) {
-    alert('Error al enviar email: ' + err.message);
+    const msg = err.message || '';
+    // Si el backend respondió que SMTP no está configurado, ofrecer fallback
+    // con el cliente de email local (mailto:) y descarga manual del Excel.
+    if (msg.includes('SMTP') || msg.includes('Connection refused')) {
+      const usarMailto = confirm(
+        `${msg}\n\n` +
+        `¿Querés que abramos tu cliente de email con el resumen pre-llenado?\n` +
+        `Después podés descargar el Excel con el botón "Exportar Excel" y adjuntarlo manualmente.`
+      );
+      if (usarMailto) {
+        const subject = `Reporte Recaudos ${tipoNbr} · ${desde} → ${hasta}`;
+        const body =
+          `Hola,\n\n` +
+          `Te comparto el reporte de Recaudos ${tipoNbr} del período ${desde} → ${hasta}.\n\n` +
+          `Adjunto encontrarás el detalle en Excel (descargado desde el portal Picap Monitoreo).\n\n` +
+          (mensaje ? `Mensaje: ${mensaje}\n\n` : '') +
+          `Saludos.`;
+        const mailto = `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.location.href = mailto;
+        // Auto-disparar la descarga del Excel para facilitar el flujo
+        setTimeout(() => { try { exportarRecaudos(null); } catch(_) {} }, 600);
+      }
+    } else {
+      alert('Error al enviar email: ' + msg);
+    }
   } finally {
     if (btn) {
       btn.disabled = false;
