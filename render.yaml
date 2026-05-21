@@ -24,11 +24,12 @@ services:
         sync: false
       - key: ADMIN_EMERGENCY_PASSWORD
         sync: false
-      - key: SMTP_EMAIL
+
+      # Email vía Resend.com (reemplaza SMTP clásico).
+      # Generar API key en https://resend.com → API Keys (formato re_XXXX).
+      - key: RESEND_API_KEY
         sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
+      # Opcional. Para usar @picap.io verificar dominio en resend.com → Domains.
+      # Si se omite, default = "Picap Monitoreo <onboarding@resend.dev>".
+      - key: RESEND_FROM
         sync: false
