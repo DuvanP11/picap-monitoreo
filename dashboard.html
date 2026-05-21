@@ -3453,6 +3453,19 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
           <input type="date" id="rec-to">
           <button class="apply-btn" onclick="recApplyCustom()">Aplicar</button>
         </div>
+        <!-- Mes y Año: auto-llenan las fechas al cambiar -->
+        <select class="rec-sel" id="rec-mes" onchange="recAplicarMesAnio()" title="Selecciona un mes; se llenan automáticamente las fechas al rango completo de ese mes.">
+          <option value="">Mes…</option>
+          <option value="1">Enero</option><option value="2">Febrero</option>
+          <option value="3">Marzo</option><option value="4">Abril</option>
+          <option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option>
+          <option value="9">Septiembre</option><option value="10">Octubre</option>
+          <option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select class="rec-sel" id="rec-anio" onchange="recAplicarMesAnio()" title="Selecciona un año; combina con el mes para auto-llenar las fechas.">
+          <option value="">Año…</option>
+        </select>
         <select class="rec-sel" id="rec-moneda">
           <option value="">Todas las monedas</option>
           <option value="COP">COP · Colombia</option>
@@ -3463,7 +3476,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <div class="sep"></div>
         <select class="rec-sel" id="rec-q-tipo">
           <option value="booking">Booking ID</option>
-          <option value="driver">Driver ID</option>
+          <option value="driver">Piloto ID</option>
+          <option value="company">Comercio ID</option>
         </select>
         <input class="rec-search-input" id="rec-q-input"
           placeholder="Buscar por ID..." autocomplete="off" spellcheck="false"
@@ -9496,20 +9510,54 @@ function switchRecTab(tab) {
     else                 renderRecTab('rec-alertas-content', _recData.ida_y_vuelta, 'Ida y Vuelta');
   }
 }
-// v2: filtra ambos sub-tabs client-side por booking_id o driver_id
+// v2: filtra ambos sub-tabs client-side por booking_id, driver_id o company_id
 function recFiltrarId() {
   if(!_recData) return;
   const q    = (document.getElementById('rec-q-input')?.value || '').trim().toLowerCase();
   const tipo = document.getElementById('rec-q-tipo')?.value || 'booking';
+  const campoMap = { 'driver': 'driver_id', 'company': 'company_id', 'booking': 'booking_id' };
+  const campo    = campoMap[tipo] || 'booking_id';
   const filtrar = (sec) => {
     if (!sec || !sec.filas) return sec;
     if (q.length < 4) return sec;
-    const campo = tipo === 'driver' ? 'driver_id' : 'booking_id';
     return { stats: sec.stats, filas: sec.filas.filter(f => String(f[campo]||'').toLowerCase().includes(q)) };
   };
   renderRecTab('rec-stats-content',   filtrar(_recData.picash),       'Picash');
   renderRecTab('rec-alertas-content', filtrar(_recData.ida_y_vuelta), 'Ida y Vuelta');
 }
+
+// Auto-llena rec-from y rec-to cuando el usuario elige Mes + Año.
+function recAplicarMesAnio() {
+  const mes  = parseInt(document.getElementById('rec-mes')?.value || '', 10);
+  const anio = parseInt(document.getElementById('rec-anio')?.value || '', 10);
+  if (!mes || !anio) return;
+  const pad = (n) => String(n).padStart(2, '0');
+  const desde = `${anio}-${pad(mes)}-01`;
+  // Último día del mes: día 0 del mes siguiente
+  const ultimoDia = new Date(anio, mes, 0).getDate();
+  const hasta = `${anio}-${pad(mes)}-${pad(ultimoDia)}`;
+  const fromI = document.getElementById('rec-from');
+  const toI   = document.getElementById('rec-to');
+  if (fromI) fromI.value = desde;
+  if (toI)   toI.value   = hasta;
+  _recDesde = desde;
+  _recHasta = hasta;
+  // Quitar la marca "active" de los chips de período predefinido
+  document.querySelectorAll('.rec-search-bar .pbtn.active').forEach(b => b.classList.remove('active'));
+}
+
+// Popula el dropdown de año con los últimos 5 años + año actual.
+(function initRecAnio() {
+  const sel = document.getElementById('rec-anio');
+  if (!sel) return;
+  const actual = new Date().getFullYear();
+  for (let y = actual; y >= actual - 5; y--) {
+    const opt = document.createElement('option');
+    opt.value = String(y);
+    opt.textContent = String(y);
+    sel.appendChild(opt);
+  }
+})();
 
 function _recFiltrar(data) {
   const q    = (document.getElementById('rec-q-input')?.value || '').trim().toLowerCase();
@@ -9547,9 +9595,12 @@ async function cargarRecaudos() {
   const desde = _recDesde || daysAgo(30);
   const hasta = _recHasta || today();
   const pais  = document.getElementById('rec-moneda')?.value || '';
-  // Búsquedas opcionales por ID (Fase 2: aún sin UI específica)
-  const company_id = document.getElementById('rec-q-input')?.value?.trim() || '';
-  const piloto_id  = ''; // Fase 2 agregará input separado
+  // Mandar el ID al backend según el tipo seleccionado en el dropdown.
+  // booking_id se filtra solo client-side (el backend no lo soporta como param).
+  const q    = (document.getElementById('rec-q-input')?.value?.trim()) || '';
+  const tipo = document.getElementById('rec-q-tipo')?.value || 'booking';
+  const company_id = (tipo === 'company' && q.length >= 4) ? q : '';
+  const piloto_id  = (tipo === 'driver'  && q.length >= 4) ? q : '';
 
   const loading = `<div style="text-align:center;padding:40px">
     <div style="font-size:28px;margin-bottom:10px">💰</div>
