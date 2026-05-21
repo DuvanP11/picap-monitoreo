@@ -3482,6 +3482,23 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <input class="rec-search-input" id="rec-q-input"
           placeholder="Buscar por ID..." autocomplete="off" spellcheck="false"
           oninput="recFiltrarId()">
+        <select class="rec-sel" id="rec-filtro-estado-booking" onchange="recFiltrarId()"
+          title="Filtra por estado del booking (según recaudo_neto)">
+          <option value="">Estado booking: Todos</option>
+          <option value="DEBE">❌ DEBE</option>
+          <option value="AL DIA">✅ AL DÍA</option>
+          <option value="PAGADO DE MAS">⚠ PAGADO DE MÁS</option>
+          <option value="SIN RECAUDO">∅ SIN RECAUDO</option>
+        </select>
+        <select class="rec-sel" id="rec-filtro-estado-real" onchange="recFiltrarId()"
+          title="Filtra por estado real (considera el balance Picash actual del piloto)">
+          <option value="">Estado real: Todos</option>
+          <option value="DEBE">❌ DEBE</option>
+          <option value="NO DEBE (saldado)">🔵 SALDADO</option>
+          <option value="AL DIA">✅ AL DÍA</option>
+          <option value="PAGADO DE MAS">⚠ PAGADO DE MÁS</option>
+          <option value="SIN RECAUDO">∅ SIN RECAUDO</option>
+        </select>
         <button class="apply-btn" onclick="cargarRecaudos()">↻ Actualizar</button>
       </div>
 
@@ -9511,22 +9528,30 @@ function switchRecTab(tab) {
   document.querySelectorAll('.sb-sub-item').forEach(i => i.classList.remove('active'));
   document.getElementById(`nav-rec-${tab}`)?.classList.add('active');
   if(_recData) {
-    // v2: usar renderRecTab con la nueva shape { picash: {stats, filas}, ida_y_vuelta: {stats, filas} }
-    if(tab === 'stats')  renderRecTab('rec-stats-content',   _recData.picash,       'Picash');
-    else                 renderRecTab('rec-alertas-content', _recData.ida_y_vuelta, 'Ida y Vuelta');
+    // v2: usar recFiltrarId que respeta los filtros activos (estado/ID) sobre ambos tabs.
+    recFiltrarId();
   }
 }
-// v2: filtra ambos sub-tabs client-side por booking_id, driver_id o company_id
+// v2: filtra ambos sub-tabs client-side por:
+//  - ID (booking/driver/company)
+//  - Estado booking (DEBE / AL DIA / PAGADO DE MAS / SIN RECAUDO)
+//  - Estado real (incluye NO DEBE (saldado) considerando balance Picash)
+// Los filtros se combinan en AND.
 function recFiltrarId() {
   if(!_recData) return;
-  const q    = (document.getElementById('rec-q-input')?.value || '').trim().toLowerCase();
-  const tipo = document.getElementById('rec-q-tipo')?.value || 'booking';
+  const q       = (document.getElementById('rec-q-input')?.value || '').trim().toLowerCase();
+  const tipo    = document.getElementById('rec-q-tipo')?.value || 'booking';
+  const estBkg  = (document.getElementById('rec-filtro-estado-booking')?.value || '').trim();
+  const estReal = (document.getElementById('rec-filtro-estado-real')?.value || '').trim();
   const campoMap = { 'driver': 'driver_id', 'company': 'company_id', 'booking': 'booking_id' };
   const campo    = campoMap[tipo] || 'booking_id';
   const filtrar = (sec) => {
     if (!sec || !sec.filas) return sec;
-    if (q.length < 4) return sec;
-    return { stats: sec.stats, filas: sec.filas.filter(f => String(f[campo]||'').toLowerCase().includes(q)) };
+    let filas = sec.filas;
+    if (q.length >= 4)  filas = filas.filter(f => String(f[campo]||'').toLowerCase().includes(q));
+    if (estBkg)         filas = filas.filter(f => String(f.debe||'')         === estBkg);
+    if (estReal)        filas = filas.filter(f => String(f.estado_real||'') === estReal);
+    return { stats: sec.stats, filas };
   };
   renderRecTab('rec-stats-content',   filtrar(_recData.picash),       'Picash');
   renderRecTab('rec-alertas-content', filtrar(_recData.ida_y_vuelta), 'Ida y Vuelta');
