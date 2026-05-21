@@ -1,128 +1,112 @@
 # app/controllers/api/recaudos_controller.rb
-# Validación de recaudos (api.py 3866-4044).
-# Basado en WalletAccountCounterDeliveryTransaction:
-#   Correcto      → balance_neto = 0 (recaudó del cliente = abonó al piloto)
-#   Pagado_demas  → balance_neto > 0 (Picap le debe al piloto)
-#   Debe_dinero   → balance_neto < 0 (piloto debe a Picap)
-#   Revisar       → balance_neto IS NULL OR muchas tx con neto ≈ 0
+# Validación de Recaudos v2 — Split en Picash | Ida y Vuelta.
+# Una fila por booking, con detalle de piloto, comercio, moneda, valor servicio,
+# recaudos +/-, recaudo_neto, clasificación (DEBE/AL DIA/PAGADO DE MAS/SIN RECAUDO).
 
 module Api
   class RecaudosController < ApplicationController
     before_action :authenticate_user!
 
-    # GET /api/recaudos?desde=&hasta=&moneda=&q=&tipo=
+    # GET /api/recaudos?desde=&hasta=&pais=&company_id=&piloto_id=
     def index
-      desde   = desde_param
-      hasta   = hasta_param
-      moneda  = params[:moneda].to_s.strip
-      q_id    = params[:q].to_s.strip
-      q_tipo  = params[:tipo].to_s.strip
-      q_tipo  = "booking" unless %w[booking driver].include?(q_tipo)
+      desde      = desde_param
+      hasta      = hasta_param
+      pais       = params[:pais].to_s.strip
+      company_id = params[:company_id].to_s.strip
+      piloto_id  = params[:piloto_id].to_s.strip
 
-      filtro_moneda = moneda.empty? ? "" : "AND JSONExtractString(wat.amount,'currency_iso')='#{moneda.gsub("'", "''")}'"
+      esc = ->(v) { v.to_s.gsub("'", "''") }
+      filtro_pais = pais.empty? ? "" : "AND b.g_country = '#{esc.(pais[0,2].upcase)}'"
 
       sql = QueriesService.format(
-        QueriesService::Q_RECAUDOS,
-        desde: desde, hasta: hasta, filtro_moneda: filtro_moneda
+        QueriesService::Q_RECAUDOS_DETALLE,
+        desde: desde, hasta: hasta,
+        filtro_pais: filtro_pais,
+        limit_filas: 20_000,
       )
-      rows = ch.query(sql)
+      rows = ch.query(sql, timeout: 300)
 
-      # Normalizar tipos y formatear fecha
-      rows = rows.map do |r|
-        {
-          "id_booking"     => r["id_booking"].to_s,
-          "fecha_tx"       => r["fecha_tx"].to_s[0, 16],
-          "tipo_tx"        => r["tipo_tx"].to_s,
-          "moneda"         => r["moneda"].to_s,
-          "suma_negativos" => r["suma_negativos"].to_f.round(2),
-          "suma_positivos" => r["suma_positivos"].to_f.round(2),
-          "balance_neto"   => r["balance_neto"].to_f.round(2),
-          "cnt_negativos"  => r["cnt_negativos"].to_i,
-          "cnt_positivos"  => r["cnt_positivos"].to_i,
-          "cnt_total"      => r["cnt_total"].to_i,
-          "clasificacion"  => r["clasificacion"].to_s,
-        }
+      # Normalizar tipos + búsqueda opcional por company_id / piloto_id
+      rows = rows.map { |r| normalizar(r) }
+      if company_id.length >= 4
+        cid_low = company_id.downcase
+        rows = rows.select { |r| r["company_id"].to_s.downcase.include?(cid_low) }
+      end
+      if piloto_id.length >= 4
+        pid_low = piloto_id.downcase
+        rows = rows.select { |r| r["driver_id"].to_s.downcase.include?(pid_low) }
       end
 
-      # Filtro por ID (client-side sobre el sample)
-      if q_id.length >= 4
-        q_low = q_id.downcase
-        campo = q_tipo == "driver" ? "id_booking" : "id_booking" # solo booking en CTE
-        rows = rows.select { |r| r[campo].to_s.downcase.include?(q_low) }
-      end
-
-      # Agregados
-      total     = rows.size
-      n_corr    = rows.count { |r| r["clasificacion"] == "Correcto" }
-      n_demas   = rows.count { |r| r["clasificacion"] == "Pagado_demas" }
-      n_deuda   = rows.count { |r| r["clasificacion"] == "Debe_dinero" }
-      n_rev     = rows.count { |r| r["clasificacion"] == "Revisar" }
-
-      v_corr  = rows.select { |r| r["clasificacion"] == "Correcto"    }.sum { |r| r["balance_neto"].abs }
-      v_demas = rows.select { |r| r["clasificacion"] == "Pagado_demas" }.sum { |r| r["balance_neto"]      }
-      v_deuda = rows.select { |r| r["clasificacion"] == "Debe_dinero"  }.sum { |r| r["balance_neto"].abs }
-      v_rev   = rows.select { |r| r["clasificacion"] == "Revisar"      }.sum { |r| r["balance_neto"].abs }
-
-      # Tendencia diaria
-      trend_map = Hash.new { |h, k| h[k] = { correcto: 0, demas: 0, deuda: 0, revisar: 0 } }
-      rows.each do |r|
-        fecha = r["fecha_tx"][0, 10]
-        next if fecha.empty? || fecha == "—"
-        case r["clasificacion"]
-        when "Correcto"     then trend_map[fecha][:correcto] += 1
-        when "Pagado_demas" then trend_map[fecha][:demas]    += 1
-        when "Debe_dinero"  then trend_map[fecha][:deuda]    += 1
-        else                     trend_map[fecha][:revisar]  += 1
-        end
-      end
-      trend = trend_map.sort.map { |fecha, v| v.merge(fecha: fecha) }
-
-      # Distribución por moneda
-      monedas = Hash.new { |h, k| h[k] = { total: 0, correcto: 0, demas: 0, deuda: 0, revisar: 0, v_demas: 0.0, v_deuda: 0.0 } }
-      rows.each do |r|
-        m = r["moneda"].to_s.empty? ? "N/A" : r["moneda"]
-        monedas[m][:total] += 1
-        case r["clasificacion"]
-        when "Correcto"
-          monedas[m][:correcto] += 1
-        when "Pagado_demas"
-          monedas[m][:demas]    += 1
-          monedas[m][:v_demas]  += r["balance_neto"]
-        when "Debe_dinero"
-          monedas[m][:deuda]    += 1
-          monedas[m][:v_deuda]  += r["balance_neto"].abs
-        else
-          monedas[m][:revisar]  += 1
-        end
-      end
-      por_moneda = monedas.sort_by { |_, v| -v[:total] }.map { |m, v| v.merge(moneda: m) }
+      # Split por tipo_deuda
+      picash      = rows.select { |r| r["tipo_deuda"] == "PICASH" }
+      idayvuelta  = rows.select { |r| r["tipo_deuda"] == "IDA Y VUELTA" }
 
       render json: limpiar({
         ok: true,
-        desde: desde, hasta: hasta,
-        resumen: {
-          total:        total,
-          correcto:     n_corr,
-          pagado_demas: n_demas,
-          debe_dinero:  n_deuda,
-          revisar:      n_rev,
-          v_correcto:   v_corr.round(2),
-          v_demas:      v_demas.round(2),
-          v_deuda:      v_deuda.round(2),
-          v_revisar:    v_rev.round(2),
-          pct_correcto: total > 0 ? (n_corr.to_f  / total * 100).round(1) : 0,
-          pct_demas:    total > 0 ? (n_demas.to_f / total * 100).round(1) : 0,
-          pct_deuda:    total > 0 ? (n_deuda.to_f / total * 100).round(1) : 0,
-          pct_revisar:  total > 0 ? (n_rev.to_f   / total * 100).round(1) : 0,
-        },
-        trend:      trend,
-        por_moneda: por_moneda,
-        filas:      rows,
+        desde: desde, hasta: hasta, pais: pais,
+        picash:        { stats: calc_stats(picash),     filas: picash.first(5000) },
+        ida_y_vuelta:  { stats: calc_stats(idayvuelta), filas: idayvuelta.first(5000) },
       })
     rescue => e
       Rails.logger.error("[RecaudosController] #{e.class}: #{e.message}")
       Rails.logger.error(e.backtrace.first(8).join("\n"))
       render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    private
+
+    def normalizar(r)
+      {
+        "driver_id"            => r["driver_id"].to_s,
+        "booking_id"           => r["booking_id"].to_s,
+        "company_id"           => r["company_id"].to_s,
+        "nombre_piloto"        => r["nombre_piloto"].to_s,
+        "comercio"             => r["comercio"].to_s,
+        "fecha_servicio"       => r["fecha_servicio"].to_s[0, 19],
+        "pais"                 => r["pais"].to_s,
+        "ciudad"               => r["ciudad"].to_s,
+        "moneda"               => r["moneda"].to_s,
+        "valor_servicio"       => r["valor_servicio"].to_f.round(2),
+        "total_positivo"       => r["total_positivo"].to_f.round(2),
+        "total_negativo"       => r["total_negativo"].to_f.round(2),
+        "recaudo_neto"         => r["recaudo_neto"].to_f.round(2),
+        "n_recaudos"           => r["n_recaudos"].to_i,
+        "n_recaudos_positivos" => r["n_recaudos_positivos"].to_i,
+        "n_recaudos_negativos" => r["n_recaudos_negativos"].to_i,
+        "ida_y_vuelta"         => r["ida_y_vuelta"].to_s,
+        "debe"                 => r["debe"].to_s,
+        "tipo_deuda"           => r["tipo_deuda"].to_s,
+      }
+    end
+
+    def calc_stats(rows)
+      total       = rows.size
+      n_debe      = rows.count { |r| r["debe"] == "DEBE" }
+      n_demas     = rows.count { |r| r["debe"] == "PAGADO DE MAS" }
+      n_al_dia    = rows.count { |r| r["debe"] == "AL DIA" }
+      n_sin       = rows.count { |r| r["debe"] == "SIN RECAUDO" }
+      v_deuda     = rows.select { |r| r["debe"] == "DEBE" }.sum { |r| r["recaudo_neto"].abs }
+      v_demas     = rows.select { |r| r["debe"] == "PAGADO DE MAS" }.sum { |r| r["recaudo_neto"] }
+      v_recaudado = rows.sum { |r| r["total_positivo"] }
+      v_servicios = rows.sum { |r| r["valor_servicio"] }
+      moneda_top  = rows.group_by { |r| r["moneda"] }.max_by { |_, v| v.size }&.first || ""
+
+      {
+        total:        total,
+        moneda:       moneda_top,
+        debe:         n_debe,
+        pagado_demas: n_demas,
+        al_dia:       n_al_dia,
+        sin_recaudo:  n_sin,
+        v_deuda:      v_deuda.round(2),
+        v_demas:      v_demas.round(2),
+        v_recaudado:  v_recaudado.round(2),
+        v_servicios:  v_servicios.round(2),
+        pct_debe:     total > 0 ? (n_debe.to_f    / total * 100).round(1) : 0,
+        pct_al_dia:   total > 0 ? (n_al_dia.to_f  / total * 100).round(1) : 0,
+        pct_demas:    total > 0 ? (n_demas.to_f   / total * 100).round(1) : 0,
+        pct_sin:      total > 0 ? (n_sin.to_f     / total * 100).round(1) : 0,
+      }
     end
   end
 end

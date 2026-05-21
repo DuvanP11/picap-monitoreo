@@ -924,6 +924,106 @@ module QueriesService
   SQL
 
   # ════════════════════════════════════════════════════════════════════════
+  # RECAUDOS V2 — Detalle por booking (reemplaza Q_RECAUDOS para v2 del módulo)
+  # Una fila por booking con: piloto, comercio, valor svc, recaudos +/-, neto,
+  # clasificación (DEBE/AL DIA/PAGADO DE MAS/SIN RECAUDO) y tipo_deuda
+  # (PICASH | IDA Y VUELTA según return_to_origin).
+  # ════════════════════════════════════════════════════════════════════════
+  Q_RECAUDOS_DETALLE = <<~'SQL'
+    WITH
+        bookings_periodo AS (
+            SELECT *
+            FROM (
+                SELECT
+                    b._id, b.driver_id, b.company_id,
+                    b.return_to_origin, b.created_at, b.final_cost,
+                    b.g_country, b.g_adm_area_lv_1,
+                    ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b._sdc_batched_at DESC) AS rn
+                FROM picapmongoprod.bookings b
+                WHERE b.created_at >= toDateTime('%{desde} 00:00:00')
+                  AND b.created_at <= toDateTime('%{hasta} 23:59:59')
+                  %{filtro_pais}
+            )
+            WHERE rn = 1
+        ),
+        wat_servicio AS (
+            SELECT *
+            FROM (
+                SELECT
+                    wat._id, wat.booking_id, wat.created_at,
+                    toFloat64OrNull(JSONExtractString(wat.amount, 'cents')) / 100 AS monto,
+                    JSONExtractString(wat.amount, 'currency_iso') AS moneda,
+                    ROW_NUMBER() OVER (PARTITION BY wat._id ORDER BY wat._sdc_batched_at DESC) AS rn
+                FROM picapmongoprod.wallet_account_transactions wat
+                WHERE wat._type = 'WalletAccountCounterDeliveryTransaction'
+                  AND wat.booking_id IN (SELECT _id FROM bookings_periodo)
+            )
+            WHERE rn = 1
+        ),
+        recaudo_booking AS (
+            SELECT
+                booking_id,
+                any(moneda)                       AS moneda,
+                round(sum(monto), 2)              AS recaudo_neto,
+                round(sumIf(monto, monto > 0), 2) AS total_positivo,
+                round(sumIf(monto, monto < 0), 2) AS total_negativo,
+                count()                           AS n_recaudos,
+                countIf(monto > 0)                AS n_recaudos_positivos,
+                countIf(monto < 0)                AS n_recaudos_negativos
+            FROM wat_servicio
+            GROUP BY booking_id
+        ),
+        passengers_dedup AS (
+            SELECT _id,
+                   argMax(name, _sdc_batched_at)      AS name,
+                   argMax(last_name, _sdc_batched_at) AS last_name
+            FROM picapmongoprod.passengers
+            WHERE _id IN (SELECT driver_id FROM bookings_periodo WHERE driver_id != '')
+            GROUP BY _id
+        ),
+        companies_dedup AS (
+            SELECT _id, argMax(name, _sdc_batched_at) AS name
+            FROM picapmongoprod.companies
+            WHERE _id IN (SELECT company_id FROM bookings_periodo WHERE company_id != '')
+            GROUP BY _id
+        )
+    SELECT
+        bk.driver_id                                                                AS driver_id,
+        bk._id                                                                       AS booking_id,
+        bk.company_id                                                                AS company_id,
+        trim(concat(coalesce(pd.name, ''), ' ', coalesce(pd.last_name, '')))         AS nombre_piloto,
+        coalesce(co.name, '')                                                        AS comercio,
+        toString(toTimeZone(bk.created_at, 'America/Bogota'))                        AS fecha_servicio,
+        bk.g_country                                                                 AS pais,
+        coalesce(nullIf(bk.g_adm_area_lv_1, ''), 'Sin ciudad')                       AS ciudad,
+        rb.moneda                                                                    AS moneda,
+        round(toFloat64OrNull(JSONExtractString(bk.final_cost, 'cents')) / 100, 2)   AS valor_servicio,
+        rb.total_positivo                                                            AS total_positivo,
+        rb.total_negativo                                                            AS total_negativo,
+        rb.recaudo_neto                                                              AS recaudo_neto,
+        rb.n_recaudos                                                                AS n_recaudos,
+        rb.n_recaudos_positivos                                                      AS n_recaudos_positivos,
+        rb.n_recaudos_negativos                                                      AS n_recaudos_negativos,
+        CASE WHEN lower(coalesce(toString(bk.return_to_origin), '')) IN ('true','1','t') THEN 'SI' ELSE 'NO' END AS ida_y_vuelta,
+        multiIf(
+            rb.n_recaudos = 0 OR rb.n_recaudos IS NULL, 'SIN RECAUDO',
+            rb.recaudo_neto < -0.01,                    'DEBE',
+            rb.recaudo_neto >  0.01,                    'PAGADO DE MAS',
+                                                        'AL DIA'
+        )                                                                            AS debe,
+        CASE
+            WHEN lower(coalesce(toString(bk.return_to_origin), '')) IN ('true','1','t') THEN 'IDA Y VUELTA'
+            ELSE 'PICASH'
+        END                                                                          AS tipo_deuda
+    FROM recaudo_booking rb
+    INNER JOIN bookings_periodo bk ON bk._id = rb.booking_id
+    LEFT  JOIN passengers_dedup pd ON pd._id = bk.driver_id
+    LEFT  JOIN companies_dedup  co ON co._id = bk.company_id
+    ORDER BY bk.created_at DESC
+    LIMIT %{limit_filas}
+  SQL
+
+  # ════════════════════════════════════════════════════════════════════════
   # AUDITORÍA COMERCIAL (Bloque F, paridad api.py 4047-4395)
   # Auditoría de tarifas/comisiones/créditos de empresas (companies + fare_configs).
   # Solo Colombia, solo bookings status_cd=4 (finalizados). Filtra opcional por

@@ -3473,8 +3473,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 
       <!-- Tabs -->
       <div class="export-bar"><button class="btn-export-xl" onclick="exportarRecaudos(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Excel</button></div><div class="rec-tabs">
-        <div class="rec-tab active" id="rec-tab-stats"   onclick="switchRecTab('stats')">📊 Estadística de Recaudos</div>
-        <div class="rec-tab"       id="rec-tab-alertas"  onclick="switchRecTab('alertas')">🚨 Alertas de Recaudos</div>
+        <div class="rec-tab active" id="rec-tab-stats"   onclick="switchRecTab('stats')">💵 Recaudos Picash</div>
+        <div class="rec-tab"       id="rec-tab-alertas"  onclick="switchRecTab('alertas')">🔁 Recaudos Ida y Vuelta</div>
       </div>
 
       <!-- Panel Estadística -->
@@ -9537,33 +9537,141 @@ function _recFiltrar(data) {
 }
 
 async function cargarRecaudos() {
-  const desde  = _recDesde || daysAgo(14);
-  const hasta  = _recHasta || today();
-  const moneda = document.getElementById('rec-moneda')?.value || '';
+  const desde = _recDesde || daysAgo(30);
+  const hasta = _recHasta || today();
+  const pais  = document.getElementById('rec-moneda')?.value || '';
+  // Búsquedas opcionales por ID (Fase 2: aún sin UI específica)
+  const company_id = document.getElementById('rec-q-input')?.value?.trim() || '';
+  const piloto_id  = ''; // Fase 2 agregará input separado
+
   const loading = `<div style="text-align:center;padding:40px">
     <div style="font-size:28px;margin-bottom:10px">💰</div>
-    <div style="color:var(--text3);font-size:13px">Analizando transacciones de recaudo...</div>
+    <div style="color:var(--text3);font-size:13px">Analizando recaudos por booking...</div>
   </div>`;
   document.getElementById('rec-stats-content').innerHTML   = loading;
   document.getElementById('rec-alertas-content').innerHTML = loading;
 
   try {
     let url = `${API}/api/recaudos?desde=${desde}&hasta=${hasta}`;
-    if(moneda) url += `&moneda=${encodeURIComponent(moneda)}`;
-    const r = await fetch(url);
+    if (pais)       url += `&pais=${encodeURIComponent(pais)}`;
+    if (company_id) url += `&company_id=${encodeURIComponent(company_id)}`;
+    if (piloto_id)  url += `&piloto_id=${encodeURIComponent(piloto_id)}`;
+    const r = await fetch(url, { headers: { 'X-Token': _sesionToken } });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
-    if(data.error) throw new Error(data.error);
+    if (data.ok === false) throw new Error(data.error || 'Respuesta inválida');
     _recData   = data;
     _recLoaded = true;
-    const filtered = _recFiltrar(data);
-    renderRecStats(filtered);
-    renderRecAlertas(filtered.filas);
+    renderRecTab('rec-stats-content',   data.picash,       'Picash');
+    renderRecTab('rec-alertas-content', data.ida_y_vuelta, 'Ida y Vuelta');
   } catch(err) {
     const errHtml = `<div style="color:#ef4444;text-align:center;padding:24px">Error: ${err.message}</div>`;
     document.getElementById('rec-stats-content').innerHTML   = errHtml;
     document.getElementById('rec-alertas-content').innerHTML = errHtml;
   }
+}
+
+// Render unificado para cada sub-tab (Picash o Ida y Vuelta).
+// Recibe { stats: {...}, filas: [...] } y un nombre para el subtítulo.
+function renderRecTab(targetId, sec, tabName) {
+  sec = sec || {};
+  const s = sec.stats || {};
+  const filas = sec.filas || [];
+
+  const statsHtml = `
+    <div class="rec-kpis">
+      <div class="rec-kpi pu">
+        <div class="rec-kpi-val">${fmtNum(s.total||0)}</div>
+        <div class="rec-kpi-sub">Total servicios ${tabName}</div>
+        <div class="rec-kpi-bar" style="background:var(--purple)"></div>
+      </div>
+      <div class="rec-kpi danger">
+        <div class="rec-kpi-val">${fmtNum(s.debe||0)}</div>
+        <div class="rec-kpi-sub">❌ Debe · ${s.pct_debe||0}%</div>
+        <div class="rec-kpi-monto" style="color:#ef4444">${fmtMoney(s.v_deuda)}</div>
+        <div class="rec-kpi-bar" style="background:#ef4444"></div>
+      </div>
+      <div class="rec-kpi ok">
+        <div class="rec-kpi-val">${fmtNum(s.al_dia||0)}</div>
+        <div class="rec-kpi-sub">✅ Al día · ${s.pct_al_dia||0}%</div>
+        <div class="rec-kpi-bar" style="background:#22c55e"></div>
+      </div>
+      <div class="rec-kpi warn">
+        <div class="rec-kpi-val">${fmtNum(s.pagado_demas||0)}</div>
+        <div class="rec-kpi-sub">⚠ Pagado de más · ${s.pct_demas||0}%</div>
+        <div class="rec-kpi-monto" style="color:#f59e0b">${fmtMoney(s.v_demas)}</div>
+        <div class="rec-kpi-bar" style="background:#f59e0b"></div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #94a3b8">
+        <div class="rec-kpi-val" style="color:#94a3b8">${fmtNum(s.sin_recaudo||0)}</div>
+        <div class="rec-kpi-sub">∅ Sin recaudo · ${s.pct_sin||0}%</div>
+      </div>
+    </div>
+    <div class="rec-kpis" style="grid-template-columns:repeat(2,1fr);margin-bottom:20px;">
+      <div class="rec-kpi" style="border-top:3px solid var(--purple);">
+        <div class="rec-kpi-val" style="color:var(--purple)">${fmtMoney(s.v_servicios)}</div>
+        <div class="rec-kpi-sub">Valor total de servicios · ${s.moneda||''}</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #22c55e;">
+        <div class="rec-kpi-val" style="color:#22c55e">${fmtMoney(s.v_recaudado)}</div>
+        <div class="rec-kpi-sub">Total recaudado (positivos)</div>
+      </div>
+    </div>`;
+
+  let filasHtml = '';
+  if (!filas.length) {
+    filasHtml = '<div style="text-align:center;padding:32px;color:var(--text3)">Sin datos en este período.</div>';
+  } else {
+    const badgeFor = (d) => ({
+      'DEBE':          '<span style="background:#fee2e2;color:#991b1b;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600">❌ DEBE</span>',
+      'AL DIA':        '<span style="background:#dcfce7;color:#166534;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600">✅ AL DÍA</span>',
+      'PAGADO DE MAS': '<span style="background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600">⚠ PAGADO DE MÁS</span>',
+      'SIN RECAUDO':   '<span style="background:#f1f5f9;color:#475569;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600">∅ SIN RECAUDO</span>',
+    })[d] || d;
+
+    const rows = filas.map(f => `<tr>
+        <td>${badgeFor(f.debe)}</td>
+        <td style="font-size:10px;color:var(--text3)">${(f.fecha_servicio||'').slice(0,16)}</td>
+        <td>
+          <div class="aud-id-cell">
+            <span class="aud-id-label">Piloto ID</span>
+            <span class="aud-id-val" title="Click para copiar" onclick="navigator.clipboard.writeText('${f.driver_id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${f.driver_id||'—'}</span>
+            <span style="font-size:11px;font-weight:600;color:var(--text1)">${f.nombre_piloto||'—'}</span>
+          </div>
+        </td>
+        <td>
+          <div class="aud-id-cell">
+            <span class="aud-id-label">Comercio ID</span>
+            <span class="aud-id-val" title="Click para copiar" onclick="navigator.clipboard.writeText('${f.company_id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${f.company_id||'—'}</span>
+            <span style="font-size:11px;color:var(--text2)">${f.comercio||'—'}</span>
+          </div>
+        </td>
+        <td style="font-size:11px">${f.ciudad||'—'}</td>
+        <td style="font-size:11px;text-align:center">${f.moneda||'—'}</td>
+        <td class="right" style="font-weight:600">${fmtMoney(f.valor_servicio)}</td>
+        <td class="right" style="color:#22c55e">${fmtMoney(f.total_positivo)}</td>
+        <td class="right" style="color:#ef4444">${fmtMoney(f.total_negativo)}</td>
+        <td class="right" style="font-weight:700;color:${f.recaudo_neto<-0.01?'#ef4444':(f.recaudo_neto>0.01?'#f59e0b':'#22c55e')}">${fmtMoney(f.recaudo_neto)}</td>
+      </tr>`).join('');
+
+    filasHtml = `
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+        ${filas.length} servicios con recaudo · 1 fila por booking
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="aud-table">
+          <thead><tr>
+            <th>Estado</th><th>Fecha</th><th>Piloto</th><th>Comercio</th>
+            <th>Ciudad</th><th>Moneda</th>
+            <th class="right">Valor svc</th><th class="right">Recaudo +</th>
+            <th class="right">Recaudo −</th><th class="right">Neto</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  document.getElementById(targetId).innerHTML = statsHtml + filasHtml;
 }
 
 function fmtMoney(n) {
