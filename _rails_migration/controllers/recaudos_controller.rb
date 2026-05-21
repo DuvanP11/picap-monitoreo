@@ -123,8 +123,15 @@ module Api
       ).deliver_now
 
       render json: { ok: true, destinatario: destinatario, filename: filename, total: sub_rows.size }
+    rescue Errno::ECONNREFUSED => e
+      Rails.logger.error("[RecaudosController#enviar_email] SMTP refused: #{e.message}")
+      render json: { ok: false, error: "SMTP no configurado. Las envvars SMTP_HOST/SMTP_PORT/SMTP_EMAIL/SMTP_PASSWORD no están seteadas en el deploy. Configúralas en el panel de Render/AWS y reiniciá el dyno." }, status: :internal_server_error
     rescue Net::SMTPAuthenticationError => e
-      render json: { ok: false, error: "SMTP no autenticado. Verificá SMTP_EMAIL/SMTP_PASSWORD en envvars." }, status: :internal_server_error
+      Rails.logger.error("[RecaudosController#enviar_email] SMTP auth: #{e.message}")
+      render json: { ok: false, error: "SMTP no autenticado. Verificá SMTP_EMAIL/SMTP_PASSWORD en envvars (Gmail/Office365 puede requerir 'app password')." }, status: :internal_server_error
+    rescue Net::SMTPError, Net::OpenTimeout, Net::ReadTimeout => e
+      Rails.logger.error("[RecaudosController#enviar_email] SMTP error: #{e.class} #{e.message}")
+      render json: { ok: false, error: "Error SMTP: #{e.message}" }, status: :internal_server_error
     rescue => e
       Rails.logger.error("[RecaudosController#enviar_email] #{e.class}: #{e.message}")
       Rails.logger.error(e.backtrace.first(8).join("\n"))
