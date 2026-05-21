@@ -9491,17 +9491,24 @@ function switchRecTab(tab) {
   document.querySelectorAll('.sb-sub-item').forEach(i => i.classList.remove('active'));
   document.getElementById(`nav-rec-${tab}`)?.classList.add('active');
   if(_recData) {
-    const filtered = _recFiltrar(_recData);
-    if(tab === 'stats')  renderRecStats(filtered);
-    else                 renderRecAlertas(filtered.filas);
+    // v2: usar renderRecTab con la nueva shape { picash: {stats, filas}, ida_y_vuelta: {stats, filas} }
+    if(tab === 'stats')  renderRecTab('rec-stats-content',   _recData.picash,       'Picash');
+    else                 renderRecTab('rec-alertas-content', _recData.ida_y_vuelta, 'Ida y Vuelta');
   }
 }
+// v2: filtra ambos sub-tabs client-side por booking_id o driver_id
 function recFiltrarId() {
   if(!_recData) return;
-  const filtered = _recFiltrar(_recData);
-  const tabActivo = document.querySelector('.rec-tab.active')?.id || 'rec-tab-stats';
-  if(tabActivo === 'rec-tab-alertas') renderRecAlertas(filtered.filas);
-  else renderRecStats(filtered);
+  const q    = (document.getElementById('rec-q-input')?.value || '').trim().toLowerCase();
+  const tipo = document.getElementById('rec-q-tipo')?.value || 'booking';
+  const filtrar = (sec) => {
+    if (!sec || !sec.filas) return sec;
+    if (q.length < 4) return sec;
+    const campo = tipo === 'driver' ? 'driver_id' : 'booking_id';
+    return { stats: sec.stats, filas: sec.filas.filter(f => String(f[campo]||'').toLowerCase().includes(q)) };
+  };
+  renderRecTab('rec-stats-content',   filtrar(_recData.picash),       'Picash');
+  renderRecTab('rec-alertas-content', filtrar(_recData.ida_y_vuelta), 'Ida y Vuelta');
 }
 
 function _recFiltrar(data) {
