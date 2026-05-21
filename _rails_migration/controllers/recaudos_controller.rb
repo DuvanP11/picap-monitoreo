@@ -118,24 +118,33 @@ module Api
       asunto_final    = asunto.empty? ? subject_default : asunto
       html            = construir_html_email(tipo_nbr, desde, hasta, stats, mensaje, current_usuario)
 
-      RecaudosMailer.reporte(
-        destinatario:    destinatario,
-        asunto:          asunto_final,
-        html:            html,
-        adjunto_bytes:   xlsx[:data],
-        adjunto_nombre:  filename,
-      ).deliver_now
+      result = ResendMailerService.send_email(
+        to:                  destinatario,
+        subject:             asunto_final,
+        html:                html,
+        attachment_bytes:    xlsx[:data],
+        attachment_filename: filename,
+      )
 
-      render json: { ok: true, destinatario: destinatario, filename: filename, total: sub_rows.size }
-    rescue Errno::ECONNREFUSED => e
-      Rails.logger.error("[RecaudosController#enviar_email] SMTP refused: #{e.message}")
-      render json: { ok: false, error: "SMTP no configurado. Las envvars SMTP_HOST/SMTP_PORT/SMTP_EMAIL/SMTP_PASSWORD no están seteadas en el deploy. Configúralas en el panel de Render/AWS y reiniciá el dyno." }, status: :internal_server_error
-    rescue Net::SMTPAuthenticationError => e
-      Rails.logger.error("[RecaudosController#enviar_email] SMTP auth: #{e.message}")
-      render json: { ok: false, error: "SMTP no autenticado. Verificá SMTP_EMAIL/SMTP_PASSWORD en envvars (Gmail/Office365 puede requerir 'app password')." }, status: :internal_server_error
-    rescue Net::SMTPError, Net::OpenTimeout, Net::ReadTimeout => e
-      Rails.logger.error("[RecaudosController#enviar_email] SMTP error: #{e.class} #{e.message}")
-      render json: { ok: false, error: "Error SMTP: #{e.message}" }, status: :internal_server_error
+      render json: {
+        ok: true,
+        destinatario: destinatario,
+        filename: filename,
+        total: sub_rows.size,
+        resend_id: result[:id],
+      }
+    rescue ResendMailerService::ConfigError => e
+      Rails.logger.error("[RecaudosController#enviar_email] Resend config: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    rescue ResendMailerService::AuthError => e
+      Rails.logger.error("[RecaudosController#enviar_email] Resend auth: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    rescue ResendMailerService::ValidationError => e
+      Rails.logger.error("[RecaudosController#enviar_email] Resend validation: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :bad_request
+    rescue ResendMailerService::NetworkError => e
+      Rails.logger.error("[RecaudosController#enviar_email] Resend network: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :bad_gateway
     rescue => e
       Rails.logger.error("[RecaudosController#enviar_email] #{e.class}: #{e.message}")
       Rails.logger.error(e.backtrace.first(8).join("\n"))

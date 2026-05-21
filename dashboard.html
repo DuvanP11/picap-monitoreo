@@ -10855,9 +10855,15 @@ async function enviarRecaudosEmail(btn) {
     alert(`✅ Reporte enviado a ${d.destinatario}\n${d.total} registros · adjunto: ${d.filename}`);
   } catch(err) {
     const msg = err.message || '';
-    // Si el backend respondió que SMTP no está configurado, ofrecer fallback
-    // con el cliente de email local (mailto:) y descarga manual del Excel.
-    if (msg.includes('SMTP') || msg.includes('Connection refused')) {
+    // Si el backend respondió que Resend no está configurado / falló la API,
+    // ofrecer fallback con el cliente de email local (mailto:) y descarga
+    // manual del Excel para que el usuario no se quede sin enviar el reporte.
+    const esErrorEnvio =
+      msg.includes('RESEND_API_KEY') ||
+      msg.includes('Resend') ||
+      msg.includes('SMTP') ||              // por compatibilidad si hay caches
+      msg.includes('Connection refused');
+    if (esErrorEnvio) {
       const usarMailto = confirm(
         `${msg}\n\n` +
         `¿Querés que abramos tu cliente de email con el resumen pre-llenado?\n` +
