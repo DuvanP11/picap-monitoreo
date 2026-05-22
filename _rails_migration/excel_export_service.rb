@@ -70,62 +70,114 @@ class ExcelExportService
       @current_row  = 1
       @tab_color    = tab_color
 
-      # Estilos pre-creados (cacheados)
-      @s_title    = wb.styles.add_style(b: true, sz: 16, fg_color: COLORS[:purple], alignment: { horizontal: :left, vertical: :center })
-      @s_subtitle = wb.styles.add_style(b: false, sz: 10, fg_color: "555555", alignment: { horizontal: :left })
-      @s_header   = wb.styles.add_style(b: true, sz: 10, fg_color: COLORS[:white],
-                                        bg_color: COLORS[:purple],
+      # Formato moneda Colombia (COP): sin decimales, separador de miles, signo $.
+      # caxlsx serializa el format_code tal cual; Excel/LibreOffice lo interpreta.
+      MONEY_FMT      = '"$ "#,##0'.freeze
+      MONEY_NEG_FMT  = '"$ "#,##0;[Red]"-$ "#,##0'.freeze
+
+      # Estilos pre-creados (cacheados). El prefix "FF" en colores asegura
+      # alpha=255 (opaco) — algunos renderers ignoran formatos sin alpha.
+      purple   = "FF#{COLORS[:purple]}"
+      purpleLt = "FF#{COLORS[:purple_lt]}"
+      white    = "FF#{COLORS[:white]}"
+      dark     = "FF#{COLORS[:dark]}"
+      red      = "FF#{COLORS[:red]}"
+      grayBd   = "FFCCCCCC"
+      grayLt   = "FFF3F0FA"
+
+      @s_title    = wb.styles.add_style(b: true, sz: 16, fg_color: purple,
+                                        alignment: { horizontal: :left, vertical: :center })
+      @s_subtitle = wb.styles.add_style(b: false, sz: 10, fg_color: "FF555555",
+                                        alignment: { horizontal: :left })
+      @s_header   = wb.styles.add_style(b: true, sz: 11, fg_color: white,
+                                        bg_color: purple,
                                         alignment: { horizontal: :center, vertical: :center, wrap_text: true },
-                                        border:    { style: :thin, color: "CCCCCC" })
-      @s_data     = wb.styles.add_style(sz: 10, alignment: { vertical: :center },
-                                        border: { style: :thin, color: "EEEEEE" })
+                                        border:    { style: :thin, color: purple })
+      @s_data       = wb.styles.add_style(sz: 10, alignment: { vertical: :center },
+                                          border: { style: :thin, color: grayBd })
       @s_data_right = wb.styles.add_style(sz: 10, alignment: { horizontal: :right, vertical: :center },
-                                          border: { style: :thin, color: "EEEEEE" })
-      @s_kpi_label = wb.styles.add_style(b: true, sz: 9, fg_color: COLORS[:dark],
-                                         bg_color: COLORS[:purple_lt],
+                                          border: { style: :thin, color: grayBd })
+      # v3.2: estilo monetario para celdas de detalle (formato COP sin decimales).
+      @s_data_money = wb.styles.add_style(b: true, sz: 10,
+                                          alignment: { horizontal: :right, vertical: :center },
+                                          border: { style: :thin, color: grayBd },
+                                          format_code: MONEY_NEG_FMT)
+      @s_kpi_label = wb.styles.add_style(b: true, sz: 9, fg_color: dark,
+                                         bg_color: purpleLt,
                                          alignment: { horizontal: :left })
       @s_kpi_val   = wb.styles.add_style(b: true, sz: 11, alignment: { horizontal: :right })
-      @s_section   = wb.styles.add_style(b: true, sz: 12, fg_color: COLORS[:purple],
+      @s_section   = wb.styles.add_style(b: true, sz: 12, fg_color: purple,
                                          alignment: { horizontal: :left })
 
       # v3: estilos para reportes ejecutivos tipo Pibox (header morado pleno,
       # bordes morados, celdas con valores monetarios en rojo/negro).
       @s_report_title = wb.styles.add_style(
-        b: true, sz: 14, fg_color: COLORS[:dark],
-        bg_color: COLORS[:purple_lt],
+        b: true, sz: 14, fg_color: dark,
+        bg_color: purpleLt,
         alignment: { horizontal: :center, vertical: :center },
-        border: { style: :medium, color: COLORS[:purple] },
+        border: { style: :medium, color: purple },
       )
       @s_report_header = wb.styles.add_style(
-        b: true, sz: 11, fg_color: COLORS[:white],
-        bg_color: COLORS[:purple],
+        b: true, sz: 12, fg_color: white,
+        bg_color: purple,
         alignment: { horizontal: :center, vertical: :center },
-        border: { style: :thin, color: COLORS[:purple] },
+        border: { style: :thin, color: purple },
       )
       @s_report_cell = wb.styles.add_style(
-        sz: 11, fg_color: COLORS[:dark],
+        sz: 11, fg_color: dark,
         alignment: { horizontal: :center, vertical: :center },
-        border: { style: :thin, color: COLORS[:purple] },
+        border: { style: :thin, color: purple },
+      )
+      @s_report_cell_alt = wb.styles.add_style(
+        sz: 11, fg_color: dark,
+        bg_color: grayLt,
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: purple },
       )
       @s_report_cell_money = wb.styles.add_style(
-        b: true, sz: 11, fg_color: COLORS[:dark],
+        b: true, sz: 11, fg_color: dark,
         alignment: { horizontal: :right, vertical: :center },
-        border: { style: :thin, color: COLORS[:purple] },
-        format_code: '"$ "#,##0',
+        border: { style: :thin, color: purple },
+        format_code: MONEY_FMT,
       )
       @s_report_cell_money_neg = wb.styles.add_style(
-        b: true, sz: 11, fg_color: COLORS[:red],
+        b: true, sz: 11, fg_color: red,
         alignment: { horizontal: :right, vertical: :center },
-        border: { style: :thin, color: COLORS[:purple] },
-        format_code: '"$ "#,##0;[Red]"-$ "#,##0',
+        border: { style: :thin, color: purple },
+        format_code: MONEY_NEG_FMT,
       )
       @s_report_cell_pct = wb.styles.add_style(
-        b: true, sz: 11, fg_color: COLORS[:red],
+        b: true, sz: 11, fg_color: red,
         alignment: { horizontal: :center, vertical: :center },
-        border: { style: :thin, color: COLORS[:purple] },
+        border: { style: :thin, color: purple },
+        format_code: '0.00%',
+      )
+      @s_report_total = wb.styles.add_style(
+        b: true, sz: 11, fg_color: white,
+        bg_color: purple,
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :medium, color: purple },
+      )
+      @s_report_total_money = wb.styles.add_style(
+        b: true, sz: 11, fg_color: white,
+        bg_color: purple,
+        alignment: { horizontal: :right, vertical: :center },
+        border: { style: :medium, color: purple },
+        format_code: MONEY_NEG_FMT,
+      )
+      @s_report_total_pct = wb.styles.add_style(
+        b: true, sz: 11, fg_color: white,
+        bg_color: purple,
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :medium, color: purple },
         format_code: '0.00%',
       )
     end
+
+    # Accessor para estilos pre-creados — usados por helpers externos
+    # (ej. RecaudosResumenHelpers) que necesitan estilos especiales.
+    attr_reader :s_data_money, :s_report_cell_alt, :s_report_total,
+                :s_report_total_money, :s_report_total_pct
 
     # Banner de título grande para reportes ejecutivos (estilo Pibox).
     # Una sola celda mergeada de span columnas, con fondo morado claro y
@@ -174,6 +226,59 @@ class ExcelExportService
         @ws.add_row(row, style: styles, height: 20)
         @current_row += 1
       end
+
+      # fila vacía separadora
+      @ws.add_row(Array.new(n_cols, nil))
+      @current_row += 1
+      self
+    end
+
+    # Variante de report_table con FILA DE TOTAL destacada al final (fondo
+    # morado pleno + texto blanco bold). Usado en tablas pivot por compañía.
+    #
+    # @param total_row [Array] fila de totales
+    # @param total_styles [Array<Symbol>] estilos para cada celda del total
+    #        (símbolos: :total, :total_money, :total_pct).
+    def report_table_with_total(headers, values, total_row:, value_styles: nil,
+                                 total_styles: [:total, :total, :total_money, :total_pct])
+      n_cols = headers.size
+      @ws.add_row(headers, style: @s_report_header, height: 22)
+      @current_row += 1
+
+      # Filas regulares con alternancia (lila claro / blanco)
+      values.each_with_index do |row, idx|
+        styles = row.each_index.map do |i|
+          sym = value_styles ? value_styles[i] : :text
+          base = case sym
+                 when :money     then @s_report_cell_money
+                 when :money_neg then @s_report_cell_money_neg
+                 when :pct       then @s_report_cell_pct
+                 else                 @s_report_cell
+                 end
+          # Para filas pares, usar variante con fondo lila claro (sólo para
+          # estilos no monetarios — los monetarios mantienen su color por
+          # legibilidad).
+          if idx.odd? && sym == :text
+            @s_report_cell_alt
+          else
+            base
+          end
+        end
+        @ws.add_row(row, style: styles, height: 20)
+        @current_row += 1
+      end
+
+      # Fila de TOTAL destacada (morado pleno + blanco bold)
+      total_st = total_row.each_index.map do |i|
+        sym = total_styles[i] || :total
+        case sym
+        when :total_money then @s_report_total_money
+        when :total_pct   then @s_report_total_pct
+        else                   @s_report_total
+        end
+      end
+      @ws.add_row(total_row, style: total_st, height: 24)
+      @current_row += 1
 
       # fila vacía separadora
       @ws.add_row(Array.new(n_cols, nil))
@@ -265,13 +370,17 @@ class ExcelExportService
 
     # @param vals [Array] valores en orden de columnas
     # @param right_align [Array<Integer>] índices (1-based) de columnas a alinear derecha
+    # @param money_cols [Array<Integer>] (v3.2) índices (1-based) de columnas
+    #        a formatear como moneda COP (formato "$ #,##0", bold, alineado
+    #        derecha, números en rojo si son negativos).
     # @param cell_styles [Hash{Integer=>Object}] override de estilo por columna (1-based);
-    #        tiene prioridad sobre right_align. Útil para colorear celdas individuales
-    #        (ej. "Resultado": rojo si alerta, verde si OK).
-    def data_row(vals, right_align: [], cell_styles: {})
+    #        tiene prioridad sobre money_cols y right_align. Útil para colorear celdas
+    #        individuales (ej. "Resultado": rojo si alerta, verde si OK).
+    def data_row(vals, right_align: [], money_cols: [], cell_styles: {})
       styles = vals.each_index.map do |i|
         col = i + 1
         next cell_styles[col] if cell_styles.key?(col)
+        next @s_data_money if money_cols.include?(col)
         right_align.include?(col) ? @s_data_right : @s_data
       end
       @ws.add_row(vals, style: styles)

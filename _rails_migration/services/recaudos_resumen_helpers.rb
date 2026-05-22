@@ -81,14 +81,13 @@ module RecaudosResumenHelpers
   end
 
   # Renderiza la hoja "Resumen Ejecutivo" en un SheetHelper de ExcelExportService.
-  # Genera: logo Pibox + título + 3 tablas (período/recaudo/pérdidas, perdida-
-  # recuperacion-total, pivot por compañía).
+  # Genera: título morado + 3 tablas (período/recaudo/pérdidas, perdida-
+  # recuperacion-total, pivot por compañía) + logo Pibox sobre el título.
   #
-  # @param s [ExcelExportService::SheetHelper]
-  # @param rows [Array<Hash>] todas las filas del rango (Picash + Ida y Vuelta enriquecidas)
-  # @param desde, hasta [String]
-  # @param recup [Hash] resultado de calcular_recuperacion
-  # @param logo_path [String, nil] ruta absoluta al PNG del logo
+  # v3.2 (May 2026): rediseño visual completo. Banner morado, headers blancos
+  # bold sobre fondo morado, valores monetarios en formato COP sin decimales,
+  # fila de total destacada en morado pleno. El logo se agrega AL FINAL del
+  # render para evitar interferencias con los estilos de celdas.
   def render_resumen_ejecutivo(s, rows, desde, hasta, recup, logo_path: nil)
     mes_actual_lbl = mes_label(desde)
     mes_ant_lbl    = mes_anterior_label(desde)
@@ -110,31 +109,28 @@ module RecaudosResumenHelpers
       end
       .sort_by { |h| h[:pendiente] }
 
-    total_pendientes = pendientes_por_cia.sum { |h| h[:pendiente] }
+    total_pendientes   = pendientes_por_cia.sum { |h| h[:pendiente] }
     pendientes_con_pct = pendientes_por_cia.map do |h|
       h.merge(pct: total_pendientes != 0 ? (h[:pendiente] / total_pendientes) : 0.0)
     end
 
-    s.set_column_widths(22, 18, 18, 18, 16)
+    # Anchos: A más ancho (etiquetas largas + nombres de compañía), resto medianos.
+    s.set_column_widths(32, 22, 22, 22, 18)
 
-    if logo_path && File.exist?(logo_path)
-      s.add_image(logo_path, row: 1, col: 1, width: 160, height: 64)
-      s.blank_rows(3)
-    else
-      s.ws.add_row(["pibox"], height: 40)
-      s.ws.merge_cells("A1:B2")
-      s.instance_variable_set(:@current_row, 4)
-      s.blank_rows(1)
-    end
+    # Reservar 3 filas en blanco arriba para colocar el logo al final.
+    s.blank_rows(3)
 
+    # Banner principal: "INFORME DE PÉRDIDAS EN LOS RECAUDOS"
     s.report_main_title("INFORME DE PÉRDIDAS EN LOS RECAUDOS", span: 5)
 
+    # Tabla 1: período | recaudo | pérdidas | % pérdidas
     s.report_table(
       ["PERÍODO", "RECAUDO", "PERDIDAS", "% PERDIDAS"],
       [[mes_actual_lbl, total_recaudo, -perdidas, pct_perdidas]],
       value_styles: [:text, :money, :money_neg, :pct],
     )
 
+    # Tabla 2: pérdida mes | recuperación mes ant | total
     total_neto = -perdidas + recup[:recuperacion]
     s.report_table(
       ["PERDIDA #{mes_actual_lbl}", "RECUPERACIÓN #{mes_ant_lbl}", "TOTAL PERDIDAS"],
@@ -142,11 +138,12 @@ module RecaudosResumenHelpers
       value_styles: [:money_neg, :money, :money_neg],
     )
 
+    # Tabla 3: pivot por compañía (con fila de total destacada)
     if pendientes_con_pct.any?
-      s.report_table(
+      s.report_table_with_total(
         ["COMPAÑÍA", "Ciudad", "Suma de PENDIENTE", "PORCENTAJE"],
-        pendientes_con_pct.map { |h| [h[:comercio], h[:ciudad], h[:pendiente], h[:pct]] } +
-          [["Total general", "", total_pendientes, 1.0]],
+        pendientes_con_pct.map { |h| [h[:comercio], h[:ciudad], h[:pendiente], h[:pct]] },
+        total_row: ["Total general", "", total_pendientes, 1.0],
         value_styles: [:text, :text, :money_neg, :pct],
       )
     else
@@ -158,21 +155,32 @@ module RecaudosResumenHelpers
     end
 
     s.ws.sheet_view.show_grid_lines = false
+
+    # Logo al final, sobre las filas vacías reservadas al inicio. Se agrega
+    # acá (no al principio) para evitar que add_image interfiera con el
+    # rendering de los estilos de las celdas.
+    if logo_path && File.exist?(logo_path)
+      s.add_image(logo_path, row: 1, col: 1, width: 160, height: 64)
+    end
+
     s
   end
 
   # Hoja "Detalle" estándar (Picash o Ida y Vuelta). Comparte el formato entre
   # el export directo y el adjunto del email.
+  # v3.2: columnas monetarias en formato COP ("$ #,##0", sin decimales).
   DETALLE_HEADERS = [
     "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
     "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
     "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
     "Saldo actual", "Saldo fin de mes", "Estado booking", "Estado real",
   ].freeze
-  DETALLE_RIGHT_ALIGN = [9, 10, 11, 12, 13, 14].freeze
+  # Columnas monetarias (1-based): 9..14 = Valor servicio, Recaudo +, Recaudo −,
+  # Recaudo neto, Saldo actual, Saldo fin de mes.
+  DETALLE_MONEY_COLS = [9, 10, 11, 12, 13, 14].freeze
 
   def render_detalle_sheet(s, sheet_name, sheet_rows, desde, hasta)
-    s.banner(sheet_name, "Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 15)
+    s.banner(sheet_name, "Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 16)
     s.headers(DETALLE_HEADERS)
     sheet_rows.each do |r|
       ba = r["balance_actual"]
@@ -186,15 +194,15 @@ module RecaudosResumenHelpers
         r["comercio"].to_s,
         r["ciudad"].to_s,
         r["moneda"].to_s,
-        r["valor_servicio"].to_f.round(2),
-        r["total_positivo"].to_f.round(2),
-        r["total_negativo"].to_f.round(2),
-        r["recaudo_neto"].to_f.round(2),
-        ba.nil? ? "" : ba.to_f.round(2),
-        bf.nil? ? "" : bf.to_f.round(2),
+        r["valor_servicio"].to_f,
+        r["total_positivo"].to_f,
+        r["total_negativo"].to_f,
+        r["recaudo_neto"].to_f,
+        ba.nil? ? nil : ba.to_f,
+        bf.nil? ? nil : bf.to_f,
         r["debe"].to_s,
         r["estado_real"].to_s,
-      ], right_align: DETALLE_RIGHT_ALIGN)
+      ], money_cols: DETALLE_MONEY_COLS)
     end
     s.finalize(freeze_row: 4)
     s
