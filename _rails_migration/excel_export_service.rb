@@ -35,7 +35,16 @@ class ExcelExportService
   # externos como ExportarController). Antes estaban dentro de SheetHelper
   # y fallaban con `uninitialized constant ExcelExportService::PIBOX_PURPLE`.
   PIBOX_PURPLE = "7030A0".freeze
-  COP_FMT      = '_-[$COP]\ * #,##0_-;\-[$COP]\ * #,##0_-;_-[$COP]\ * "-"_-;_-@_-'.freeze
+
+  # v3.8: BUG CRÍTICO de caxlsx 4.4.2 — no escapa correctamente las comillas
+  # dobles dentro de `format_code` al serializar el XML. Resultado: el atributo
+  # `formatCode="..."` queda malformado y Excel ignora TODOS los estilos
+  # silenciosamente (sin warning ni error). Diagnóstico hecho inspeccionando
+  # el XML interno del xlsx descargado vs el archivo de muestra del usuario.
+  #
+  # Workaround: usar formato sin comillas dobles internas. Para mostrar
+  # texto literal en el formato se usa `\` (escape) o `[$XXX]` (currency code).
+  COP_FMT      = '[$COP]\ #,##0;[Red][$COP]\ -#,##0'.freeze
 
   XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -73,8 +82,10 @@ class ExcelExportService
     # Formato moneda Colombia (COP): sin decimales, separador de miles.
     # NOTA: constantes deben ir a nivel de clase (Ruby no permite
     # `dynamic constant assignment` dentro de def).
-    MONEY_FMT     = '"$ "#,##0'.freeze
-    MONEY_NEG_FMT = '"$ "#,##0;[Red]"-$ "#,##0'.freeze
+    # v3.8: cambiados a sintaxis sin comillas dobles internas (ver
+    # comentario en COP_FMT arriba — caxlsx no escapa comillas en XML).
+    MONEY_FMT     = '\$#,##0'.freeze
+    MONEY_NEG_FMT = '\$#,##0;[Red]\$-#,##0'.freeze
 
     # COP_FMT y PIBOX_PURPLE viven en ExcelExportService (clase padre) para
     # que sean accesibles desde controllers externos. Ruby resuelve la
