@@ -10907,20 +10907,17 @@ async function enviarRecaudosEmail(btn) {
   }
 }
 
-// v2: exporta el sub-tab activo (Picash o Ida y Vuelta) con todas las columnas
-// que se ven en la tabla, incluyendo Estado real y Balance Picash.
+// v3 (May 2026): exporta el reporte COMPLETO en xlsx con 3 hojas (Picash +
+// Ida y Vuelta + Resumen Ejecutivo), idéntico al adjunto del email. Ya no
+// depende del sub-tab activo — siempre trae todo.
 function exportarRecaudos(btn) {
   const desde = _recDesde || daysAgo(30);
   const hasta = _recHasta || today();
   const pais  = document.getElementById('rec-moneda')?.value || '';
-  // Detectar tab activo: 'stats' → Picash, 'alertas' → Ida y Vuelta
-  const tabActivoId = document.querySelector('.rec-tab.active')?.id || 'rec-tab-stats';
-  const tipo = tabActivoId === 'rec-tab-alertas' ? 'ida_y_vuelta' : 'picash';
-  const filename = tipo === 'picash' ? 'Picap_Recaudos_Picash' : 'Picap_Recaudos_IdaVuelta';
 
-  const params = { desde, hasta, tipo };
+  const params = { desde, hasta };
   if (pais) params.pais = pais;
-  exportarExcel('api/exportar/recaudos', params, btn, filename);
+  exportarExcel('api/exportar/recaudos', params, btn, 'Picap_Recaudos');
 }
 
 

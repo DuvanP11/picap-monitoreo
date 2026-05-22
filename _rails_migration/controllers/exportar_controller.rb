@@ -295,8 +295,10 @@ module Api
     def recaudos
       desde, hasta = desde_param, hasta_param
       pais  = params[:pais].to_s.strip
-      tipo  = params[:tipo].to_s.strip.downcase   # picash | ida_y_vuelta | (vacío = ambas)
-      tipo  = "" unless %w[picash ida_y_vuelta ida_vuelta].include?(tipo)
+      # v3.1: el param `tipo` se ignora — el export SIEMPRE devuelve el xlsx
+      # completo con 3 hojas: Picash + Ida y Vuelta + Resumen Ejecutivo.
+      # Antes filtrabamos por sub-tab activo, pero acordamos con DP que el
+      # archivo descargado es el mismo que el enviado por email.
 
       esc = ->(v) { v.to_s.gsub("'", "''") }
       filtro_pais = pais.empty? ? "" : "AND b.g_country = '#{esc.(pais[0,2].upcase)}'"
@@ -322,28 +324,16 @@ module Api
 
       picash_rows     = rows.select { |r| r["tipo_deuda"].to_s == "PICASH" }
       idayvuelta_rows = rows.select { |r| r["tipo_deuda"].to_s == "IDA Y VUELTA" }
+      sheets = [["Recaudos Picash", picash_rows], ["Recaudos Ida y Vuelta", idayvuelta_rows]]
 
-      sheets = case tipo
-      when "picash"                    then [["Recaudos Picash",       picash_rows]]
-      when "ida_y_vuelta", "ida_vuelta" then [["Recaudos Ida y Vuelta", idayvuelta_rows]]
-      else
-        [["Recaudos Picash", picash_rows], ["Recaudos Ida y Vuelta", idayvuelta_rows]]
-      end
-
-      fname_suffix = case tipo
-      when "picash"                    then "Picash"
-      when "ida_y_vuelta", "ida_vuelta" then "IdaVuelta"
-      else "Todos"
-      end
-
-      # v3: calcular recuperación del mes anterior para el resumen ejecutivo.
+      # Calcular recuperación del mes anterior para el resumen ejecutivo.
       # Bookings con debe=DEBE del mes anterior cuyo piloto HOY tiene balance
       # Picash >= 0 → suma de recaudo_neto.abs de esos. La lógica pura vive en
       # RecaudosResumenHelpers; acá hacemos el wiring con CH.
       recuperacion_data = cargar_recuperacion_mes_anterior(desde, hasta, filtro_pais)
 
-      xlsx = ExcelExportService.build("Picap_Recaudos_#{fname_suffix}") do |x|
-        # Hoja 1+: detalle por sub-tab (Picash / Ida y Vuelta o ambas).
+      xlsx = ExcelExportService.build("Picap_Recaudos") do |x|
+        # Hojas detalle: Picash + Ida y Vuelta
         sheets.each do |(sheet_name, sheet_rows)|
           x.add_sheet(sheet_name) do |s|
             RecaudosResumenHelpers.render_detalle_sheet(s, sheet_name, sheet_rows, desde, hasta)
