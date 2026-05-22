@@ -318,7 +318,10 @@ module Api
         b = balances[r["driver_id"].to_s] || {}
         r["balance_actual"]  = b[:actual]
         r["balance_fin_mes"] = b[:fin_mes]
-        r["estado_real"]     = recaudos_estado_real(r["debe"].to_s, r["balance_actual"])
+        # v3.10: usar balance al cierre del período (no balance_actual) para
+        # determinar estado_real. Si el piloto cerró el período saldado, no
+        # debía nada en ese momento aunque hoy tenga deuda nueva.
+        r["estado_real"]     = recaudos_estado_real(r["debe"].to_s, r["balance_fin_mes"])
         r
       end
 

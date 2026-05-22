@@ -37,17 +37,19 @@ module Api
         rows = rows.select { |r| r["driver_id"].to_s.downcase.include?(pid_low) }
       end
 
-      # Fase 3: enriquecer con balance Picash del piloto + estado_real
+      # Fase 3 (v3.10): enriquecer con balance Picash del piloto + estado_real
       driver_ids = rows.map { |r| r["driver_id"] }.compact.uniq.reject(&:empty?)
       balances   = cargar_balances_picash(driver_ids, hasta)
       rows.each do |r|
         b = balances[r["driver_id"]] || {}
         r["balance_actual"]  = b[:actual]
         r["balance_fin_mes"] = b[:fin_mes]
-        # estado_real usa el saldo ACTUAL del piloto (hoy) — si está saldado
-        # ahora, el debe del booking ya está cubierto aunque sea por otro
-        # servicio posterior.
-        r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_actual"])
+        # v3.10: estado_real usa el saldo AL CIERRE DEL PERÍODO consultado
+        # (balance_fin_mes), NO el saldo actual. Razón: si filtro "abril" y
+        # el piloto cerró abril con saldo positivo, entonces NO debía nada
+        # en ese período aunque hoy (mayo) tenga deuda nueva. Lo del mes
+        # posterior es independiente.
+        r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_fin_mes"])
       end
 
       picash     = rows.select { |r| r["tipo_deuda"] == "PICASH" }
@@ -100,7 +102,8 @@ module Api
         b = balances[r["driver_id"]] || {}
         r["balance_actual"]  = b[:actual]
         r["balance_fin_mes"] = b[:fin_mes]
-        r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_actual"])
+        # v3.10: usa balance al cierre del período, no actual. Ver index.
+        r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_fin_mes"])
       end
 
       picash_rows     = rows.select { |r| r["tipo_deuda"] == "PICASH" }

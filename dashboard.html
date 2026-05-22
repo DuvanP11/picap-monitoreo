@@ -9724,7 +9724,7 @@ function renderRecTab(targetId, sec, tabName) {
       'AL DIA':            '<span style="background:#dcfce7;color:#166534;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600">✅ AL DÍA</span>',
       'PAGADO DE MAS':     '<span style="background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600">⚠ PAGADO DE MÁS</span>',
       'SIN RECAUDO':       '<span style="background:#f1f5f9;color:#475569;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600">∅ SIN RECAUDO</span>',
-      'NO DEBE (saldado)': '<span style="background:#dbeafe;color:#1e40af;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600" title="El booking dice DEBE pero el balance Picash actual del piloto está saldado (≥ 0)">🔵 SALDADO</span>',
+      'NO DEBE (saldado)': '<span style="background:#dbeafe;color:#1e40af;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600" title="El booking dice DEBE pero el balance Picash al cierre del período consultado estaba saldado (≥ 0)">🔵 SALDADO</span>',
     })[d] || d;
 
     const balanceCellFor = (val, tooltip) => {
@@ -9774,7 +9774,7 @@ function renderRecTab(targetId, sec, tabName) {
 
     filasHtml = `
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
-        ${filas.length} servicios · <strong style="color:#22c55e">IDs completos visibles</strong> · 1 fila por booking · "Estado real" considera el <strong>saldo actual</strong> del piloto (hoy)
+        ${filas.length} servicios · 1 fila por booking · "Estado real" considera el <strong>saldo del piloto al cierre del período consultado</strong>
       </div>
       <div style="overflow-x:auto;">
         <table class="aud-table rec-detail-table">
