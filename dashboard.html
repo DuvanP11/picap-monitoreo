@@ -10839,24 +10839,21 @@ function exportarPagos(btn, tipo) {
     `Picap_Pagos_${(tipo || 'tc').toUpperCase()}`);
 }
 
-// v2 (Fase 5): envía el reporte del sub-tab activo por email con plantilla HTML
-// corporativa + xlsx adjunto. POST /api/recaudos/enviar_email.
+// v3 (May 2026): siempre envía AMBOS sub-tabs (Picash + Ida y Vuelta) +
+// Resumen Ejecutivo. Ignora el tab activo. POST /api/recaudos/enviar_email.
 async function enviarRecaudosEmail(btn) {
-  const tabActivoId = document.querySelector('.rec-tab.active')?.id || 'rec-tab-stats';
-  const tipo = tabActivoId === 'rec-tab-alertas' ? 'ida_y_vuelta' : 'picash';
-  const tipoNbr = tipo === 'picash' ? 'Picash' : 'Ida y Vuelta';
   const desde = _recDesde || daysAgo(30);
   const hasta = _recHasta || today();
   const pais  = document.getElementById('rec-moneda')?.value || '';
 
-  const email = prompt(`Enviar reporte de Recaudos ${tipoNbr}\n\nPeríodo: ${desde} → ${hasta}\n\nIngresa el email destinatario:`, '');
+  const email = prompt(`Enviar reporte completo de Recaudos\n\nIncluye:\n  • 💵 Recaudos Picash\n  • 🔁 Recaudos Ida y Vuelta\n  • 📊 Resumen Ejecutivo (Pibox)\n\nPeríodo: ${desde} → ${hasta}\n\nIngresa el email destinatario:`, '');
   if (!email) return;
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { alert('Email inválido.'); return; }
   const mensaje = prompt('Mensaje opcional (deja vacío para usar el default):', '') || '';
 
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Enviando...'; }
   try {
-    const body = { email: email.trim(), desde, hasta, tipo, mensaje };
+    const body = { email: email.trim(), desde, hasta, mensaje };
     if (pais) body.pais = pais;
     const r = await fetch(`${API}/api/recaudos/enviar_email`, {
       method: 'POST',
@@ -10865,7 +10862,10 @@ async function enviarRecaudosEmail(btn) {
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
-    alert(`✅ Reporte enviado a ${d.destinatario}\n${d.total} registros · adjunto: ${d.filename}`);
+    const detalle = (d.total_picash !== undefined && d.total_iv !== undefined)
+      ? `Picash: ${d.total_picash} · Ida y Vuelta: ${d.total_iv}`
+      : `${d.total} registros`;
+    alert(`✅ Reporte enviado a ${d.destinatario}\n${detalle}\nAdjunto: ${d.filename}`);
   } catch(err) {
     const msg = err.message || '';
     // Si el backend respondió que Resend no está configurado / falló la API,
@@ -10883,10 +10883,11 @@ async function enviarRecaudosEmail(btn) {
         `Después podés descargar el Excel con el botón "Exportar Excel" y adjuntarlo manualmente.`
       );
       if (usarMailto) {
-        const subject = `Reporte Recaudos ${tipoNbr} · ${desde} → ${hasta}`;
+        const subject = `Reporte Recaudos · ${desde} → ${hasta}`;
         const body =
           `Hola,\n\n` +
-          `Te comparto el reporte de Recaudos ${tipoNbr} del período ${desde} → ${hasta}.\n\n` +
+          `Te comparto el reporte de Recaudos del período ${desde} → ${hasta} ` +
+          `(Picash + Ida y Vuelta + Resumen Ejecutivo).\n\n` +
           `Adjunto encontrarás el detalle en Excel (descargado desde el portal Picap Monitoreo).\n\n` +
           (mensaje ? `Mensaje: ${mensaje}\n\n` : '') +
           `Saludos.`;

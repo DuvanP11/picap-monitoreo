@@ -337,54 +337,23 @@ module Api
       end
 
       # v3: calcular recuperación del mes anterior para el resumen ejecutivo.
-      # Definición acordada con DP: bookings con debe=DEBE del mes anterior cuyo
-      # piloto HOY tiene balance Picash >= 0 → suma de recaudo_neto.abs de esos.
-      mes_ant_desde, mes_ant_hasta = recuperacion_rango_mes_anterior(desde, hasta)
-      recuperacion_data = recuperacion_calcular(mes_ant_desde, mes_ant_hasta, filtro_pais)
+      # Bookings con debe=DEBE del mes anterior cuyo piloto HOY tiene balance
+      # Picash >= 0 → suma de recaudo_neto.abs de esos. La lógica pura vive en
+      # RecaudosResumenHelpers; acá hacemos el wiring con CH.
+      recuperacion_data = cargar_recuperacion_mes_anterior(desde, hasta, filtro_pais)
 
       xlsx = ExcelExportService.build("Picap_Recaudos_#{fname_suffix}") do |x|
         # Hoja 1+: detalle por sub-tab (Picash / Ida y Vuelta o ambas).
         sheets.each do |(sheet_name, sheet_rows)|
           x.add_sheet(sheet_name) do |s|
-            s.banner(sheet_name,
-                     "Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 15)
-            s.headers([
-              "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
-              "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
-              "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
-              "Saldo actual", "Saldo fin de mes", "Estado booking", "Estado real",
-            ])
-            sheet_rows.each do |r|
-              ba = r["balance_actual"]
-              bf = r["balance_fin_mes"]
-              s.data_row([
-                r["fecha_servicio"].to_s[0, 19],
-                r["booking_id"].to_s,
-                r["driver_id"].to_s,
-                r["nombre_piloto"].to_s,
-                r["company_id"].to_s,
-                r["comercio"].to_s,
-                r["ciudad"].to_s,
-                r["moneda"].to_s,
-                r["valor_servicio"].to_f.round(2),
-                r["total_positivo"].to_f.round(2),
-                r["total_negativo"].to_f.round(2),
-                r["recaudo_neto"].to_f.round(2),
-                ba.nil? ? "" : ba.to_f.round(2),
-                bf.nil? ? "" : bf.to_f.round(2),
-                r["debe"].to_s,
-                r["estado_real"].to_s,
-              ], right_align: [9, 10, 11, 12, 13, 14])
-            end
-            s.finalize(freeze_row: 4)
+            RecaudosResumenHelpers.render_detalle_sheet(s, sheet_name, sheet_rows, desde, hasta)
           end
         end
 
-        # Hoja final: Resumen Ejecutivo (estilo Pibox).
-        # Toma TODAS las filas (no separa por sub-tab) — el informe se calcula
-        # consolidado para el rango seleccionado.
+        # Hoja final: Resumen Ejecutivo (estilo Pibox) consolidado.
         x.add_sheet("Resumen Ejecutivo", tab_color: ExcelExportService::COLORS[:red]) do |s|
-          resumen_ejecutivo_render(s, rows, desde, hasta, recuperacion_data)
+          logo_path = Rails.root.join("public/images/pibox_logo.png").to_s
+          RecaudosResumenHelpers.render_resumen_ejecutivo(s, rows, desde, hasta, recuperacion_data, logo_path: logo_path)
         end
       end
 
@@ -395,170 +364,26 @@ module Api
 
     private
 
-    # ── Resumen Ejecutivo (estilo Pibox) ─────────────────────────────────────
-
-    # Devuelve [mes_ant_desde, mes_ant_hasta] como YYYY-MM-DD.
-    # Si el rango actual cubre todo un mes (ej. 2026-04-01..2026-04-30), devuelve
-    # el mes anterior completo (2026-03-01..2026-03-31). Si es un rango parcial,
-    # devuelve el mismo rango pero corrido 1 mes para atrás.
-    def recuperacion_rango_mes_anterior(desde, hasta)
-      d = Date.parse(desde.to_s)
-      h = Date.parse(hasta.to_s)
-      # Si cubre todo un mes natural, usar mes anterior natural completo.
-      if d.day == 1 && h == Date.new(d.year, d.month, -1)
-        prev = d.prev_month
-        return [prev.strftime("%Y-%m-%d"), Date.new(prev.year, prev.month, -1).strftime("%Y-%m-%d")]
-      end
-      [d.prev_month.strftime("%Y-%m-%d"), h.prev_month.strftime("%Y-%m-%d")]
-    rescue
-      # Fallback: 30 días antes del rango actual.
-      [(Date.today - 60).strftime("%Y-%m-%d"), (Date.today - 30).strftime("%Y-%m-%d")]
-    end
-
-    # Calcula la recuperación del mes anterior:
-    # - Corre Q_RECAUDOS_DETALLE para el rango del mes anterior.
-    # - Filtra bookings con debe == "DEBE".
-    # - De esos pilotos, los que HOY tienen balance Picash >= 0 → suma de
-    #   recaudo_neto.abs es "recuperación" (la deuda del mes anterior ya se saldó).
-    # Devuelve { recuperacion: Float, bookings_recuperados: Int, periodo: "..." }.
-    def recuperacion_calcular(desde, hasta, filtro_pais)
+    # Carga la recuperación del mes anterior desde CH y delega el cálculo puro a
+    # RecaudosResumenHelpers.calcular_recuperacion (que no consulta CH).
+    def cargar_recuperacion_mes_anterior(desde, hasta, filtro_pais)
+      mes_ant_desde, mes_ant_hasta = RecaudosResumenHelpers.rango_mes_anterior(desde, hasta)
       sql = QueriesService.format(
         QueriesService::Q_RECAUDOS_DETALLE,
-        desde: desde, hasta: hasta,
+        desde: mes_ant_desde, hasta: mes_ant_hasta,
         filtro_pais: filtro_pais,
         limit_filas: 20_000,
       )
       ant_rows = ch.query(sql, timeout: 300)
-
-      debe_rows = ant_rows.select { |r| r["debe"].to_s == "DEBE" && r["tipo_deuda"].to_s == "PICASH" }
-      driver_ids = debe_rows.map { |r| r["driver_id"].to_s }.uniq.reject(&:empty?)
-      return { recuperacion: 0.0, bookings_recuperados: 0, periodo: "#{desde} → #{hasta}", total_perdidas_mes_ant: 0.0 } if driver_ids.empty?
-
-      balances = recaudos_balances_picash(driver_ids, Date.today.strftime("%Y-%m-%d"))
-
-      recuperacion = 0.0
-      bookings_recuperados = 0
-      total_perdidas_mes_ant = 0.0
-      debe_rows.each do |r|
-        valor = r["recaudo_neto"].to_f.abs
-        total_perdidas_mes_ant += valor
-        bal = (balances[r["driver_id"].to_s] || {})[:actual]
-        next if bal.nil?
-        if bal >= 0
-          recuperacion += valor
-          bookings_recuperados += 1
-        end
-      end
-
-      {
-        recuperacion:           recuperacion.round(2),
-        bookings_recuperados:   bookings_recuperados,
-        total_perdidas_mes_ant: total_perdidas_mes_ant.round(2),
-        periodo:                "#{desde} → #{hasta}",
-      }
+      driver_ids = ant_rows
+        .select { |r| r["debe"].to_s == "DEBE" && r["tipo_deuda"].to_s == "PICASH" }
+        .map { |r| r["driver_id"].to_s }.uniq.reject(&:empty?)
+      balances = driver_ids.empty? ? {} : recaudos_balances_picash(driver_ids, Date.today.strftime("%Y-%m-%d"))
+      RecaudosResumenHelpers.calcular_recuperacion(ant_rows, balances)
+        .merge(periodo: "#{mes_ant_desde} → #{mes_ant_hasta}")
     rescue => e
-      Rails.logger.warn("[ExportarController#recuperacion_calcular] #{e.message}")
-      { recuperacion: 0.0, bookings_recuperados: 0, total_perdidas_mes_ant: 0.0, periodo: "#{desde} → #{hasta}" }
-    end
-
-    # Nombre del mes en español (es-CO) — usado para los headers del resumen.
-    MESES_ES = %w[ENERO FEBRERO MARZO ABRIL MAYO JUNIO JULIO AGOSTO SEPTIEMBRE OCTUBRE NOVIEMBRE DICIEMBRE].freeze
-
-    def mes_label(desde)
-      d = Date.parse(desde.to_s)
-      MESES_ES[d.month - 1] || d.strftime("%B").upcase
-    rescue
-      "PERÍODO"
-    end
-
-    # Renderiza la hoja "Resumen Ejecutivo" con plantilla Pibox.
-    # @param s [ExcelExportService::SheetHelper]
-    # @param rows [Array<Hash>] todas las filas del rango (Picash + Ida y Vuelta)
-    # @param desde, hasta [String] rango del filtro
-    # @param recup [Hash] resultado de recuperacion_calcular
-    def resumen_ejecutivo_render(s, rows, desde, hasta, recup)
-      mes_actual_lbl = mes_label(desde)
-      mes_ant_d = Date.parse(desde) rescue Date.today
-      mes_ant_lbl = MESES_ES[mes_ant_d.prev_month.month - 1] || ""
-
-      # Métricas del rango actual
-      total_recaudo  = rows.sum { |r| r["total_positivo"].to_f }.round(2)
-      perdidas       = rows.select { |r| %w[DEBE SIN\ RECAUDO].include?(r["estado_real"].to_s) }
-                           .sum { |r| r["recaudo_neto"].to_f.abs }.round(2)
-      pct_perdidas   = total_recaudo > 0 ? -(perdidas / total_recaudo) : 0.0  # negativo por convención
-
-      # Pivot por compañía (sólo las que tienen pérdidas pendientes)
-      pendientes_por_cia = rows
-        .select { |r| %w[DEBE SIN\ RECAUDO].include?(r["estado_real"].to_s) }
-        .group_by { |r| [r["company_id"].to_s, r["comercio"].to_s, r["ciudad"].to_s] }
-        .map do |(cid, nombre, ciudad), grupo|
-          {
-            comercio: nombre.empty? ? cid : nombre,
-            ciudad:   ciudad,
-            pendiente: -grupo.sum { |r| r["recaudo_neto"].to_f.abs }.round(2),  # negativo
-          }
-        end
-        .sort_by { |h| h[:pendiente] }  # más negativo primero
-
-      total_pendientes = pendientes_por_cia.sum { |h| h[:pendiente] }
-      pendientes_con_pct = pendientes_por_cia.map do |h|
-        h.merge(pct: total_pendientes != 0 ? (h[:pendiente] / total_pendientes) : 0.0)
-      end
-
-      # ── Layout ───────────────────────────────────────────────────────────
-      s.set_column_widths(22, 18, 18, 18, 16)
-
-      # Logo Pibox — si existe el PNG en public/images, lo embebe. Si no,
-      # cae a placeholder de texto morado "pibox".
-      # Cuando DP pase el PNG, guardarlo como public/images/pibox_logo.png
-      # y se carga automáticamente sin tocar código.
-      logo_path = (defined?(Rails) ? Rails.root.join("public/images/pibox_logo.png").to_s : nil)
-      if logo_path && File.exist?(logo_path)
-        s.add_image(logo_path, row: 1, col: 1, width: 160, height: 64)
-        s.blank_rows(3)  # reservar espacio del logo
-      else
-        s.ws.add_row(["pibox"], height: 40)
-        s.ws.merge_cells("A1:B2")
-        s.instance_variable_set(:@current_row, 4)
-        s.blank_rows(1)
-      end
-
-      # Título principal
-      s.report_main_title("INFORME DE PÉRDIDAS EN LOS RECAUDOS", span: 5)
-
-      # Tabla 1: PERÍODO | RECAUDO | PERDIDAS | % PERDIDAS
-      s.report_table(
-        ["PERÍODO", "RECAUDO", "PERDIDAS", "% PERDIDAS"],
-        [[mes_actual_lbl, total_recaudo, -perdidas, pct_perdidas]],
-        value_styles: [:text, :money, :money_neg, :pct],
-      )
-
-      # Tabla 2: PERDIDA [MES] | RECUPERACIÓN [MES ANT] | TOTAL PERDIDAS
-      total_neto = -perdidas + recup[:recuperacion]
-      s.report_table(
-        ["PERDIDA #{mes_actual_lbl}", "RECUPERACIÓN #{mes_ant_lbl}", "TOTAL PERDIDAS"],
-        [[-perdidas, recup[:recuperacion], total_neto]],
-        value_styles: [:money_neg, :money, :money_neg],
-      )
-
-      # Tabla 3: pivot por compañía (sólo con pendientes)
-      if pendientes_con_pct.any?
-        s.report_table(
-          ["COMPAÑÍA", "Ciudad", "Suma de PENDIENTE", "PORCENTAJE"],
-          pendientes_con_pct.map { |h| [h[:comercio], h[:ciudad], h[:pendiente], h[:pct]] } +
-            [["Total general", "", total_pendientes, 1.0]],
-          value_styles: [:text, :text, :money_neg, :pct],
-        )
-      else
-        s.report_table(
-          ["COMPAÑÍA", "Ciudad", "Suma de PENDIENTE", "PORCENTAJE"],
-          [["— Sin pendientes —", "", 0, 0]],
-          value_styles: [:text, :text, :money_neg, :pct],
-        )
-      end
-
-      s.ws.sheet_view.show_grid_lines = false
-      s
+      Rails.logger.warn("[ExportarController#cargar_recuperacion_mes_anterior] #{e.message}")
+      { recuperacion: 0.0, bookings_recuperados: 0, total_perdidas_mes_ant: 0.0, periodo: "" }
     end
 
     # Balance Picash por piloto: { driver_id => {actual: Float, fin_mes: Float} }
