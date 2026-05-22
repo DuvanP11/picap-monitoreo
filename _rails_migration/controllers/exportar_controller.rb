@@ -333,14 +333,51 @@ module Api
       recuperacion_data = cargar_recuperacion_mes_anterior(desde, hasta, filtro_pais)
 
       xlsx = ExcelExportService.build("Picap_Recaudos") do |x|
-        # Hojas detalle: Picash + Ida y Vuelta
+        # v3.6: hojas detalle INLINE (igual que Evasión/Bloqueos/etc.).
+        # Antes pasábamos por RecaudosResumenHelpers.render_detalle_sheet pero
+        # ese wrapping rompía la aplicación de estilos en caxlsx — aunque el
+        # código se ejecutaba, los styles no se vinculaban a las celdas.
+        # Patrón confirmado funcionando en Evasión (commit 9fe9ffa).
         sheets.each do |(sheet_name, sheet_rows)|
           x.add_sheet(sheet_name) do |s|
-            RecaudosResumenHelpers.render_detalle_sheet(s, sheet_name, sheet_rows, desde, hasta)
+            s.banner(sheet_name,
+                     "v3.6 · Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 16)
+            s.headers([
+              "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
+              "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
+              "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
+              "Saldo actual", "Saldo fin de mes", "Estado booking", "Estado real",
+            ])
+            sheet_rows.each do |r|
+              ba = r["balance_actual"]
+              bf = r["balance_fin_mes"]
+              s.data_row([
+                r["fecha_servicio"].to_s[0, 19],
+                r["booking_id"].to_s,
+                r["driver_id"].to_s,
+                r["nombre_piloto"].to_s,
+                r["company_id"].to_s,
+                r["comercio"].to_s,
+                r["ciudad"].to_s,
+                r["moneda"].to_s,
+                r["valor_servicio"].to_f,
+                r["total_positivo"].to_f,
+                r["total_negativo"].to_f,
+                r["recaudo_neto"].to_f,
+                ba.nil? ? nil : ba.to_f,
+                bf.nil? ? nil : bf.to_f,
+                r["debe"].to_s,
+                r["estado_real"].to_s,
+              ], money_cols: [9, 10, 11, 12, 13, 14])
+            end
+            s.finalize(freeze_row: 4)
           end
         end
 
         # Hoja final: Resumen Ejecutivo (estilo Pibox) consolidado.
+        # Esta sí queda en el helper porque la lógica es compleja y se reusa
+        # también en el email. El helper no usa el wrapping problemático del
+        # detalle — solo orquesta `report_main_title` / `report_table`.
         x.add_sheet("Resumen Ejecutivo", tab_color: ExcelExportService::COLORS[:red]) do |s|
           logo_path = Rails.root.join("public/images/pibox_logo.png").to_s
           RecaudosResumenHelpers.render_resumen_ejecutivo(s, rows, desde, hasta, recuperacion_data, logo_path: logo_path)

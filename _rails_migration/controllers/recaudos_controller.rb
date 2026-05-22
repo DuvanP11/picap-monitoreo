@@ -159,11 +159,44 @@ module Api
 
     # Construye el xlsx COMPLETO: 3 hojas (Picash + Ida y Vuelta + Resumen
     # Ejecutivo). Mismo formato que el endpoint /api/exportar/recaudos.
+    # v3.6: hojas detalle INLINE (igual que Evasión/Bloqueos/etc.) — antes
+    # iban por RecaudosResumenHelpers.render_detalle_sheet pero ese wrapping
+    # rompía los styles.
     def construir_xlsx_recaudos_full(picash_rows, idayvuelta_rows, all_rows, desde, hasta, recup)
       ExcelExportService.build("Picap_Recaudos") do |x|
         [["Recaudos Picash", picash_rows], ["Recaudos Ida y Vuelta", idayvuelta_rows]].each do |(sheet_name, sheet_rows)|
           x.add_sheet(sheet_name) do |s|
-            RecaudosResumenHelpers.render_detalle_sheet(s, sheet_name, sheet_rows, desde, hasta)
+            s.banner(sheet_name,
+                     "v3.6 · Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 16)
+            s.headers([
+              "Fecha servicio", "Booking ID", "Piloto ID", "Piloto Nombre",
+              "Comercio ID", "Comercio Nombre", "Ciudad", "Moneda",
+              "Valor servicio", "Recaudo +", "Recaudo −", "Recaudo neto",
+              "Saldo actual", "Saldo fin de mes", "Estado booking", "Estado real",
+            ])
+            sheet_rows.each do |r|
+              ba = r["balance_actual"]
+              bf = r["balance_fin_mes"]
+              s.data_row([
+                r["fecha_servicio"].to_s[0, 19],
+                r["booking_id"].to_s,
+                r["driver_id"].to_s,
+                r["nombre_piloto"].to_s,
+                r["company_id"].to_s,
+                r["comercio"].to_s,
+                r["ciudad"].to_s,
+                r["moneda"].to_s,
+                r["valor_servicio"].to_f,
+                r["total_positivo"].to_f,
+                r["total_negativo"].to_f,
+                r["recaudo_neto"].to_f,
+                ba.nil? ? nil : ba.to_f,
+                bf.nil? ? nil : bf.to_f,
+                r["debe"].to_s,
+                r["estado_real"].to_s,
+              ], money_cols: [9, 10, 11, 12, 13, 14])
+            end
+            s.finalize(freeze_row: 4)
           end
         end
         x.add_sheet("Resumen Ejecutivo", tab_color: ExcelExportService::COLORS[:red]) do |s|
