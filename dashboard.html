@@ -687,8 +687,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .rec-table tr.row-demas td{border-left:3px solid var(--amber);}
 .rec-table tr.row-deuda td{border-left:3px solid var(--red);}
 .rec-table tr.row-revisar td{border-left:3px solid var(--purple2);}
-/* v3: tabla detallada de recaudos — más legible, columnas con anchos fijos. */
-.rec-detail-table{font-size:12px;table-layout:fixed;width:100%;min-width:1600px;}
+/* v3.9: tabla detallada de recaudos — IDs completos sin truncado.
+   Suma de colgroup: 88+88+120+220+260+280+160+60+110+110+110+110+120+120 = 1956px */
+.rec-detail-table{font-size:12px;table-layout:fixed;width:100%;min-width:1960px;}
 .rec-detail-table th{padding:10px 8px;font-size:11px;}
 .rec-detail-table td{padding:10px 8px;vertical-align:middle;}
 .rec-detail-table tr:hover td{background:#FAF9FF;}
@@ -9735,8 +9736,8 @@ function renderRecTab(targetId, sec, tabName) {
       return `<span style="font-size:11px;font-weight:600;color:${color}" title="${tooltip}">${fmtMoney(bal)}</span>`;
     };
 
-    // v3: layout más ancho y legible. Anchos fijos por columna, font 12px,
-    // celdas Piloto/Comercio en 2 líneas pero limpias (nombre arriba, ID abajo).
+    // v3.9: IDs completos (24 chars Mongo) sin truncar. Anchos aumentados
+    // para acomodar. Tabla scrollable horizontal (overflow-x:auto + min-width).
     const copyJs = (id) => `navigator.clipboard.writeText('${id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)`;
 
     const rows = filas.map(f => `<tr>
@@ -9744,24 +9745,24 @@ function renderRecTab(targetId, sec, tabName) {
         <td>${badgeFor(f.estado_real)}</td>
         <td style="font-size:11px;color:var(--text2);white-space:nowrap" title="Fecha del servicio">${(f.fecha_servicio||'').slice(0,16)}</td>
         <td style="white-space:nowrap">
-          <span style="font-family:monospace;font-size:11px;color:var(--text2);cursor:pointer" title="Booking ID · click para copiar"
-                onclick="${copyJs(f.booking_id)}">${(f.booking_id||'—').slice(0,12)}${(f.booking_id||'').length>12?'…':''}</span>
+          <span style="font-family:monospace;font-size:11px;color:var(--text2);cursor:pointer" title="Click para copiar"
+                onclick="${copyJs(f.booking_id)}">${f.booking_id||'—'}</span>
         </td>
         <td>
-          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-            <span style="font-size:12px;font-weight:600;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(f.nombre_piloto||'').replace(/"/g,'&quot;')}">${f.nombre_piloto||'—'}</span>
-            <span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Piloto ID · click para copiar"
-                  onclick="${copyJs(f.driver_id)}">${(f.driver_id||'—').slice(0,10)}${(f.driver_id||'').length>10?'…':''}</span>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12px;font-weight:600;color:var(--text1);white-space:nowrap">${f.nombre_piloto||'—'}</span>
+            <span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Click para copiar"
+                  onclick="${copyJs(f.driver_id)}">${f.driver_id||'—'}</span>
           </div>
         </td>
         <td>
-          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-            <span style="font-size:12px;font-weight:600;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(f.comercio||'').replace(/"/g,'&quot;')}">${f.comercio||'—'}</span>
-            <span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Comercio ID · click para copiar"
-                  onclick="${copyJs(f.company_id)}">${(f.company_id||'—').slice(0,10)}${(f.company_id||'').length>10?'…':''}</span>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12px;font-weight:600;color:var(--text1);white-space:nowrap">${f.comercio||'—'}</span>
+            <span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Click para copiar"
+                  onclick="${copyJs(f.company_id)}">${f.company_id||'—'}</span>
           </div>
         </td>
-        <td style="font-size:12px;white-space:nowrap" title="${(f.ciudad||'').replace(/"/g,'&quot;')}">${f.ciudad||'—'}</td>
+        <td style="font-size:12px;white-space:nowrap">${f.ciudad||'—'}</td>
         <td style="font-size:11px;text-align:center;white-space:nowrap">${f.moneda||'—'}</td>
         <td class="right" style="font-weight:600;white-space:nowrap">${fmtMoney(f.valor_servicio)}</td>
         <td class="right" style="color:#22c55e;white-space:nowrap">${fmtMoney(f.total_positivo)}</td>
@@ -9779,12 +9780,12 @@ function renderRecTab(targetId, sec, tabName) {
         <table class="aud-table rec-detail-table">
           <colgroup>
             <col style="width:88px"><col style="width:88px">
-            <col style="width:120px"><col style="width:110px">
-            <col style="width:200px"><col style="width:220px">
-            <col style="width:140px"><col style="width:60px">
-            <col style="width:100px"><col style="width:100px">
-            <col style="width:100px"><col style="width:100px">
+            <col style="width:120px"><col style="width:220px">
+            <col style="width:260px"><col style="width:280px">
+            <col style="width:160px"><col style="width:60px">
             <col style="width:110px"><col style="width:110px">
+            <col style="width:110px"><col style="width:110px">
+            <col style="width:120px"><col style="width:120px">
           </colgroup>
           <thead><tr>
             <th>Estado booking</th><th>Estado real</th><th>Fecha</th><th>Booking ID</th>
