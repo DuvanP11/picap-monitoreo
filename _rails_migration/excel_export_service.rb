@@ -67,16 +67,18 @@ class ExcelExportService
   class SheetHelper
     attr_reader :ws, :current_row
 
+    # Formato moneda Colombia (COP): sin decimales, separador de miles, signo $.
+    # caxlsx serializa el format_code tal cual; Excel/LibreOffice lo interpreta.
+    # NOTA: deben ir a nivel de clase — Ruby no permite definir constantes
+    # dentro de `def` (SyntaxError: dynamic constant assignment).
+    MONEY_FMT     = '"$ "#,##0'.freeze
+    MONEY_NEG_FMT = '"$ "#,##0;[Red]"-$ "#,##0'.freeze
+
     def initialize(wb, ws, tab_color: COLORS[:purple])
       @wb           = wb
       @ws           = ws
       @current_row  = 1
       @tab_color    = tab_color
-
-      # Formato moneda Colombia (COP): sin decimales, separador de miles, signo $.
-      # caxlsx serializa el format_code tal cual; Excel/LibreOffice lo interpreta.
-      MONEY_FMT      = '"$ "#,##0'.freeze
-      MONEY_NEG_FMT  = '"$ "#,##0;[Red]"-$ "#,##0'.freeze
 
       # Estilos pre-creados (cacheados). El prefix "FF" en colores asegura
       # alpha=255 (opaco) — algunos renderers ignoran formatos sin alpha.
