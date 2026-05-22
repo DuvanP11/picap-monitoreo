@@ -138,12 +138,17 @@ module RecaudosResumenHelpers
       value_styles: [:money_neg, :money, :money_neg],
     )
 
-    # Tabla 3: pivot por compañía (con fila de total destacada)
+    # Tabla 3: pivot por compañía
     if pendientes_con_pct.any?
-      s.report_table_with_total(
+      # Una sola tabla con la fila de total al final (estilo "total" destacado)
+      filas = pendientes_con_pct.map { |h| [h[:comercio], h[:ciudad], h[:pendiente], h[:pct]] }
+      filas << ["Total general", "", total_pendientes, 1.0]
+      # value_styles aplica a TODAS las filas de la tabla. La última fila tiene
+      # los mismos estilos que las demás (money_neg/pct), pero el contraste se
+      # marca por el contenido "Total general".
+      s.report_table(
         ["COMPAÑÍA", "Ciudad", "Suma de PENDIENTE", "PORCENTAJE"],
-        pendientes_con_pct.map { |h| [h[:comercio], h[:ciudad], h[:pendiente], h[:pct]] },
-        total_row: ["Total general", "", total_pendientes, 1.0],
+        filas,
         value_styles: [:text, :text, :money_neg, :pct],
       )
     else
@@ -180,7 +185,7 @@ module RecaudosResumenHelpers
   DETALLE_MONEY_COLS = [9, 10, 11, 12, 13, 14].freeze
 
   def render_detalle_sheet(s, sheet_name, sheet_rows, desde, hasta)
-    s.banner(sheet_name, "v3.4 · Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 16)
+    s.banner(sheet_name, "v3.5 · Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 16)
     s.headers(DETALLE_HEADERS)
     sheet_rows.each do |r|
       ba = r["balance_actual"]
