@@ -87,6 +87,132 @@ class ExcelExportService
       @s_kpi_val   = wb.styles.add_style(b: true, sz: 11, alignment: { horizontal: :right })
       @s_section   = wb.styles.add_style(b: true, sz: 12, fg_color: COLORS[:purple],
                                          alignment: { horizontal: :left })
+
+      # v3: estilos para reportes ejecutivos tipo Pibox (header morado pleno,
+      # bordes morados, celdas con valores monetarios en rojo/negro).
+      @s_report_title = wb.styles.add_style(
+        b: true, sz: 14, fg_color: COLORS[:dark],
+        bg_color: COLORS[:purple_lt],
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :medium, color: COLORS[:purple] },
+      )
+      @s_report_header = wb.styles.add_style(
+        b: true, sz: 11, fg_color: COLORS[:white],
+        bg_color: COLORS[:purple],
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: COLORS[:purple] },
+      )
+      @s_report_cell = wb.styles.add_style(
+        sz: 11, fg_color: COLORS[:dark],
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: COLORS[:purple] },
+      )
+      @s_report_cell_money = wb.styles.add_style(
+        b: true, sz: 11, fg_color: COLORS[:dark],
+        alignment: { horizontal: :right, vertical: :center },
+        border: { style: :thin, color: COLORS[:purple] },
+        format_code: '"$ "#,##0',
+      )
+      @s_report_cell_money_neg = wb.styles.add_style(
+        b: true, sz: 11, fg_color: COLORS[:red],
+        alignment: { horizontal: :right, vertical: :center },
+        border: { style: :thin, color: COLORS[:purple] },
+        format_code: '"$ "#,##0;[Red]"-$ "#,##0',
+      )
+      @s_report_cell_pct = wb.styles.add_style(
+        b: true, sz: 11, fg_color: COLORS[:red],
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: COLORS[:purple] },
+        format_code: '0.00%',
+      )
+    end
+
+    # Banner de título grande para reportes ejecutivos (estilo Pibox).
+    # Una sola celda mergeada de span columnas, con fondo morado claro y
+    # texto bold morado oscuro centrado.
+    def report_main_title(text, span: 5)
+      @ws.add_row([text] + Array.new(span - 1), style: @s_report_title, height: 28)
+      @ws.merge_cells "A#{@current_row}:#{cell_ref(@current_row, span)}"
+      @current_row += 1
+      @ws.add_row(Array.new(span, nil))
+      @current_row += 1
+      self
+    end
+
+    # Reportes ejecutivos (estilo Pibox): tablas con header morado + bordes.
+    # Cada llamada agrega una mini-tabla. No actualiza header_count global porque
+    # no participa del autofit estándar; los anchos se setean explícitamente
+    # con set_column_widths.
+    #
+    # @param headers [Array<String>]
+    # @param values [Array<Array>]
+    # @param value_styles [Array<Symbol>] por celda en values[0] — tipo:
+    #        :text (default), :money, :money_neg, :pct
+    def report_table(headers, values, value_styles: nil, title: nil, title_span: nil)
+      n_cols = headers.size
+      span = title_span || n_cols
+
+      if title
+        @ws.add_row([title] + Array.new(n_cols - 1), style: @s_report_title, height: 26)
+        @ws.merge_cells "A#{@current_row}:#{cell_ref(@current_row, span)}"
+        @current_row += 1
+      end
+
+      @ws.add_row(headers, style: @s_report_header, height: 22)
+      @current_row += 1
+
+      values.each do |row|
+        styles = row.each_index.map do |i|
+          sym = value_styles ? value_styles[i] : :text
+          case sym
+          when :money     then @s_report_cell_money
+          when :money_neg then @s_report_cell_money_neg
+          when :pct       then @s_report_cell_pct
+          else                 @s_report_cell
+          end
+        end
+        @ws.add_row(row, style: styles, height: 20)
+        @current_row += 1
+      end
+
+      # fila vacía separadora
+      @ws.add_row(Array.new(n_cols, nil))
+      @current_row += 1
+      self
+    end
+
+    # Inserta una imagen (logo). file_path debe ser absoluta y existir.
+    # row/col 1-based. width/height en píxeles.
+    # caxlsx API: ws.add_image(image_src:) { |i| i.width/height/start_at }.
+    # start_at usa coordenadas 0-based (col, row).
+    def add_image(file_path, row: nil, col: nil, width: 120, height: 60)
+      return self unless file_path && File.exist?(file_path)
+      target_row = row || @current_row
+      target_col = col || 1
+      @ws.add_image(image_src: file_path) do |i|
+        i.width  = width
+        i.height = height
+        i.start_at(target_col - 1, target_row - 1)
+      end
+      self
+    rescue => e
+      Rails.logger.warn("[ExcelExportService] add_image fallo: #{e.class}: #{e.message}") if defined?(Rails)
+      self
+    end
+
+    # Avanza N filas en blanco (para spacing entre secciones).
+    def blank_rows(n = 1)
+      n.times do
+        @ws.add_row([])
+        @current_row += 1
+      end
+      self
+    end
+
+    # Setea anchos de columna explícitos (sin pasar por autofit_columns).
+    def set_column_widths(*widths)
+      @ws.column_widths(*widths)
+      self
     end
 
     def banner(title, subtitle, n_cols)

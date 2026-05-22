@@ -353,6 +353,15 @@ module Api
       balance >= 0 ? "NO DEBE (saldado)" : "DEBE"
     end
 
+    # Nuevas categorías (v3) basadas en estado_real:
+    # - Sin Novedad   = estado_real ∈ {AL DIA, NO DEBE (saldado), PAGADO DE MAS}
+    #                   → bookings sin problema, incluso si tienen diferencia positiva
+    # - Con Diferencia = estado_real ∈ {DEBE, SIN RECAUDO}
+    #                   → bookings con problema real (piloto debe y no saldó)
+    # Mantengo los campos viejos (debe, al_dia, etc.) por compat con el email/export.
+    SIN_NOVEDAD_STATES   = ["AL DIA", "NO DEBE (saldado)", "PAGADO DE MAS"].freeze
+    CON_DIFERENCIA_STATES = ["DEBE", "SIN RECAUDO"].freeze
+
     def calc_stats(rows)
       total          = rows.size
       n_debe         = rows.count { |r| r["debe"] == "DEBE" }
@@ -362,6 +371,12 @@ module Api
       # Estado real (considera balance picash del piloto)
       n_debe_real    = rows.count { |r| r["estado_real"] == "DEBE" }
       n_saldados     = rows.count { |r| r["estado_real"] == "NO DEBE (saldado)" }
+      # v3: categorías Sin Novedad / Con Diferencia (basadas en estado_real)
+      n_sin_novedad     = rows.count { |r| SIN_NOVEDAD_STATES.include?(r["estado_real"]) }
+      n_con_diferencia  = rows.count { |r| CON_DIFERENCIA_STATES.include?(r["estado_real"]) }
+      v_con_diferencia  = rows.select { |r| CON_DIFERENCIA_STATES.include?(r["estado_real"]) }
+                              .sum { |r| r["recaudo_neto"].abs }
+
       v_deuda        = rows.select { |r| r["debe"] == "DEBE" }.sum { |r| r["recaudo_neto"].abs }
       v_deuda_real   = rows.select { |r| r["estado_real"] == "DEBE" }.sum { |r| r["recaudo_neto"].abs }
       v_demas        = rows.select { |r| r["debe"] == "PAGADO DE MAS" }.sum { |r| r["recaudo_neto"] }
@@ -370,8 +385,15 @@ module Api
       moneda_top     = rows.group_by { |r| r["moneda"] }.max_by { |_, v| v.size }&.first || ""
 
       {
-        total:         total,
-        moneda:        moneda_top,
+        total:               total,
+        moneda:              moneda_top,
+        # v3: campos nuevos
+        sin_novedad:         n_sin_novedad,
+        con_diferencia:      n_con_diferencia,
+        v_con_diferencia:    v_con_diferencia.round(2),
+        pct_sin_novedad:     total > 0 ? (n_sin_novedad.to_f    / total * 100).round(1) : 0,
+        pct_con_diferencia:  total > 0 ? (n_con_diferencia.to_f / total * 100).round(1) : 0,
+        # Campos legacy (siguen usándose en email, export, debug)
         debe:          n_debe,
         debe_real:     n_debe_real,
         saldados:      n_saldados,

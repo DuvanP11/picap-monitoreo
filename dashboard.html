@@ -687,6 +687,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .rec-table tr.row-demas td{border-left:3px solid var(--amber);}
 .rec-table tr.row-deuda td{border-left:3px solid var(--red);}
 .rec-table tr.row-revisar td{border-left:3px solid var(--purple2);}
+/* v3: tabla detallada de recaudos — más legible, columnas con anchos fijos. */
+.rec-detail-table{font-size:12px;table-layout:fixed;width:100%;min-width:1600px;}
+.rec-detail-table th{padding:10px 8px;font-size:11px;}
+.rec-detail-table td{padding:10px 8px;vertical-align:middle;}
+.rec-detail-table tr:hover td{background:#FAF9FF;}
 .rec-search-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);}
 .rec-search-input{flex:1;min-width:180px;max-width:300px;padding:7px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;font-family:monospace;outline:none;transition:.15s;}
 .rec-search-input:focus{border-color:var(--purple2);box-shadow:0 0 0 3px rgba(124,58,237,.1);}
@@ -1457,8 +1462,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     </div>
     <div class="sb2-flyout">
       <div class="fly-title">Recaudos</div>
-  <div class="fly-link" id="nav-rec-stats" onclick="switchView('recaudos','stats')"><span>📊</span> Estadística</div>
-  <div class="fly-link" id="nav-rec-alertas" onclick="switchView('recaudos','alertas')"><span>🚨</span> Alertas</div>
+  <div class="fly-link" id="nav-rec-stats" onclick="switchView('recaudos','stats')"><span>💵</span> Recaudos Picash</div>
+  <div class="fly-link" id="nav-rec-alertas" onclick="switchView('recaudos','alertas')"><span>🔁</span> Recaudos Ida y Vuelta</div>
     </div>
   </div>
   <div class="sb2-item sb2-disabled" id="sbg-retencion">
@@ -9667,39 +9672,35 @@ function renderRecTab(targetId, sec, tabName) {
   const s = sec.stats || {};
   const filas = sec.filas || [];
 
+  // KPIs v3 (May 2026): consolidamos en Sin Novedad / Con Diferencia (basado en
+  // estado_real, que considera balance Picash). Las 7 cards solicitadas por DP.
   const statsHtml = `
-    <div class="rec-kpis">
+    <div class="rec-kpis" style="grid-template-columns:repeat(5,1fr);">
       <div class="rec-kpi pu">
         <div class="rec-kpi-val">${fmtNum(s.total||0)}</div>
         <div class="rec-kpi-sub">Total servicios ${tabName}</div>
         <div class="rec-kpi-bar" style="background:var(--purple)"></div>
       </div>
       <div class="rec-kpi danger">
-        <div class="rec-kpi-val">${fmtNum(s.debe||0)}</div>
-        <div class="rec-kpi-sub">❌ Debe (neto booking) · ${s.pct_debe||0}%</div>
-        <div class="rec-kpi-monto" style="color:#ef4444">${fmtMoney(s.v_deuda)}</div>
+        <div class="rec-kpi-val">${fmtNum(s.con_diferencia||0)}</div>
+        <div class="rec-kpi-sub" title="Bookings con estado real = DEBE o SIN RECAUDO. Considera el balance Picash actual del piloto.">❌ Con Diferencia</div>
+        <div class="rec-kpi-monto" style="color:#ef4444">${fmtMoney(s.v_con_diferencia)}</div>
         <div class="rec-kpi-bar" style="background:#ef4444"></div>
       </div>
-      <div class="rec-kpi" style="border-top:3px solid #7c3aed">
-        <div class="rec-kpi-val" style="color:#7c3aed">${fmtNum(s.debe_real||0)}</div>
-        <div class="rec-kpi-sub" title="Considera el balance Picash actual del piloto. Si balance ≥ 0, el piloto ya saldó la deuda por otro servicio.">🔍 Debe real · ${s.pct_debe_real||0}%</div>
-        <div class="rec-kpi-monto" style="color:#7c3aed">${fmtMoney(s.v_deuda_real)}</div>
-        <div class="rec-kpi-bar" style="background:#7c3aed"></div>
+      <div class="rec-kpi danger" style="background:#FEF2F2">
+        <div class="rec-kpi-val" style="color:#991b1b">${(s.pct_con_diferencia||0).toFixed(1)}%</div>
+        <div class="rec-kpi-sub">% Con Diferencia</div>
+        <div class="rec-kpi-bar" style="background:#ef4444"></div>
       </div>
       <div class="rec-kpi ok">
-        <div class="rec-kpi-val">${fmtNum(s.al_dia||0)}</div>
-        <div class="rec-kpi-sub">✅ Al día · ${s.pct_al_dia||0}%</div>
+        <div class="rec-kpi-val">${fmtNum(s.sin_novedad||0)}</div>
+        <div class="rec-kpi-sub" title="Bookings con estado real = AL DÍA, SALDADO o PAGADO DE MÁS. El piloto está al día con sus recaudos.">✅ Sin Novedad</div>
         <div class="rec-kpi-bar" style="background:#22c55e"></div>
       </div>
-      <div class="rec-kpi warn">
-        <div class="rec-kpi-val">${fmtNum(s.pagado_demas||0)}</div>
-        <div class="rec-kpi-sub">⚠ Pagado de más · ${s.pct_demas||0}%</div>
-        <div class="rec-kpi-monto" style="color:#f59e0b">${fmtMoney(s.v_demas)}</div>
-        <div class="rec-kpi-bar" style="background:#f59e0b"></div>
-      </div>
-      <div class="rec-kpi" style="border-top:3px solid #94a3b8">
-        <div class="rec-kpi-val" style="color:#94a3b8">${fmtNum(s.sin_recaudo||0)}</div>
-        <div class="rec-kpi-sub">∅ Sin recaudo · ${s.pct_sin||0}%</div>
+      <div class="rec-kpi ok" style="background:#F0FDF4">
+        <div class="rec-kpi-val" style="color:#166534">${(s.pct_sin_novedad||0).toFixed(1)}%</div>
+        <div class="rec-kpi-sub">% Sin Novedad</div>
+        <div class="rec-kpi-bar" style="background:#22c55e"></div>
       </div>
     </div>
     <div class="rec-kpis" style="grid-template-columns:repeat(2,1fr);margin-bottom:20px;">
@@ -9709,7 +9710,7 @@ function renderRecTab(targetId, sec, tabName) {
       </div>
       <div class="rec-kpi" style="border-top:3px solid #22c55e;">
         <div class="rec-kpi-val" style="color:#22c55e">${fmtMoney(s.v_recaudado)}</div>
-        <div class="rec-kpi-sub">Total recaudado (positivos)</div>
+        <div class="rec-kpi-sub">Total recaudado</div>
       </div>
     </div>`;
 
@@ -9734,37 +9735,40 @@ function renderRecTab(targetId, sec, tabName) {
       return `<span style="font-size:11px;font-weight:600;color:${color}" title="${tooltip}">${fmtMoney(bal)}</span>`;
     };
 
+    // v3: layout más ancho y legible. Anchos fijos por columna, font 12px,
+    // celdas Piloto/Comercio en 2 líneas pero limpias (nombre arriba, ID abajo).
+    const copyJs = (id) => `navigator.clipboard.writeText('${id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)`;
+
     const rows = filas.map(f => `<tr>
         <td>${badgeFor(f.debe)}</td>
         <td>${badgeFor(f.estado_real)}</td>
-        <td style="font-size:10px;color:var(--text3)" title="Fecha del servicio (booking.created_at)">${(f.fecha_servicio||'').slice(0,16)}</td>
-        <td>
-          <span class="aud-id-val" style="font-size:10px;display:inline-block;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle"
-                title="Booking ID · click para copiar"
-                onclick="navigator.clipboard.writeText('${f.booking_id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${f.booking_id||'—'}</span>
+        <td style="font-size:11px;color:var(--text2);white-space:nowrap" title="Fecha del servicio">${(f.fecha_servicio||'').slice(0,16)}</td>
+        <td style="white-space:nowrap">
+          <span style="font-family:monospace;font-size:11px;color:var(--text2);cursor:pointer" title="Booking ID · click para copiar"
+                onclick="${copyJs(f.booking_id)}">${(f.booking_id||'—').slice(0,12)}${(f.booking_id||'').length>12?'…':''}</span>
         </td>
         <td>
-          <div class="aud-id-cell">
-            <span class="aud-id-label">Piloto ID</span>
-            <span class="aud-id-val" title="Click para copiar" onclick="navigator.clipboard.writeText('${f.driver_id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${f.driver_id||'—'}</span>
-            <span style="font-size:11px;font-weight:600;color:var(--text1)">${f.nombre_piloto||'—'}</span>
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+            <span style="font-size:12px;font-weight:600;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(f.nombre_piloto||'').replace(/"/g,'&quot;')}">${f.nombre_piloto||'—'}</span>
+            <span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Piloto ID · click para copiar"
+                  onclick="${copyJs(f.driver_id)}">${(f.driver_id||'—').slice(0,10)}${(f.driver_id||'').length>10?'…':''}</span>
           </div>
         </td>
         <td>
-          <div class="aud-id-cell">
-            <span class="aud-id-label">Comercio ID</span>
-            <span class="aud-id-val" title="Click para copiar" onclick="navigator.clipboard.writeText('${f.company_id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)">${f.company_id||'—'}</span>
-            <span style="font-size:11px;color:var(--text2)">${f.comercio||'—'}</span>
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+            <span style="font-size:12px;font-weight:600;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(f.comercio||'').replace(/"/g,'&quot;')}">${f.comercio||'—'}</span>
+            <span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Comercio ID · click para copiar"
+                  onclick="${copyJs(f.company_id)}">${(f.company_id||'—').slice(0,10)}${(f.company_id||'').length>10?'…':''}</span>
           </div>
         </td>
-        <td style="font-size:11px">${f.ciudad||'—'}</td>
-        <td style="font-size:11px;text-align:center">${f.moneda||'—'}</td>
-        <td class="right" style="font-weight:600">${fmtMoney(f.valor_servicio)}</td>
-        <td class="right" style="color:#22c55e">${fmtMoney(f.total_positivo)}</td>
-        <td class="right" style="color:#ef4444">${fmtMoney(f.total_negativo)}</td>
-        <td class="right" style="font-weight:700;color:${f.recaudo_neto<-0.01?'#ef4444':(f.recaudo_neto>0.01?'#f59e0b':'#22c55e')}">${fmtMoney(f.recaudo_neto)}</td>
-        <td class="right">${balanceCellFor(f.balance_actual,  'Saldo Picash del piloto AL DÍA DE HOY (latest amount_after_transaction). Determina el estado_real.')}</td>
-        <td class="right">${balanceCellFor(f.balance_fin_mes, 'Saldo Picash al CIERRE del rango de fecha consultado — refleja la situación al final del período.')}</td>
+        <td style="font-size:12px;white-space:nowrap" title="${(f.ciudad||'').replace(/"/g,'&quot;')}">${f.ciudad||'—'}</td>
+        <td style="font-size:11px;text-align:center;white-space:nowrap">${f.moneda||'—'}</td>
+        <td class="right" style="font-weight:600;white-space:nowrap">${fmtMoney(f.valor_servicio)}</td>
+        <td class="right" style="color:#22c55e;white-space:nowrap">${fmtMoney(f.total_positivo)}</td>
+        <td class="right" style="color:#ef4444;white-space:nowrap">${fmtMoney(f.total_negativo)}</td>
+        <td class="right" style="font-weight:700;white-space:nowrap;color:${f.recaudo_neto<-0.01?'#ef4444':(f.recaudo_neto>0.01?'#f59e0b':'#22c55e')}">${fmtMoney(f.recaudo_neto)}</td>
+        <td class="right" style="white-space:nowrap">${balanceCellFor(f.balance_actual,  'Saldo Picash del piloto AL DÍA DE HOY.')}</td>
+        <td class="right" style="white-space:nowrap">${balanceCellFor(f.balance_fin_mes, 'Saldo Picash al CIERRE del rango consultado.')}</td>
       </tr>`).join('');
 
     filasHtml = `
@@ -9772,7 +9776,16 @@ function renderRecTab(targetId, sec, tabName) {
         ${filas.length} servicios con recaudo · 1 fila por booking · "Estado real" considera el <strong>saldo actual</strong> del piloto (hoy)
       </div>
       <div style="overflow-x:auto;">
-        <table class="aud-table">
+        <table class="aud-table rec-detail-table">
+          <colgroup>
+            <col style="width:88px"><col style="width:88px">
+            <col style="width:120px"><col style="width:110px">
+            <col style="width:200px"><col style="width:220px">
+            <col style="width:140px"><col style="width:60px">
+            <col style="width:100px"><col style="width:100px">
+            <col style="width:100px"><col style="width:100px">
+            <col style="width:110px"><col style="width:110px">
+          </colgroup>
           <thead><tr>
             <th>Estado booking</th><th>Estado real</th><th>Fecha</th><th>Booking ID</th>
             <th>Piloto</th><th>Comercio</th>
