@@ -199,9 +199,91 @@ module Api
             s.finalize(freeze_row: 4)
           end
         end
-        x.add_sheet("Resumen Ejecutivo", tab_color: ExcelExportService::COLORS[:red]) do |s|
+        # Hoja final: Resumen Ejecutivo (estilo Pibox) INLINE.
+        # v3.7: Replicado exacto del diseño del archivo de muestra del usuario.
+        x.add_sheet("Resumen Ejecutivo", tab_color: ExcelExportService::PIBOX_PURPLE) do |s|
+          ws = s.ws
+          ws.column_widths(10, 17, 22, 20, 12, 10)
+          3.times { ws.add_row([]) }
+
+          banner_row = ws.add_row(["INFORME DE PÉRDIDAS EN LOS RECAUDOS", nil, nil, nil, nil, nil], height: 28)
+          banner_row.cells.each { |c| c.style = s.s_pibox_banner }
+          ws.merge_cells "A4:F4"
+          ws.add_row([])
+
+          mes_actual_lbl = RecaudosResumenHelpers.mes_label(desde)
+          mes_ant_lbl    = RecaudosResumenHelpers.mes_anterior_label(desde)
+          total_recaudo = all_rows.sum { |r| r["total_positivo"].to_f }.round(2)
+          perdidas      = all_rows.select { |r| %w[DEBE SIN\ RECAUDO].include?(r["estado_real"].to_s) }
+                                  .sum { |r| r["recaudo_neto"].to_f.abs }.round(2)
+          pct_perdidas  = total_recaudo > 0 ? -(perdidas / total_recaudo) : 0.0
+          total_neto    = -perdidas + recup[:recuperacion]
+
+          pendientes_por_cia = all_rows
+            .select { |r| %w[DEBE SIN\ RECAUDO].include?(r["estado_real"].to_s) }
+            .group_by { |r| [r["company_id"].to_s, r["comercio"].to_s, r["ciudad"].to_s] }
+            .map do |(cid, nombre, ciudad), grupo|
+              { comercio: nombre.empty? ? cid : nombre, ciudad: ciudad,
+                pendiente: -grupo.sum { |r| r["recaudo_neto"].to_f.abs }.round(2) }
+            end
+            .sort_by { |h| h[:pendiente] }
+          total_pendientes = pendientes_por_cia.sum { |h| h[:pendiente] }
+
+          # Tabla 1
+          hdr1 = ws.add_row([nil, "PERÍODO", "RECAUDO", "PERDIDAS", "% PERDIDAS"], height: 24)
+          [1, 2, 3, 4].each { |i| hdr1.cells[i].style = s.s_pibox_header }
+          data1 = ws.add_row([nil, mes_actual_lbl, total_recaudo, -perdidas, pct_perdidas], height: 22)
+          data1.cells[1].style = s.s_pibox_cell
+          data1.cells[2].style = s.s_pibox_cell_cop
+          data1.cells[3].style = s.s_pibox_cell_cop
+          data1.cells[4].style = s.s_pibox_cell_pct
+          ws.add_row([])
+
+          # Tabla 2
+          hdr2 = ws.add_row([nil, "PERDIDA #{mes_actual_lbl}", "RECUPERACIÓN #{mes_ant_lbl}", "TOTAL PERDIDAS"], height: 24)
+          [1, 2, 3].each { |i| hdr2.cells[i].style = s.s_pibox_header }
+          data2 = ws.add_row([nil, -perdidas, recup[:recuperacion], total_neto], height: 22)
+          data2.cells[1].style = s.s_pibox_cell_cop
+          data2.cells[2].style = s.s_pibox_cell_cop
+          data2.cells[3].style = s.s_pibox_cell_cop
+          ws.add_row([])
+
+          # Tabla 3
+          hdr3 = ws.add_row([nil, "COMPAÑÍA", "Ciudad", "Suma de PENDIENTE", "PORCENTAJE"], height: 24)
+          [1, 2, 3, 4].each { |i| hdr3.cells[i].style = s.s_pibox_header }
+          if pendientes_por_cia.any?
+            pendientes_por_cia.each do |h|
+              pct = total_pendientes != 0 ? (h[:pendiente] / total_pendientes) : 0.0
+              dr = ws.add_row([nil, h[:comercio], h[:ciudad], h[:pendiente], pct], height: 22)
+              dr.cells[1].style = s.s_pibox_cell
+              dr.cells[2].style = s.s_pibox_cell
+              dr.cells[3].style = s.s_pibox_cell_cop
+              dr.cells[4].style = s.s_pibox_cell_pct
+            end
+          else
+            dr = ws.add_row([nil, "— Sin pendientes —", "", 0, 0], height: 22)
+            dr.cells[1].style = s.s_pibox_cell
+            dr.cells[2].style = s.s_pibox_cell
+            dr.cells[3].style = s.s_pibox_cell_cop
+            dr.cells[4].style = s.s_pibox_cell_pct
+          end
+
+          tot = ws.add_row([nil, "Total general", "", total_pendientes, total_pendientes != 0 ? 1.0 : 0.0], height: 22)
+          tot.cells[1].style = s.s_pibox_total
+          tot.cells[2].style = s.s_pibox_total
+          tot.cells[3].style = s.s_pibox_total_cop
+          tot.cells[4].style = s.s_pibox_total_pct
+
+          ws.sheet_view.show_grid_lines = false
+
           logo_path = Rails.root.join("public/images/pibox_logo.png").to_s
-          RecaudosResumenHelpers.render_resumen_ejecutivo(s, all_rows, desde, hasta, recup, logo_path: logo_path)
+          if File.exist?(logo_path)
+            ws.add_image(image_src: logo_path) do |i|
+              i.width  = 140
+              i.height = 56
+              i.start_at(1, 0)
+            end
+          end
         end
       end
     end

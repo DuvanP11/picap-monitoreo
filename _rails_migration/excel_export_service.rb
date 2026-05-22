@@ -70,6 +70,13 @@ class ExcelExportService
     MONEY_FMT     = '"$ "#,##0'.freeze
     MONEY_NEG_FMT = '"$ "#,##0;[Red]"-$ "#,##0'.freeze
 
+    # v3.7: formato COP regional de Excel (el mismo que aparece en xl/styles.xml
+    # cuando aplicás "Contabilidad COP" desde el menú de Excel). Replicado
+    # exacto del archivo de muestra del usuario.
+    COP_FMT       = '_-[$COP]\ * #,##0_-;\-[$COP]\ * #,##0_-;_-[$COP]\ * "-"_-;_-@_-'.freeze
+    # Morado del diseño Pibox del usuario (más azulado que COLORS[:purple]).
+    PIBOX_PURPLE  = "7030A0".freeze
+
     def initialize(wb, ws, tab_color: COLORS[:purple])
       @wb           = wb
       @ws           = ws
@@ -160,7 +167,60 @@ class ExcelExportService
         border: { style: :medium, color: COLORS[:purple] },
         format_code: '0.00%',
       )
+
+      # ── v3.7: Estilos PIBOX (réplica EXACTA del archivo de muestra del usuario) ──
+      # El archivo del usuario `Picap_Recaudos_2026-05-22.xlsx` tiene un diseño
+      # con morado #7030A0 (más azulado), formato regional COP, y bordes
+      # morados. Estos estilos lo replican identicamente.
+      @s_pibox_banner = wb.styles.add_style(
+        b: true, sz: 14, fg_color: COLORS[:white],
+        bg_color: PIBOX_PURPLE,
+        alignment: { horizontal: :center, vertical: :center },
+      )
+      @s_pibox_header = wb.styles.add_style(
+        b: true, sz: 11, fg_color: COLORS[:white],
+        bg_color: PIBOX_PURPLE,
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: PIBOX_PURPLE },
+      )
+      @s_pibox_cell = wb.styles.add_style(
+        sz: 11, alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: PIBOX_PURPLE },
+      )
+      @s_pibox_cell_cop = wb.styles.add_style(
+        sz: 11, alignment: { horizontal: :right, vertical: :center },
+        border: { style: :thin, color: PIBOX_PURPLE },
+        format_code: COP_FMT,
+      )
+      @s_pibox_cell_pct = wb.styles.add_style(
+        sz: 11, alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: PIBOX_PURPLE },
+        format_code: '0%',
+      )
+      @s_pibox_total = wb.styles.add_style(
+        sz: 11, fg_color: COLORS[:white], bg_color: PIBOX_PURPLE,
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: PIBOX_PURPLE },
+      )
+      @s_pibox_total_cop = wb.styles.add_style(
+        sz: 11, fg_color: COLORS[:white], bg_color: PIBOX_PURPLE,
+        alignment: { horizontal: :right, vertical: :center },
+        border: { style: :thin, color: PIBOX_PURPLE },
+        format_code: COP_FMT,
+      )
+      @s_pibox_total_pct = wb.styles.add_style(
+        sz: 11, fg_color: COLORS[:white], bg_color: PIBOX_PURPLE,
+        alignment: { horizontal: :center, vertical: :center },
+        border: { style: :thin, color: PIBOX_PURPLE },
+        format_code: '0%',
+      )
     end
+
+    # v3.7: getters para que los controllers/helpers puedan armar el resumen
+    # ejecutivo inline con los estilos pibox.
+    attr_reader :s_pibox_banner, :s_pibox_header, :s_pibox_cell,
+                :s_pibox_cell_cop, :s_pibox_cell_pct,
+                :s_pibox_total, :s_pibox_total_cop, :s_pibox_total_pct
 
     def banner(title, subtitle, n_cols)
       @ws.add_row([title]    + Array.new(n_cols - 1), style: @s_title,    height: 24)
