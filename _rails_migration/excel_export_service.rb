@@ -80,19 +80,23 @@ class ExcelExportService
       @current_row  = 1
       @tab_color    = tab_color
 
-      # Estilos pre-creados (cacheados). El prefix "FF" en colores asegura
-      # alpha=255 (opaco) — algunos renderers ignoran formatos sin alpha.
-      purple   = "FF#{COLORS[:purple]}"
-      purpleLt = "FF#{COLORS[:purple_lt]}"
-      white    = "FF#{COLORS[:white]}"
-      dark     = "FF#{COLORS[:dark]}"
-      red      = "FF#{COLORS[:red]}"
-      grayBd   = "FFCCCCCC"
-      grayLt   = "FFF3F0FA"
+      # v3.4: REVERTIMOS el prefix "FF" en colores. caxlsx 4.4.2 acepta
+      # tanto 6 chars (RRGGBB) como 8 chars (AARRGGBB), pero al probar con
+      # 8 chars los estilos NO se aplicaban en la práctica. Volvemos al
+      # formato original de 6 chars que sí funcionaba en versiones previas
+      # del sistema (endpoints de evasión/estafa/bloqueos con headers
+      # morados confirmados).
+      purple   = COLORS[:purple]      # "6B21A8"
+      purpleLt = COLORS[:purple_lt]   # "EDE9F5"
+      white    = COLORS[:white]       # "FFFFFF"
+      dark     = COLORS[:dark]        # "1E1333"
+      red      = COLORS[:red]         # "DC2626"
+      grayBd   = "CCCCCC"
+      grayLt   = "F3F0FA"
 
       @s_title    = wb.styles.add_style(b: true, sz: 16, fg_color: purple,
                                         alignment: { horizontal: :left, vertical: :center })
-      @s_subtitle = wb.styles.add_style(b: false, sz: 10, fg_color: "FF555555",
+      @s_subtitle = wb.styles.add_style(b: false, sz: 10, fg_color: "555555",
                                         alignment: { horizontal: :left })
       @s_header   = wb.styles.add_style(b: true, sz: 11, fg_color: white,
                                         bg_color: purple,
