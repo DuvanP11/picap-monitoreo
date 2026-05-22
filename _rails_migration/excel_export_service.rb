@@ -35,7 +35,10 @@ class ExcelExportService
 
   def self.build(filename_base)
     pkg = Axlsx::Package.new
-    pkg.use_shared_strings = true
+    # v3.3: quitamos `use_shared_strings = true` — en algunos renderers de
+    # Excel (Windows 365) las shared strings hacen que los estilos no se
+    # apliquen a las celdas. Sin shared strings los strings se duplican pero
+    # los estilos quedan correctamente vinculados.
     wb  = pkg.workbook
     helper = Helper.new(wb)
     yield helper
@@ -182,8 +185,10 @@ class ExcelExportService
     # Banner de título grande para reportes ejecutivos (estilo Pibox).
     # Una sola celda mergeada de span columnas, con fondo morado claro y
     # texto bold morado oscuro centrado.
+    # v3.3: estilos por celda.
     def report_main_title(text, span: 5)
-      @ws.add_row([text] + Array.new(span - 1), style: @s_report_title, height: 28)
+      row = @ws.add_row([text] + Array.new(span - 1), height: 28)
+      row.cells.each { |c| c.style = @s_report_title }
       @ws.merge_cells "A#{@current_row}:#{cell_ref(@current_row, span)}"
       @current_row += 1
       @ws.add_row(Array.new(span, nil))
@@ -205,12 +210,15 @@ class ExcelExportService
       span = title_span || n_cols
 
       if title
-        @ws.add_row([title] + Array.new(n_cols - 1), style: @s_report_title, height: 26)
+        title_row = @ws.add_row([title] + Array.new(n_cols - 1), height: 26)
+        title_row.cells.each { |c| c.style = @s_report_title }
         @ws.merge_cells "A#{@current_row}:#{cell_ref(@current_row, span)}"
         @current_row += 1
       end
 
-      @ws.add_row(headers, style: @s_report_header, height: 22)
+      # v3.3: estilos por celda
+      header_row = @ws.add_row(headers, height: 22)
+      header_row.cells.each { |c| c.style = @s_report_header }
       @current_row += 1
 
       values.each do |row|
@@ -223,7 +231,8 @@ class ExcelExportService
           else                 @s_report_cell
           end
         end
-        @ws.add_row(row, style: styles, height: 20)
+        data_row = @ws.add_row(row, height: 20)
+        data_row.cells.each_with_index { |c, i| c.style = styles[i] if styles[i] }
         @current_row += 1
       end
 
@@ -242,7 +251,9 @@ class ExcelExportService
     def report_table_with_total(headers, values, total_row:, value_styles: nil,
                                  total_styles: [:total, :total, :total_money, :total_pct])
       n_cols = headers.size
-      @ws.add_row(headers, style: @s_report_header, height: 22)
+      # v3.3: estilos por celda
+      header_row = @ws.add_row(headers, height: 22)
+      header_row.cells.each { |c| c.style = @s_report_header }
       @current_row += 1
 
       # Filas regulares con alternancia (lila claro / blanco)
@@ -255,16 +266,14 @@ class ExcelExportService
                  when :pct       then @s_report_cell_pct
                  else                 @s_report_cell
                  end
-          # Para filas pares, usar variante con fondo lila claro (sólo para
-          # estilos no monetarios — los monetarios mantienen su color por
-          # legibilidad).
           if idx.odd? && sym == :text
             @s_report_cell_alt
           else
             base
           end
         end
-        @ws.add_row(row, style: styles, height: 20)
+        data_row = @ws.add_row(row, height: 20)
+        data_row.cells.each_with_index { |c, i| c.style = styles[i] if styles[i] }
         @current_row += 1
       end
 
@@ -277,7 +286,8 @@ class ExcelExportService
         else                   @s_report_total
         end
       end
-      @ws.add_row(total_row, style: total_st, height: 24)
+      tot_row = @ws.add_row(total_row, height: 24)
+      tot_row.cells.each_with_index { |c, i| c.style = total_st[i] if total_st[i] }
       @current_row += 1
 
       # fila vacía separadora
@@ -320,9 +330,15 @@ class ExcelExportService
       self
     end
 
+    # v3.3: aplicamos estilos por CELDA en vez de por row (la forma `add_row
+    # style:` puede ignorarse en algunos renderers cuando hay celdas mezcladas
+    # con valores vacíos). Iteramos `row.cells.each` y asignamos `cell.style`
+    # individual — es la forma más confiable en caxlsx.
     def banner(title, subtitle, n_cols)
-      @ws.add_row([title]    + Array.new(n_cols - 1), style: @s_title,    height: 24)
-      @ws.add_row([subtitle] + Array.new(n_cols - 1), style: @s_subtitle, height: 16)
+      row_title = @ws.add_row([title]    + Array.new(n_cols - 1), height: 24)
+      row_title.cells.each { |c| c.style = @s_title }
+      row_sub   = @ws.add_row([subtitle] + Array.new(n_cols - 1), height: 16)
+      row_sub.cells.each { |c| c.style = @s_subtitle }
       @ws.add_row(Array.new(n_cols, nil))
       @ws.merge_cells "A1:#{cell_ref(1, n_cols)}"
       @ws.merge_cells "A2:#{cell_ref(2, n_cols)}"
@@ -363,7 +379,9 @@ class ExcelExportService
 
     def headers(cols)
       @header_count = cols.size
-      @ws.add_row(cols, style: @s_header, height: 28)
+      # v3.3: estilos por celda (ver comentario en `banner`).
+      row = @ws.add_row(cols, height: 28)
+      row.cells.each { |c| c.style = @s_header }
       @current_row += 1
       self
     end
@@ -383,7 +401,9 @@ class ExcelExportService
         next @s_data_money if money_cols.include?(col)
         right_align.include?(col) ? @s_data_right : @s_data
       end
-      @ws.add_row(vals, style: styles)
+      # v3.3: aplicar styles por celda (ver banner/headers)
+      row = @ws.add_row(vals)
+      row.cells.each_with_index { |c, i| c.style = styles[i] if styles[i] }
       @current_row += 1
       self
     end

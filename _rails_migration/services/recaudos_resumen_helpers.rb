@@ -180,7 +180,7 @@ module RecaudosResumenHelpers
   DETALLE_MONEY_COLS = [9, 10, 11, 12, 13, 14].freeze
 
   def render_detalle_sheet(s, sheet_name, sheet_rows, desde, hasta)
-    s.banner(sheet_name, "Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 16)
+    s.banner(sheet_name, "v3.3 · Período: #{desde} → #{hasta}  ·  Registros: #{sheet_rows.size}", 16)
     s.headers(DETALLE_HEADERS)
     sheet_rows.each do |r|
       ba = r["balance_actual"]
