@@ -31,6 +31,12 @@ class ExcelExportService
     dark:      "1E1333",
   }.freeze
 
+  # v3.7.1: Constantes Pibox a nivel de clase (accesibles desde controllers
+  # externos como ExportarController). Antes estaban dentro de SheetHelper
+  # y fallaban con `uninitialized constant ExcelExportService::PIBOX_PURPLE`.
+  PIBOX_PURPLE = "7030A0".freeze
+  COP_FMT      = '_-[$COP]\ * #,##0_-;\-[$COP]\ * #,##0_-;_-[$COP]\ * "-"_-;_-@_-'.freeze
+
   XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
   def self.build(filename_base)
@@ -70,12 +76,9 @@ class ExcelExportService
     MONEY_FMT     = '"$ "#,##0'.freeze
     MONEY_NEG_FMT = '"$ "#,##0;[Red]"-$ "#,##0'.freeze
 
-    # v3.7: formato COP regional de Excel (el mismo que aparece en xl/styles.xml
-    # cuando aplicás "Contabilidad COP" desde el menú de Excel). Replicado
-    # exacto del archivo de muestra del usuario.
-    COP_FMT       = '_-[$COP]\ * #,##0_-;\-[$COP]\ * #,##0_-;_-[$COP]\ * "-"_-;_-@_-'.freeze
-    # Morado del diseño Pibox del usuario (más azulado que COLORS[:purple]).
-    PIBOX_PURPLE  = "7030A0".freeze
+    # COP_FMT y PIBOX_PURPLE viven en ExcelExportService (clase padre) para
+    # que sean accesibles desde controllers externos. Ruby resuelve la
+    # constante hacia arriba en el chain (SheetHelper → ExcelExportService).
 
     def initialize(wb, ws, tab_color: COLORS[:purple])
       @wb           = wb
