@@ -493,6 +493,64 @@ module Api
       handle_error(e, "recaudos")
     end
 
+    # GET /api/exportar/moviired?desde=&hasta=&ref=&user=
+    # Devuelve CSV (no Excel — es el formato regulatorio que pidió MoviiRed).
+    # Acceso restringido a admin/monitoreo/financiero (validación inline ya que
+    # este controller no tiene before_action de rol globalmente).
+    def moviired
+      unless Api::MoviiredController::ROLES_PERMITIDOS.include?(current_rol.to_s)
+        return render(json: {
+          ok: false,
+          error: "Acceso restringido — solo roles: admin, monitoreo, financiero",
+        }, status: :forbidden)
+      end
+
+      desde = desde_param
+      hasta = hasta_param
+      ref   = params[:ref].to_s.strip
+      user  = params[:user].to_s.strip
+
+      esc = ->(v) { v.to_s.gsub("'", "''") }
+      filtro_ref  = ref.length  >= 3 ? "AND e.id_tx ILIKE '%#{esc.(ref)}%'"    : ""
+      filtro_user = user.length >= 3 ? "AND e.id_user ILIKE '%#{esc.(user)}%'" : ""
+
+      sql = QueriesService.format(
+        QueriesService::Q_MOVIIRED,
+        desde: desde, hasta: hasta,
+        filtro_ref: filtro_ref,
+        filtro_user: filtro_user,
+        limit_filas: 50_000,
+      )
+      rows = ch.query(sql, timeout: 300)
+
+      require "csv"
+      csv_str = CSV.generate(col_sep: ",", force_quotes: true) do |csv|
+        csv << [
+          "ID_TX", "ID_USER", "CODIGO_SERVICE_TYPE", "FECHA_HORA",
+          "NUMERO_MOVIIRED", "VALOR_TX", "NUMERO_REFERENCIA_TRANSACCION",
+          "NUMERO_TX_MAHINDRA", "DANE", "CODIGO_PUNTO",
+          "CIUDAD", "NOMBRE_MUNICIPIO",
+        ]
+        rows.each do |r|
+          csv << [
+            r["id_tx"].to_s, r["id_user"].to_s, r["codigo_service_type"].to_s,
+            r["fecha_hora"].to_s, r["numero_moviired"].to_s,
+            r["valor_tx"].to_f.round(2),
+            r["numero_referencia_transaccion"].to_s, r["numero_tx_mahindra"].to_s,
+            r["dane"].to_s, r["codigo_punto"].to_s,
+            r["ciudad"].to_s, r["nombre_municipio"].to_s,
+          ]
+        end
+      end
+
+      ts       = Time.now.strftime("%Y%m%d_%H%M%S")
+      filename = "Picap_MoviiRed_#{desde}_#{hasta}_#{ts}.csv"
+      send_data csv_str, filename: filename, type: "text/csv; charset=utf-8",
+                disposition: "attachment"
+    rescue => e
+      handle_error(e, "moviired")
+    end
+
     private
 
     # Carga la recuperación del mes anterior desde CH y delega el cálculo puro a

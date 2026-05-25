@@ -1467,6 +1467,17 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   <div class="fly-link" id="nav-rec-alertas" onclick="switchView('recaudos','alertas')"><span>🔁</span> Recaudos Ida y Vuelta</div>
     </div>
   </div>
+  <!-- MoviiRed (admin / monitoreo / financiero) -->
+  <div class="sb2-item" id="sbg-moviired">
+    <div class="sb2-icon" title="MoviiRed">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 7h14M3 11h14M5 4v12M15 4v12" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span class="sb2-label">MoviiRed</span>
+    </div>
+    <div class="sb2-flyout">
+      <div class="fly-title">MoviiRed</div>
+      <div class="fly-link" id="nav-moviired" onclick="switchView('moviired')"><span>📊</span> Transacciones MoviiRed</div>
+    </div>
+  </div>
   <div class="sb2-item sb2-disabled" id="sbg-retencion">
     <div class="sb2-icon" title="Retención">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="white" stroke-width="1.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -3538,6 +3549,62 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   </div>
 
 
+  <!-- ══ VISTA: MOVIIRED (admin / monitoreo / financiero) ══ -->
+  <div class="view" id="view-moviired">
+    <div class="wrap">
+
+      <!-- Barra de filtros -->
+      <div class="rec-search-bar">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Período:</label>
+        <button class="pbtn" onclick="setMvrPeriod(7,this)">7 días</button>
+        <button class="pbtn active" onclick="setMvrPeriod(15,this)">15 días</button>
+        <button class="pbtn" onclick="setMvrPeriod(30,this)">30 días</button>
+        <div class="dateinputs">
+          <input type="date" id="mvr-desde">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="mvr-hasta">
+          <button class="search-btn" onclick="cargarMoviired()">Aplicar</button>
+        </div>
+        <select id="mvr-mes" onchange="setMvrMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Mes</option>
+          <option value="1">Enero</option><option value="2">Febrero</option>
+          <option value="3">Marzo</option><option value="4">Abril</option>
+          <option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option>
+          <option value="9">Septiembre</option><option value="10">Octubre</option>
+          <option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select id="mvr-anio" onchange="setMvrMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Año</option>
+        </select>
+      </div>
+      <div class="rec-search-bar" style="margin-top:8px">
+        <input type="text" id="mvr-ref" placeholder="🔍 Buscar por ID_TX / Ref…" class="rec-search-input" style="font-family:monospace" onkeydown="if(event.key==='Enter')cargarMoviired()">
+        <input type="text" id="mvr-user" placeholder="🔍 Buscar por ID_USER…" class="rec-search-input" style="font-family:monospace" onkeydown="if(event.key==='Enter')cargarMoviired()">
+        <button class="search-btn" onclick="cargarMoviired()">↻ Actualizar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="enviarMoviiredEmail(this)" style="background:#7C3AED" title="Enviar el reporte por email con CSV adjunto">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarMoviired(this)" title="Descargar CSV con las transacciones filtradas">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Exportar CSV
+        </button>
+      </div>
+
+      <!-- KPIs -->
+      <div id="mvr-kpis" style="margin-top:16px"></div>
+
+      <!-- Top municipios + Tendencia diaria -->
+      <div id="mvr-analysis" style="margin-top:8px"></div>
+
+      <!-- Tabla detallada -->
+      <div id="mvr-table-container" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+
   <!-- ══ VISTA: AUDITORÍAS PIBOX COMERCIAL ══ -->
   <div class="view" id="view-auditoria">
     <div class="wrap">
@@ -3880,6 +3947,7 @@ function switchView(view){
     'pagos':          'Pagos — TC y Promocode',
     'estafa':         'Servicios Estafa — Detección',
     'recaudos':       'Validación de Recaudos',
+    'moviired':       'MoviiRed — Transacciones',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
     'pibox-stats':    'Auditorías de Servicios Pibox — Estadísticas',
@@ -3918,6 +3986,10 @@ function switchView(view){
     const tab = arguments[1] || 'stats';
     switchRecTab(tab);
     if(!_recLoaded) cargarRecaudos();
+  }
+  if(view === 'moviired'){
+    if(!_mvrDesde){ setMvrPeriod(15, document.querySelector('#view-moviired .pbtn.active')); }
+    else { cargarMoviired(); }
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -5695,6 +5767,7 @@ function aplicarRol() {
     'sbg-bloqueos':  ['admin','monitoreo','sac'],
     'sbg-pagos':     ['admin','monitoreo','financiero'],
     'sbg-recaudos':  ['admin','monitoreo','financiero','pibox'],
+    'sbg-moviired':  ['admin','monitoreo','financiero'],
     'sbg-retencion': ['admin','monitoreo'],
     'sbg-auditoria': ['admin','monitoreo','financiero','pibox'],
     'sbg-pibox':     ['admin','monitoreo','pibox'],
@@ -10769,7 +10842,9 @@ function exportarAuditoriaExcel() {
 // ══════════════════════════════════════════════════════════════
 // EXPORTACIONES EXCEL — Helper genérico + funciones por módulo
 // ══════════════════════════════════════════════════════════════
-async function exportarExcel(endpoint, params, btnEl, filename) {
+async function exportarExcel(endpoint, params, btnEl, filename, opts) {
+  // opts: { ext: 'xlsx' (default) | 'csv', etc. } — para MoviiRed se usa 'csv'.
+  const ext = (opts && opts.ext) || 'xlsx';
   if(btnEl) {
     btnEl.disabled = true;
     btnEl.innerHTML = '<span style="animation:spin 1s linear infinite;display:inline-block">⏳</span> Generando...';
@@ -10791,7 +10866,7 @@ async function exportarExcel(endpoint, params, btnEl, filename) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     const fecha = new Date().toISOString().slice(0,10);
-    a.download = `${filename}_${fecha}.xlsx`;
+    a.download = `${filename}_${fecha}.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -10801,7 +10876,8 @@ async function exportarExcel(endpoint, params, btnEl, filename) {
   } finally {
     if(btnEl) {
       btnEl.disabled = false;
-      btnEl.innerHTML = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;vertical-align:middle"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Excel`;
+      const labelMap = { xlsx: 'Exportar Excel', csv: 'Exportar CSV' };
+      btnEl.innerHTML = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;vertical-align:middle"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> ${labelMap[ext] || 'Exportar'}`;
     }
   }
 }
@@ -10919,6 +10995,258 @@ function exportarRecaudos(btn) {
   const params = { desde, hasta };
   if (pais) params.pais = pais;
   exportarExcel('api/exportar/recaudos', params, btn, 'Picap_Recaudos');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MOVIIRED — admin / monitoreo / financiero
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _mvrDesde = null;
+let _mvrHasta = null;
+
+function setMvrPeriod(dias, btn) {
+  if (btn) {
+    document.querySelectorAll('#view-moviired .pbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  _mvrDesde = daysAgo(dias);
+  _mvrHasta = today();
+  document.getElementById('mvr-desde').value = _mvrDesde;
+  document.getElementById('mvr-hasta').value = _mvrHasta;
+  // Reset mes/año al cambiar período rápido
+  document.getElementById('mvr-mes').value = '';
+  document.getElementById('mvr-anio').value = '';
+  cargarMoviired();
+}
+
+// Aplicar mes + año seleccionados (sin tocar botones de período rápido)
+function setMvrMes() {
+  const mes  = parseInt(document.getElementById('mvr-mes').value, 10);
+  const anio = parseInt(document.getElementById('mvr-anio').value, 10);
+  if (!mes || !anio) return;
+  const desde = new Date(anio, mes - 1, 1);
+  const hasta = new Date(anio, mes, 0); // último día del mes
+  _mvrDesde = desde.toISOString().slice(0, 10);
+  _mvrHasta = hasta.toISOString().slice(0, 10);
+  document.getElementById('mvr-desde').value = _mvrDesde;
+  document.getElementById('mvr-hasta').value = _mvrHasta;
+  document.querySelectorAll('#view-moviired .pbtn').forEach(b => b.classList.remove('active'));
+  cargarMoviired();
+}
+
+// Inicializa años del selector (último 5 años + actual)
+function initMvrAnioSelect() {
+  const sel = document.getElementById('mvr-anio');
+  if (!sel || sel.options.length > 1) return;
+  const anioActual = new Date().getFullYear();
+  for (let y = anioActual; y >= anioActual - 4; y--) {
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    sel.appendChild(opt);
+  }
+}
+
+async function cargarMoviired() {
+  initMvrAnioSelect();
+  if (!_mvrDesde) { _mvrDesde = daysAgo(15); document.getElementById('mvr-desde').value = _mvrDesde; }
+  if (!_mvrHasta) { _mvrHasta = today();     document.getElementById('mvr-hasta').value = _mvrHasta; }
+
+  // Si el usuario tipeó fechas manualmente, usar esos
+  const di = document.getElementById('mvr-desde').value;
+  const hi = document.getElementById('mvr-hasta').value;
+  if (di) _mvrDesde = di;
+  if (hi) _mvrHasta = hi;
+
+  const ref  = document.getElementById('mvr-ref')?.value.trim()  || '';
+  const user = document.getElementById('mvr-user')?.value.trim() || '';
+
+  document.getElementById('mvr-kpis').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando…</div>';
+  document.getElementById('mvr-table-container').innerHTML = '';
+  document.getElementById('mvr-analysis').innerHTML = '';
+
+  try {
+    const params = new URLSearchParams({ desde: _mvrDesde, hasta: _mvrHasta });
+    if (ref)  params.set('ref', ref);
+    if (user) params.set('user', user);
+    const r = await fetch(`${API}/api/moviired?${params}`, { headers: { 'X-Token': _sesionToken } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    renderMoviired(d);
+  } catch(err) {
+    document.getElementById('mvr-kpis').innerHTML =
+      `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}</div>`;
+  }
+}
+
+function renderMoviired(data) {
+  const s = data.stats || {};
+  const filas = data.filas || [];
+
+  // KPI cards
+  const kpisHtml = `
+    <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr);">
+      <div class="rec-kpi pu">
+        <div class="rec-kpi-val">${fmtNum(s.total||0)}</div>
+        <div class="rec-kpi-sub">Transacciones MoviiRed</div>
+        <div class="rec-kpi-bar" style="background:var(--purple)"></div>
+      </div>
+      <div class="rec-kpi ok">
+        <div class="rec-kpi-val" style="font-size:20px">${fmtMoney(s.valor_total||0)}</div>
+        <div class="rec-kpi-sub">Valor total transaccionado</div>
+        <div class="rec-kpi-bar" style="background:#22c55e"></div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #7C3AED">
+        <div class="rec-kpi-val" style="color:#7C3AED">${fmtNum(s.n_usuarios||0)}</div>
+        <div class="rec-kpi-sub">Usuarios únicos</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #F59E0B">
+        <div class="rec-kpi-val" style="color:#F59E0B;font-size:20px">${fmtMoney(s.promedio||0)}</div>
+        <div class="rec-kpi-sub">Promedio por transacción</div>
+      </div>
+    </div>
+    <div class="rec-kpis" style="grid-template-columns:repeat(2,1fr);margin-bottom:16px;">
+      <div class="rec-kpi" style="border-top:3px solid #22C55E">
+        <div class="rec-kpi-val" style="color:#22C55E;font-size:18px">${fmtMoney(s.valor_max||0)}</div>
+        <div class="rec-kpi-sub">Transacción máxima</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #94A3B8">
+        <div class="rec-kpi-val" style="color:#94A3B8;font-size:18px">${fmtMoney(s.valor_min||0)}</div>
+        <div class="rec-kpi-sub">Transacción mínima</div>
+      </div>
+    </div>`;
+  document.getElementById('mvr-kpis').innerHTML = kpisHtml;
+
+  // Análisis: tendencia diaria + top municipios
+  const porDia = s.por_dia || [];
+  const maxCant = Math.max(1, ...porDia.map(d => d.cant || 0));
+  const tendenciaHtml = porDia.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">📈 Movimientos por día</div>
+      ${porDia.map(d => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px">
+          <span style="width:80px;color:var(--text3);white-space:nowrap;font-family:monospace">${d.fecha}</span>
+          <div style="flex:1;background:#f3f0fa;border-radius:4px;height:18px;position:relative;overflow:hidden">
+            <div style="position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#6B21A8,#7C3AED);width:${(d.cant/maxCant*100).toFixed(1)}%;border-radius:4px"></div>
+          </div>
+          <span style="width:50px;text-align:right;font-weight:600;color:var(--text1)">${fmtNum(d.cant)}</span>
+          <span style="width:110px;text-align:right;color:#22c55e;font-weight:600;font-family:monospace">${fmtMoney(d.valor)}</span>
+        </div>
+      `).join('')}
+    </div>` : '';
+
+  const topMuni = s.top_municipios || [];
+  const muniHtml = topMuni.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">🏙️ Top 10 municipios</div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr style="border-bottom:1px solid var(--border);color:var(--text3)">
+          <th style="text-align:left;padding:4px 6px">Municipio</th>
+          <th style="text-align:right;padding:4px 6px">Tx</th>
+          <th style="text-align:right;padding:4px 6px">Valor</th>
+        </tr></thead>
+        <tbody>
+        ${topMuni.map(m => `<tr>
+          <td style="padding:4px 6px;font-weight:600">${m.municipio}</td>
+          <td style="padding:4px 6px;text-align:right">${fmtNum(m.cant)}</td>
+          <td style="padding:4px 6px;text-align:right;color:#22c55e;font-weight:600;font-family:monospace">${fmtMoney(m.valor)}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  document.getElementById('mvr-analysis').innerHTML = (tendenciaHtml || muniHtml)
+    ? `<div style="display:flex;gap:14px;flex-wrap:wrap">${tendenciaHtml}${muniHtml}</div>` : '';
+
+  // Tabla detallada
+  const copyJs = (id) => `navigator.clipboard.writeText('${id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)`;
+
+  let filasHtml = '';
+  if (!filas.length) {
+    filasHtml = '<div style="text-align:center;padding:32px;color:var(--text3)">Sin transacciones MoviiRed en este período.</div>';
+  } else {
+    const rowsHtml = filas.map(f => `<tr>
+      <td style="white-space:nowrap"><span style="font-family:monospace;font-size:11px;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.id_tx)}">${f.id_tx||'—'}</span></td>
+      <td style="white-space:nowrap"><span style="font-family:monospace;font-size:11px;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.id_user)}">${f.id_user||'—'}</span></td>
+      <td style="font-size:11px;text-align:center;white-space:nowrap"><span style="background:#EDE9F5;color:#6B21A8;padding:2px 8px;border-radius:4px;font-weight:600">${f.codigo_service_type||'—'}</span></td>
+      <td style="font-size:11px;white-space:nowrap;font-family:monospace">${f.fecha_hora||'—'}</td>
+      <td style="font-size:11px;text-align:center;white-space:nowrap;font-family:monospace">${f.numero_moviired||'—'}</td>
+      <td class="right" style="font-weight:700;color:#22c55e;white-space:nowrap">${fmtMoney(f.valor_tx)}</td>
+      <td style="white-space:nowrap"><span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.numero_referencia_transaccion)}">${f.numero_referencia_transaccion||'—'}</span></td>
+      <td style="white-space:nowrap"><span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.numero_tx_mahindra)}">${f.numero_tx_mahindra||'—'}</span></td>
+      <td style="font-size:11px;text-align:center;white-space:nowrap;font-family:monospace">${f.dane||'—'}</td>
+      <td style="font-size:11px;text-align:center;white-space:nowrap;font-family:monospace">${f.codigo_punto||'—'}</td>
+      <td style="font-size:11px;white-space:nowrap">${f.nombre_municipio||f.ciudad||'—'}</td>
+    </tr>`).join('');
+
+    filasHtml = `
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+        ${filas.length} transacciones · Las primeras 5.000 (export sin límite) · Click en cualquier ID para copiar
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="aud-table rec-detail-table" style="min-width:1800px">
+          <colgroup>
+            <col style="width:220px"><col style="width:220px"><col style="width:110px"><col style="width:150px">
+            <col style="width:120px"><col style="width:110px"><col style="width:220px"><col style="width:160px">
+            <col style="width:80px"><col style="width:100px"><col style="width:160px">
+          </colgroup>
+          <thead><tr>
+            <th>ID_TX</th><th>ID_USER</th><th>SERVICE</th><th>Fecha-Hora</th>
+            <th>N° MoviiRed</th><th class="right">Valor</th><th>Ref Tx</th>
+            <th>Tx Mahindra</th><th>DANE</th><th>Cód. Punto</th><th>Municipio</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+  }
+  document.getElementById('mvr-table-container').innerHTML = filasHtml;
+}
+
+function exportarMoviired(btn) {
+  const desde = _mvrDesde || daysAgo(15);
+  const hasta = _mvrHasta || today();
+  const ref   = document.getElementById('mvr-ref')?.value.trim()  || '';
+  const user  = document.getElementById('mvr-user')?.value.trim() || '';
+  const params = { desde, hasta };
+  if (ref)  params.ref  = ref;
+  if (user) params.user = user;
+  // Reusa el helper exportarExcel — funciona con CSV también (envía X-Token,
+  // recibe blob, dispara descarga). El backend devuelve content-type CSV.
+  exportarExcel('api/exportar/moviired', params, btn, 'Picap_MoviiRed', { ext: 'csv' });
+}
+
+async function enviarMoviiredEmail(btn) {
+  const desde = _mvrDesde || daysAgo(15);
+  const hasta = _mvrHasta || today();
+  const ref   = document.getElementById('mvr-ref')?.value.trim()  || '';
+  const user  = document.getElementById('mvr-user')?.value.trim() || '';
+
+  const email = prompt(`Enviar reporte MoviiRed (CSV adjunto)\n\nPeríodo: ${desde} → ${hasta}\n\nIngresa el email destinatario:`, '');
+  if (!email) return;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { alert('Email inválido.'); return; }
+  const mensaje = prompt('Mensaje opcional (deja vacío para usar el default):', '') || '';
+
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Enviando...'; }
+  try {
+    const body = { email: email.trim(), desde, hasta, mensaje };
+    if (ref)  body.ref  = ref;
+    if (user) body.user = user;
+    const r = await fetch(`${API}/api/moviired/enviar_email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    alert(`✅ Reporte enviado a ${d.destinatario}\n${d.total} transacciones · adjunto: ${d.filename}`);
+  } catch(err) {
+    alert('Error al enviar email: ' + (err.message || err));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar por email';
+    }
+  }
 }
 
 
@@ -11092,6 +11420,7 @@ function sb2SetActive(view) {
     bloqueos:  'sbg-bloqueos',
     pagos:     'sbg-pagos',
     recaudos:  'sbg-recaudos',
+    moviired:  'sbg-moviired',
     auditoria: 'sbg-auditoria',
   };
   const grpId = MAP[view];

@@ -34,6 +34,10 @@ Rails.application.routes.draw do
     get  "recaudos",                to: "recaudos#index"
     post "recaudos/enviar_email",   to: "recaudos#enviar_email"
 
+    # MoviiRed (acceso restringido: admin/monitoreo/financiero)
+    get  "moviired",                to: "moviired#index"
+    post "moviired/enviar_email",   to: "moviired#enviar_email"
+
     # Auditoría Pibox
     namespace :auditoria do
       get    "comisiones",  to: "/api/auditoria#comisiones"
@@ -64,6 +68,7 @@ Rails.application.routes.draw do
       get  "bloqueos",      to: "/api/exportar#bloqueos"
       get  "pagos",         to: "/api/exportar#pagos"
       get  "recaudos",      to: "/api/exportar#recaudos"
+      get  "moviired",      to: "/api/exportar#moviired"
     end
 
     # Autenticación

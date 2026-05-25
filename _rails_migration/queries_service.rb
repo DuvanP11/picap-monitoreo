@@ -1132,7 +1132,97 @@ module QueriesService
   # Excluye clientes test/qa/onboarding/demo y TADA (con excepción Cruz Verde Integ.)
   # ════════════════════════════════════════════════════════════════════════
   Q_PIBOX_BASE = <<~'SQL'
-    WITH servicios_pibox AS (
+    WITH
+    /* 1) Companies: filtro anti-test EMPUJADO + dedup. Tabla chica. */
+    companies_clean AS (
+        SELECT
+            _id,
+            argMax(name, _sdc_batched_at) AS name
+        FROM picapmongoprod.companies
+        WHERE LOWER(name) NOT LIKE '%tada%'
+          AND LOWER(name) NOT LIKE '%test%'
+          AND LOWER(name) NOT LIKE '%prueba%'
+          AND LOWER(name) NOT LIKE '%qa%'
+          AND LOWER(name) NOT LIKE '%onboarding%'
+          AND LOWER(name) NOT LIKE '%demo%'
+        GROUP BY _id
+    ),
+
+    /* 2) Bookings: ROW_NUMBER en vez de FINAL.
+          company_id IN (companies_clean) empujado → recorta bookings antes del merge.
+          Alias b preservado para %{filtros_adicionales}. */
+    bookings_dedup AS (
+        SELECT
+            _id, driver_id, passenger_id, company_id,
+            created_at, status_cd, requested_service_type_id,
+            g_country, g_adm_area_lv_1,
+            company_final_cost, origin_geojson, end_geojson, events,
+            return_to_origin, original_booking_reservation_id, updated_at
+        FROM (
+            SELECT
+                b._id, b.driver_id, b.passenger_id, b.company_id,
+                b.created_at, b.status_cd, b.requested_service_type_id,
+                b.g_country, b.g_adm_area_lv_1,
+                b.company_final_cost, b.origin_geojson, b.end_geojson, b.events,
+                b.return_to_origin, b.original_booking_reservation_id, b.updated_at,
+                ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
+            FROM picapmongoprod.bookings AS b
+            WHERE b.status_cd IN (4, 107, 108)
+              AND b.company_id IS NOT NULL
+              AND b.company_id != ''
+              AND toDate(b.created_at) BETWEEN '%{fecha_desde}' AND '%{fecha_hasta}'
+              AND b.company_id IN (SELECT _id FROM companies_clean)
+              AND NOT (b.events LIKE '%"event_cd":103%')
+              %{filtros_adicionales}
+        )
+        WHERE rn = 1
+    ),
+
+    /* 3) Passengers: solo drivers de bookings_dedup; argMax por _sdc_batched_at. */
+    passengers_dedup AS (
+        SELECT
+            _id,
+            argMax(name,      _sdc_batched_at) AS name,
+            argMax(last_name, _sdc_batched_at) AS last_name,
+            argMax(email,     _sdc_batched_at) AS email,
+            argMax(phone,     _sdc_batched_at) AS phone
+        FROM picapmongoprod.passengers
+        WHERE _id IN (SELECT DISTINCT driver_id FROM bookings_dedup WHERE driver_id != '')
+        GROUP BY _id
+    ),
+
+    /* 4) DVE activos para esos drivers. ROW_NUMBER por _id para dedup
+          (preserva semántica original: N vehículos activos → N filas). */
+    dve_dedup AS (
+        SELECT _id, driver_id, vehicle_id
+        FROM (
+            SELECT _id, driver_id, vehicle_id,
+                   ROW_NUMBER() OVER (PARTITION BY _id ORDER BY _id) AS rn
+            FROM picapmongoprod.driver_vehicle_enrollments
+            WHERE enrollment_status_cd = 3
+              AND driver_id IN (SELECT DISTINCT driver_id FROM bookings_dedup WHERE driver_id != '')
+        )
+        WHERE rn = 1
+    ),
+
+    /* 5) Vehicles solo de DVE activos */
+    vehicles_dedup AS (
+        SELECT _id, argMax(vehicle_type_id, _sdc_batched_at) AS vehicle_type_id
+        FROM picapmongoprod.vehicles
+        WHERE _id IN (SELECT vehicle_id FROM dve_dedup WHERE vehicle_id != '')
+        GROUP BY _id
+    ),
+
+    /* 6) Vehicle types solo de los vehículos referenciados */
+    vehicle_types_dedup AS (
+        SELECT _id, argMax(name, _sdc_batched_at) AS name
+        FROM picapmongoprod.vehicle_types
+        WHERE _id IN (SELECT vehicle_type_id FROM vehicles_dedup WHERE vehicle_type_id != '')
+        GROUP BY _id
+    ),
+
+    /* 7) Proyección de salida (idéntica al original) */
+    servicios_pibox AS (
         SELECT
             b._id AS booking_id,
             b.driver_id,
@@ -1174,28 +1264,15 @@ module QueriesService
             COALESCE(toString(b.original_booking_reservation_id), '') AS original_booking_reservation_id,
             IF(COALESCE(toString(b.original_booking_reservation_id), '') = '', 0, 1) AS tiene_reserva,
             b.updated_at,
-            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC) AS rn
-        FROM picapmongoprod.bookings b FINAL
-        LEFT JOIN picapmongoprod.passengers p FINAL ON b.driver_id = p._id
-        LEFT JOIN picapmongoprod.companies c FINAL ON b.company_id = c._id
-        LEFT JOIN picapmongoprod.driver_vehicle_enrollments dve FINAL
-            ON b.driver_id = dve.driver_id AND dve.enrollment_status_cd = 3
-        LEFT JOIN picapmongoprod.vehicles v FINAL ON dve.vehicle_id = v._id
-        LEFT JOIN picapmongoprod.vehicle_types vt FINAL ON v.vehicle_type_id = vt._id
-        WHERE
-            b.status_cd IN (4, 107, 108)
-            AND b.company_id IS NOT NULL
-            AND b.company_id != ''
-            AND toDate(b.created_at) BETWEEN '%{fecha_desde}' AND '%{fecha_hasta}'
-            AND NOT (b.events LIKE '%"event_cd":103%')
-            AND LOWER(c.name) NOT LIKE '%tada%'
-            AND LOWER(c.name) NOT LIKE '%test%'
-            AND LOWER(c.name) NOT LIKE '%prueba%'
-            AND LOWER(c.name) NOT LIKE '%qa%'
-            AND LOWER(c.name) NOT LIKE '%onboarding%'
-            AND LOWER(c.name) NOT LIKE '%demo%'
-            %{filtros_adicionales}
+            1 AS rn
+        FROM bookings_dedup        AS b
+        INNER JOIN companies_clean       AS c   ON c._id = b.company_id
+        LEFT  JOIN passengers_dedup      AS p   ON p._id = b.driver_id
+        LEFT  JOIN dve_dedup             AS dve ON dve.driver_id = b.driver_id
+        LEFT  JOIN vehicles_dedup        AS v   ON v._id = dve.vehicle_id
+        LEFT  JOIN vehicle_types_dedup   AS vt  ON vt._id = v.vehicle_type_id
     ),
+
     con_tiempos AS (
         SELECT
             sp.*,
@@ -1218,7 +1295,6 @@ module QueriesService
             round(geoDistance(origin_longitude, origin_latitude,
                              destination_longitude, destination_latitude), 2) AS distancia_recorrido
         FROM servicios_pibox sp
-        WHERE sp.rn = 1
     )
     SELECT * FROM con_tiempos
   SQL
@@ -1236,24 +1312,6 @@ module QueriesService
          'liliana peña','liliana pena',
          'pibox admin']
     )
-  SQL
-
-  # DDL de tabla para tracking de alertas marcadas como "ajustadas por el comercial".
-  # ReplacingMergeTree con `actualizado_en` como version → insertar con la misma
-  # (tarifa_id, ambito) sobreescribe la anterior. Para desmarcar: insertar con
-  # activo=0. Para marcar: insertar con activo=1.
-  Q_AUDITORIA_RESOLUCIONES_DDL = <<~'SQL'
-    CREATE TABLE IF NOT EXISTS picapmongoprod.auditoria_resoluciones (
-        id              UUID DEFAULT generateUUIDv4(),
-        tarifa_id       String,
-        ambito          String,
-        motivo          String DEFAULT '',
-        resuelto_por    String,
-        resuelto_en     DateTime DEFAULT now(),
-        actualizado_en  DateTime DEFAULT now(),
-        activo          UInt8 DEFAULT 1
-    ) ENGINE = ReplacingMergeTree(actualizado_en)
-    ORDER BY (tarifa_id, ambito)
   SQL
 
   # Helper auditoría: construye los 5 filtros dinámicos
@@ -1608,5 +1666,132 @@ module QueriesService
       AND b.created_at <= toDateTime('%{hasta} 23:59:59')
     ORDER BY b.created_at DESC
     LIMIT 500
+  SQL
+
+  # ── MoviiRed ───────────────────────────────────────────────────────────────
+  # Transacciones MoviiRed (WalletAccountTransactionPinPurchase) — usadas por
+  # equipos Admin/Monitoreo/Financiero para reportes regulatorios.
+  #
+  # Optimizaciones aplicadas vs la query original del usuario:
+  # - Reemplazo de `FINAL` por dedup con ROW_NUMBER OVER PARTITION BY _id
+  #   (FINAL recorre toda la partición; con ROW_NUMBER es mucho más liviano).
+  # - Pushdown de WHERE _type/created_at antes del JOIN para reducir filas.
+  # - La normalización de ciudad (replaceRegexpAll anidado) se hace UNA sola
+  #   vez en un CTE auxiliar `city_norm`, no en cada uso.
+  # - SELECT * → columnas explícitas para evitar leer columnas innecesarias.
+  #
+  # Placeholders:
+  #   %{desde}, %{hasta}              YYYY-MM-DD (rango created_at de wat)
+  #   %{filtro_ref}                   AND wat._id ILIKE '%xxx%' (opcional)
+  #   %{filtro_user}                  AND wa.passenger_id ILIKE '%xxx%' (opcional)
+  #   %{limit_filas}                  LIMIT N (default 20_000 desde el controller)
+  Q_MOVIIRED = <<~'SQL'
+    WITH
+      wat_filtered AS (
+        SELECT *
+        FROM (
+          SELECT
+            _id, _type, created_at, amount, account_id, movii_operation_id,
+            ROW_NUMBER() OVER (PARTITION BY _id ORDER BY created_at DESC) AS rn
+          FROM picapmongoprod.wallet_account_transactions
+          WHERE _type = 'WalletAccountTransactionPinPurchase'
+            AND toDate(created_at) BETWEEN '%{desde}' AND '%{hasta}'
+        )
+        WHERE rn = 1
+      ),
+      wallets AS (
+        SELECT *
+        FROM (
+          SELECT _id, passenger_id,
+                 ROW_NUMBER() OVER (PARTITION BY _id ORDER BY _id) AS rn
+          FROM picapmongoprod.wallet_accounts
+          WHERE _id IN (SELECT account_id FROM wat_filtered)
+        )
+        WHERE rn = 1
+      ),
+      passengers_data AS (
+        SELECT *
+        FROM (
+          SELECT _id, g_adm_area_lv_1, g_adm_area_lv_2,
+                 ROW_NUMBER() OVER (PARTITION BY _id ORDER BY _id) AS rn
+          FROM picapmongoprod.passengers_w_data
+          WHERE _id IN (SELECT passenger_id FROM wallets)
+        )
+        WHERE rn = 1
+      ),
+      movii_ops AS (
+        SELECT *
+        FROM (
+          SELECT _id, transaction_id,
+                 ROW_NUMBER() OVER (PARTITION BY _id ORDER BY _id) AS rn
+          FROM picapmongoprod.movii_operations
+          WHERE _id IN (SELECT movii_operation_id FROM wat_filtered)
+        )
+        WHERE rn = 1
+      ),
+      dane_codes AS (
+        SELECT *
+        FROM (
+          SELECT nombre_municipio, codigo_municipio,
+                 ROW_NUMBER() OVER (PARTITION BY nombre_municipio ORDER BY nombre_municipio) AS rn
+          FROM picapmongoprod.codigos_dane
+        )
+        WHERE rn = 1
+      ),
+      enriched AS (
+        SELECT
+          wat._id                                    AS id_tx,
+          wa.passenger_id                            AS id_user,
+          'Incomm'                                   AS codigo_service_type,
+          formatDateTime(toTimeZone(wat.created_at, 'America/Bogota'),
+                         '%%Y-%%m-%%d %%H:%%i:%%S') AS fecha_hora,
+          '3000000231'                               AS numero_moviired,
+          ABS(JSONExtractFloat(wat.amount, 'cents') / 100) AS valor_tx,
+          wat._id                                    AS numero_referencia_transaccion,
+          mii.transaction_id                         AS numero_tx_mahindra,
+          '096436'                                   AS codigo_punto,
+          -- City normalization (sin acentos, BOGOTA D.C. unificada)
+          replaceRegexpAll(
+            replaceRegexpAll(
+              replaceRegexpAll(
+                replaceRegexpAll(
+                  replaceRegexpAll(
+                    upper(COALESCE(pa.g_adm_area_lv_2, pa.g_adm_area_lv_1)),
+                    '[ÁÀÂÃÄáàâãä]', 'A'),
+                  '[ÉÈÊËéèêë]', 'E'),
+                '[ÍÌÎÏíìîï]', 'I'),
+              '[ÓÒÔÕÖóòôõö]', 'O'),
+            '[ÚÙÛÜúùûü]', 'U'
+          ) AS ciudad_raw
+        FROM wat_filtered wat
+        INNER JOIN wallets wa             ON wa._id = wat.account_id
+        LEFT  JOIN passengers_data pa     ON pa._id = wa.passenger_id
+        LEFT  JOIN movii_ops mii          ON mii._id = wat.movii_operation_id
+      ),
+      with_city AS (
+        SELECT
+          *,
+          IF(ciudad_raw IN ('BOGOTA','BOGOTA D.C.'), 'BOGOTA, D.C.', ciudad_raw) AS ciudad_norm
+        FROM enriched
+      )
+    SELECT
+      e.id_tx                                            AS id_tx,
+      e.id_user                                          AS id_user,
+      e.codigo_service_type                              AS codigo_service_type,
+      e.fecha_hora                                       AS fecha_hora,
+      e.numero_moviired                                  AS numero_moviired,
+      e.valor_tx                                         AS valor_tx,
+      e.numero_referencia_transaccion                    AS numero_referencia_transaccion,
+      e.numero_tx_mahindra                               AS numero_tx_mahindra,
+      IF(cd.codigo_municipio IS NULL OR cd.codigo_municipio = '' OR trim(cd.codigo_municipio) = '',
+         '11001', cd.codigo_municipio)                   AS dane,
+      e.codigo_punto                                     AS codigo_punto,
+      e.ciudad_norm                                      AS ciudad,
+      cd.nombre_municipio                                AS nombre_municipio
+    FROM with_city e
+    LEFT JOIN dane_codes cd ON cd.nombre_municipio = e.ciudad_norm
+    WHERE 1=1 %{filtro_ref} %{filtro_user}
+    ORDER BY e.fecha_hora DESC
+    LIMIT %{limit_filas}
   SQL
 end
