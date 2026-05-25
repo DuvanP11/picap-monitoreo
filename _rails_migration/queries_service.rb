@@ -1744,7 +1744,7 @@ module QueriesService
           wa.passenger_id                            AS id_user,
           'Incomm'                                   AS codigo_service_type,
           formatDateTime(toTimeZone(wat.created_at, 'America/Bogota'),
-                         '%%Y-%%m-%%d %%H:%%i:%%S') AS fecha_hora,
+                         '%Y-%m-%d %H:%i:%S') AS fecha_hora,
           '3000000231'                               AS numero_moviired,
           ABS(JSONExtractFloat(wat.amount, 'cents') / 100) AS valor_tx,
           wat._id                                    AS numero_referencia_transaccion,
