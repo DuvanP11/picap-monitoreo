@@ -6087,8 +6087,8 @@ function renderEstadisticaBloqueos(data) {
         </div>
         <div class="eb-bar-row">
           <span class="eb-bar-label">🔒 Aún bloqueados</span>
-          <div class="eb-bar-track"><div class="eb-bar-fill" style="width:${100-(r.pct_reactivados||0)}%;background:#ef4444"></div></div>
-          <span class="eb-bar-val">${(r.siguen_bloqueados||0).toLocaleString('es-CO')} <span class="eb-pct">${100-(r.pct_reactivados||0)}%</span></span>
+          <div class="eb-bar-track"><div class="eb-bar-fill" style="width:${(100-(r.pct_reactivados||0)).toFixed(1)}%;background:#ef4444"></div></div>
+          <span class="eb-bar-val">${(r.siguen_bloqueados||0).toLocaleString('es-CO')} <span class="eb-pct">${(100-(r.pct_reactivados||0)).toFixed(1)}%</span></span>
         </div>
       </div>
     </div>
