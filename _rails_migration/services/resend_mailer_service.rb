@@ -32,15 +32,18 @@ class ResendMailerService
 
   # Envía un email con adjunto opcional.
   #
-  # @param to [String, Array<String>] destinatario(s)
+  # @param to [String, Array<String>] destinatario(s) principal(es)
   # @param subject [String]
   # @param html [String] cuerpo HTML
   # @param from [String, nil] remitente. Si nil usa RESEND_FROM o DEFAULT_FROM.
+  # @param cc [String, Array<String>, nil] copia visible (CC)
+  # @param bcc [String, Array<String>, nil] copia oculta (BCC/CCO)
   # @param attachment_bytes [String, nil] bytes raw del adjunto (xlsx, pdf, etc.)
   # @param attachment_filename [String, nil] nombre del adjunto (ej. "Reporte.xlsx")
   # @return [Hash] { id: "<resend-message-id>" } en éxito
   # @raise [ConfigError, AuthError, ValidationError, NetworkError]
-  def self.send_email(to:, subject:, html:, from: nil, attachment_bytes: nil, attachment_filename: nil)
+  def self.send_email(to:, subject:, html:, from: nil, cc: nil, bcc: nil,
+                       attachment_bytes: nil, attachment_filename: nil)
     api_key = ENV["RESEND_API_KEY"].to_s.strip
     if api_key.empty?
       raise ConfigError, "RESEND_API_KEY no configurada. Generá una key en https://resend.com → API Keys y agregala como envvar en el panel de Render/AWS."
@@ -48,10 +51,15 @@ class ResendMailerService
 
     payload = {
       from:    from || ENV["RESEND_FROM"].to_s.strip.then { |v| v.empty? ? DEFAULT_FROM : v },
-      to:      Array(to),
+      to:      Array(to).reject { |e| e.to_s.strip.empty? },
       subject: subject.to_s,
       html:    html.to_s,
     }
+
+    cc_list  = Array(cc).reject  { |e| e.to_s.strip.empty? }
+    bcc_list = Array(bcc).reject { |e| e.to_s.strip.empty? }
+    payload[:cc]  = cc_list  if cc_list.any?
+    payload[:bcc] = bcc_list if bcc_list.any?
 
     if attachment_bytes && !attachment_bytes.empty?
       payload[:attachments] = [{

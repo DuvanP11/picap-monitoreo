@@ -3602,6 +3602,37 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
       <!-- Tabla detallada -->
       <div id="mvr-table-container" style="margin-top:16px"></div>
     </div>
+
+    <!-- Modal: Enviar por email (To/CC/BCC + asunto + mensaje) -->
+    <div id="modal-mvr-email" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+      <div style="background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.2);width:min(560px,92vw);max-height:92vh;overflow-y:auto">
+        <div style="background:linear-gradient(90deg,#6B21A8 0%,#7C3AED 100%);padding:18px 22px;color:#fff;border-radius:12px 12px 0 0">
+          <div style="font-size:18px;font-weight:700">📧 Enviar reporte MoviiRed</div>
+          <div id="modal-mvr-email-periodo" style="font-size:12px;opacity:0.92;margin-top:4px"></div>
+        </div>
+        <div style="padding:20px 22px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Para <span style="color:#ef4444">*</span></label>
+          <input id="mvr-email-to" type="text" placeholder="email@dominio.com, otro@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none">
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:12px">Separá múltiples emails con coma o salto de línea</div>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CC (con copia)</label>
+          <input id="mvr-email-cc" type="text" placeholder="opcional — email@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;margin-bottom:12px">
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CCO (con copia oculta)</label>
+          <input id="mvr-email-bcc" type="text" placeholder="opcional — email@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;margin-bottom:12px">
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Asunto (opcional)</label>
+          <input id="mvr-email-asunto" type="text" placeholder="Si lo dejás vacío usa el default" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;margin-bottom:12px">
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Mensaje (opcional)</label>
+          <textarea id="mvr-email-mensaje" placeholder="Texto que va arriba de las KPIs en el email" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;resize:vertical;font-family:inherit"></textarea>
+        </div>
+        <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
+          <button onclick="cerrarModalMvrEmail()" style="padding:9px 18px;background:#fff;border:1.5px solid var(--border);border-radius:8px;color:var(--text1);font-weight:600;cursor:pointer;font-size:13px">Cancelar</button>
+          <button id="mvr-email-enviar-btn" onclick="ejecutarEnviarMvrEmail()" style="padding:9px 18px;background:#7C3AED;border:1.5px solid #7C3AED;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:13px">Enviar</button>
+        </div>
+      </div>
+    </div>
   </div>
 
 
@@ -11215,22 +11246,55 @@ function exportarMoviired(btn) {
   exportarExcel('api/exportar/moviired', params, btn, 'Picap_MoviiRed', { ext: 'csv' });
 }
 
-async function enviarMoviiredEmail(btn) {
+// v3.12: abre el modal con campos To / CC / BCC / Asunto / Mensaje.
+// Soporta múltiples destinatarios separados por coma o salto de línea.
+function enviarMoviiredEmail(btn) {
+  const desde = _mvrDesde || daysAgo(15);
+  const hasta = _mvrHasta || today();
+  document.getElementById('modal-mvr-email-periodo').textContent = `Período: ${desde} → ${hasta}`;
+  // Limpiar inputs al abrir (no queremos datos del envío anterior)
+  ['to','cc','bcc','asunto','mensaje'].forEach(k => {
+    const el = document.getElementById(`mvr-email-${k}`);
+    if (el) el.value = '';
+  });
+  document.getElementById('modal-mvr-email').style.display = 'flex';
+  setTimeout(() => document.getElementById('mvr-email-to')?.focus(), 50);
+}
+
+function cerrarModalMvrEmail() {
+  document.getElementById('modal-mvr-email').style.display = 'none';
+}
+
+async function ejecutarEnviarMvrEmail() {
   const desde = _mvrDesde || daysAgo(15);
   const hasta = _mvrHasta || today();
   const ref   = document.getElementById('mvr-ref')?.value.trim()  || '';
   const user  = document.getElementById('mvr-user')?.value.trim() || '';
 
-  const email = prompt(`Enviar reporte MoviiRed (CSV adjunto)\n\nPeríodo: ${desde} → ${hasta}\n\nIngresa el email destinatario:`, '');
-  if (!email) return;
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { alert('Email inválido.'); return; }
-  const mensaje = prompt('Mensaje opcional (deja vacío para usar el default):', '') || '';
+  // Parsear emails: acepta coma, punto y coma, espacios, saltos de línea
+  const parseEmails = (s) => (s || '').split(/[,;\s\n]+/).map(e => e.trim()).filter(e => e);
+  const to      = parseEmails(document.getElementById('mvr-email-to').value);
+  const cc      = parseEmails(document.getElementById('mvr-email-cc').value);
+  const bcc     = parseEmails(document.getElementById('mvr-email-bcc').value);
+  const asunto  = document.getElementById('mvr-email-asunto').value.trim();
+  const mensaje = document.getElementById('mvr-email-mensaje').value.trim();
 
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Enviando...'; }
+  if (to.length === 0) { alert('Tenés que ingresar al menos un email en "Para".'); return; }
+  const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const invalid = [...to, ...cc, ...bcc].filter(e => !reEmail.test(e));
+  if (invalid.length > 0) { alert(`Email(s) inválido(s):\n${invalid.join('\n')}`); return; }
+
+  const btn = document.getElementById('mvr-email-enviar-btn');
+  const txtOrig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '⏳ Enviando...';
+
   try {
-    const body = { email: email.trim(), desde, hasta, mensaje };
-    if (ref)  body.ref  = ref;
-    if (user) body.user = user;
+    const body = { email: to.join(','), desde, hasta, mensaje };
+    if (cc.length)  body.cc  = cc.join(',');
+    if (bcc.length) body.bcc = bcc.join(',');
+    if (asunto)     body.asunto = asunto;
+    if (ref)        body.ref  = ref;
+    if (user)       body.user = user;
     const r = await fetch(`${API}/api/moviired/enviar_email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
@@ -11238,14 +11302,15 @@ async function enviarMoviiredEmail(btn) {
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
-    alert(`✅ Reporte enviado a ${d.destinatario}\n${d.total} transacciones · adjunto: ${d.filename}`);
+    const destL = (d.destinatarios || []).join(', ');
+    const ccL   = (d.cc  || []).length ? `\nCC: ${d.cc.join(', ')}`   : '';
+    const bccL  = (d.bcc || []).length ? `\nCCO: ${d.bcc.join(', ')}` : '';
+    alert(`✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}\n${d.total} transacciones · adjunto: ${d.filename}`);
+    cerrarModalMvrEmail();
   } catch(err) {
     alert('Error al enviar email: ' + (err.message || err));
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar por email';
-    }
+    btn.disabled = false; btn.innerHTML = txtOrig;
   }
 }
 

@@ -41,18 +41,28 @@ module Api
     end
 
     # POST /api/moviired/enviar_email
-    # Body: { email, asunto?, mensaje?, desde, hasta, ref?, user? }
+    # Body: { email | to (string|array), cc?, bcc?, asunto?, mensaje?,
+    #         desde, hasta, ref?, user? }
+    # `email` y `to` son aliases (string con emails separados por coma/`;`/salto,
+    # o array directo de strings). `cc` y `bcc` idem.
     def enviar_email
-      destinatario = params[:email].to_s.strip
-      asunto       = params[:asunto].to_s.strip
-      mensaje      = params[:mensaje].to_s.strip[0, 1000]
-      desde        = desde_param
-      hasta        = hasta_param
-      ref          = params[:ref].to_s.strip
-      user         = params[:user].to_s.strip
+      to_list  = parse_email_list(params[:email] || params[:to])
+      cc_list  = parse_email_list(params[:cc])
+      bcc_list = parse_email_list(params[:bcc])
+      asunto   = params[:asunto].to_s.strip
+      mensaje  = params[:mensaje].to_s.strip[0, 1000]
+      desde    = desde_param
+      hasta    = hasta_param
+      ref      = params[:ref].to_s.strip
+      user     = params[:user].to_s.strip
 
-      unless destinatario.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
-        return render(json: { ok: false, error: "Email destinatario inválido" }, status: :bad_request)
+      if to_list.empty?
+        return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request)
+      end
+
+      invalid = (to_list + cc_list + bcc_list).reject { |e| e.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/) }
+      if invalid.any?
+        return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
       rows = cargar_filas(desde: desde, hasta: hasta, ref: ref, user: user)
@@ -63,7 +73,9 @@ module Api
       html = construir_html_email(desde, hasta, rows, mensaje, current_usuario)
 
       result = ResendMailerService.send_email(
-        to:                  destinatario,
+        to:                  to_list,
+        cc:                  cc_list,
+        bcc:                 bcc_list,
         subject:             asunto.empty? ? subject_default : asunto,
         html:                html,
         attachment_bytes:    csv_bytes,
@@ -72,7 +84,9 @@ module Api
 
       render json: {
         ok: true,
-        destinatario: destinatario,
+        destinatarios: to_list,
+        cc: cc_list,
+        bcc: bcc_list,
         filename: filename,
         total: rows.size,
         resend_id: result[:id],
@@ -93,6 +107,15 @@ module Api
     end
 
     private
+
+    # Convierte un valor (string con separadores, array, o nil) en un array
+    # limpio de emails sin duplicados. Soporta separadores: coma, punto y coma,
+    # espacios, saltos de línea.
+    def parse_email_list(val)
+      return [] if val.nil?
+      raw = val.is_a?(Array) ? val.join(",") : val.to_s
+      raw.split(/[,;\s\n]+/).map(&:strip).reject(&:empty?).uniq
+    end
 
     def validar_rol_moviired
       return if ROLES_PERMITIDOS.include?(current_rol.to_s)
