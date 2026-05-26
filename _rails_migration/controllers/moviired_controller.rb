@@ -164,22 +164,27 @@ module Api
       }
     end
 
-    # CSV con todas las columnas que se ven en la tabla. Encabezado en español
-    # ALL CAPS por convención de reportes regulatorios.
+    # CSV con SÓLO las 8 columnas regulatorias que pidió el equipo MoviiRed
+    # (sin ID_TX, ID_USER, CIUDAD, NOMBRE_MUNICIPIO). Los IDs siguen
+    # disponibles en la tabla del portal — el CSV es el formato estricto
+    # para reportería externa.
     def construir_csv(rows)
       CSV.generate(col_sep: ",", force_quotes: true) do |csv|
         csv << [
-          "ID_TX", "ID_USER", "CODIGO_SERVICE_TYPE", "FECHA_HORA",
-          "NUMERO_MOVIIRED", "VALOR_TX", "NUMERO_REFERENCIA_TRANSACCION",
-          "NUMERO_TX_MAHINDRA", "DANE", "CODIGO_PUNTO",
-          "CIUDAD", "NOMBRE_MUNICIPIO",
+          "CODIGO_SERVICE_TYPE", "FECHA_HORA", "NUMERO MOVIIRED", "VALOR TX",
+          "NUMERO REFERENCIA TRANSACCION", "NUMERO TX MAHINDRA",
+          "DANE", "CODIGO PUNTO",
         ]
         rows.each do |r|
           csv << [
-            r["id_tx"], r["id_user"], r["codigo_service_type"], r["fecha_hora"],
-            r["numero_moviired"], r["valor_tx"], r["numero_referencia_transaccion"],
-            r["numero_tx_mahindra"], r["dane"], r["codigo_punto"],
-            r["ciudad"], r["nombre_municipio"],
+            r["codigo_service_type"],
+            r["fecha_hora"],
+            r["numero_moviired"],
+            r["valor_tx"],
+            r["numero_referencia_transaccion"],
+            r["numero_tx_mahindra"],
+            r["dane"],
+            r["codigo_punto"],
           ]
         end
       end

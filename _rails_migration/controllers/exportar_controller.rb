@@ -524,21 +524,26 @@ module Api
       rows = ch.query(sql, timeout: 300)
 
       require "csv"
+      # v3.10: CSV con SÓLO las 8 columnas regulatorias que pidió el equipo
+      # MoviiRed (sin ID_TX, ID_USER, CIUDAD, NOMBRE_MUNICIPIO). Los IDs
+      # siguen disponibles en la tabla del portal — el CSV es el formato
+      # estricto para reportería externa.
       csv_str = CSV.generate(col_sep: ",", force_quotes: true) do |csv|
         csv << [
-          "ID_TX", "ID_USER", "CODIGO_SERVICE_TYPE", "FECHA_HORA",
-          "NUMERO_MOVIIRED", "VALOR_TX", "NUMERO_REFERENCIA_TRANSACCION",
-          "NUMERO_TX_MAHINDRA", "DANE", "CODIGO_PUNTO",
-          "CIUDAD", "NOMBRE_MUNICIPIO",
+          "CODIGO_SERVICE_TYPE", "FECHA_HORA", "NUMERO MOVIIRED", "VALOR TX",
+          "NUMERO REFERENCIA TRANSACCION", "NUMERO TX MAHINDRA",
+          "DANE", "CODIGO PUNTO",
         ]
         rows.each do |r|
           csv << [
-            r["id_tx"].to_s, r["id_user"].to_s, r["codigo_service_type"].to_s,
-            r["fecha_hora"].to_s, r["numero_moviired"].to_s,
+            r["codigo_service_type"].to_s,
+            r["fecha_hora"].to_s,
+            r["numero_moviired"].to_s,
             r["valor_tx"].to_f.round(2),
-            r["numero_referencia_transaccion"].to_s, r["numero_tx_mahindra"].to_s,
-            r["dane"].to_s, r["codigo_punto"].to_s,
-            r["ciudad"].to_s, r["nombre_municipio"].to_s,
+            r["numero_referencia_transaccion"].to_s,
+            r["numero_tx_mahindra"].to_s,
+            r["dane"].to_s,
+            r["codigo_punto"].to_s,
           ]
         end
       end
