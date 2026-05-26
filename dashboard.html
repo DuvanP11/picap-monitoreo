@@ -1153,7 +1153,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .sidebar.sb2-expanded .sb2-icon {
   justify-content: flex-start;
   padding: 10px 14px;
+  cursor: pointer; /* v3.13: en modo expandido el icono es clickeable */
 }
+/* sobreescribir disabled: aun en expandido los disabled no son clickeables */
+.sidebar.sb2-expanded .sb2-disabled .sb2-icon { cursor: default; }
 
 /* ── FLYOUT: aparece al hover sobre el ítem ── */
 .sb2-flyout {
@@ -11474,6 +11477,37 @@ function sb2SetUser(nombre, rol) {
   const nm = document.getElementById('sb2-username');
   if(av) av.textContent = (nombre||'U').slice(0,2).toUpperCase();
   if(nm) nm.textContent = nombre || 'Usuario';
+}
+
+// v3.13: en modo expandido el sidebar oculta los flyouts (que tienen los
+// onclick a switchView), así que el .sb2-icon necesita su propio handler.
+// Al click en el icono buscamos el PRIMER .fly-link no deshabilitado del
+// mismo .sb2-item y disparamos su click — eso navega a la vista default
+// del grupo (ej. click en "Recaudos" → abre "Recaudos Picash").
+function wireSb2ExpandedClicks() {
+  document.querySelectorAll('.sidebar .sb2-item').forEach(item => {
+    const icon = item.querySelector(':scope > .sb2-icon');
+    if (!icon || icon.dataset.sb2Wired === '1') return;
+    icon.dataset.sb2Wired = '1';
+    icon.addEventListener('click', (e) => {
+      // Solo en modo expandido (en colapsado el flyout maneja el click)
+      const sb = document.getElementById('sidebar');
+      if (!sb || !sb.classList.contains('sb2-expanded')) return;
+      // Si el item está deshabilitado, no hacer nada
+      if (item.classList.contains('sb2-disabled')) return;
+      const firstLink = item.querySelector('.fly-link:not(.fly-disabled)');
+      if (firstLink) {
+        e.stopPropagation();
+        firstLink.click();
+      }
+    });
+  });
+}
+// Conectar al cargar la página
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', wireSb2ExpandedClicks);
+} else {
+  wireSb2ExpandedClicks();
 }
 
 // Marcar ítem activo en el sidebar
