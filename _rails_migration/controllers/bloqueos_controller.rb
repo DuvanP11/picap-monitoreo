@@ -33,6 +33,9 @@ module Api
         # Mapear país
         r["pais_nombre"] = MotivoMapper::PAISES_MAP[r["pais_codigo"]] || r["pais_codigo"]
 
+        # v2.1: normalizar ciudad (Bogotá D.C / Bogotá / Bogotá, D.C. → "Bogotá")
+        r["ciudad"] = MotivoMapper.normalizar_ciudad(r["ciudad"])
+
         # Motivo mapeado según tipo de usuario
         r["motivo_mapeado"] = MotivoMapper.mapear_segun_tipo(
           r["tipo_usuario"],
@@ -83,6 +86,9 @@ module Api
         reactivados: breakdown_por_tipo_cuenta(reactivados),
       }
 
+      # v2.1: top 10 motivos segmentados por tipo_cuenta (sobre bloqueados)
+      motivos_por_tc = motivos_por_tipo_cuenta(bloqueados)
+
       render json: limpiar({
         ok: true,
         desde: desde_param, hasta: hasta_param,
@@ -103,7 +109,9 @@ module Api
           muestra_size:     SAMPLE_SIZE,
           muestra_truncada: muestra_truncada,
           # v2: nuevos campos
-          por_tipo_cuenta:  breakdowns,
+          por_tipo_cuenta:        breakdowns,
+          # v2.1: top motivos por tipo de cuenta
+          motivos_por_tipo_cuenta: motivos_por_tc,
         },
         stats_bloqueados:  top10_stats(bloqueados),
         stats_reactivados: top10_stats(reactivados),
@@ -336,6 +344,30 @@ module Api
           .map { |c, v| { ciudad: c, count: v.size } }
           .sort_by { |h| -h[:count] }
           .first(n)
+    end
+
+    # v2.1: Top 10 motivos de bloqueo SEGMENTADOS por tipo_cuenta.
+    # Devuelve hash con claves "Piloto Pibox" / "Piloto Rent" / "Piloto Pibox+Rent"
+    # / "Pasajero", cada una con array de {motivo, count, pct} (pct calculado
+    # sobre el total de bloqueados de ESE tipo, no del total global, para que
+    # las cifras tengan sentido al leer "X% de los pasajeros bloqueados").
+    def motivos_por_tipo_cuenta(rows, n = 10)
+      result = {}
+      tipos = ["Piloto Pibox", "Piloto Rent", "Piloto Pibox+Rent", "Pasajero"]
+      tipos.each do |tc|
+        subset = rows.select { |r| r["tipo_cuenta"] == tc }
+        total = subset.size
+        motivos = Hash.new(0)
+        subset.each do |r|
+          m = r["motivo_mapeado"].to_s.strip
+          motivos[m] += 1 unless m.empty?
+        end
+        top = motivos.sort_by { |_, v| -v }.first(n).map { |motivo, count|
+          { motivo: motivo, count: count, pct: total > 0 ? (count.to_f / total * 100).round(1) : 0 }
+        }
+        result[tc] = { total: total, top: top }
+      end
+      result
     end
 
     # Replica top10_stats() del Python. Segmenta por PILOTO/USUARIO/TODOS.

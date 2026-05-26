@@ -9032,7 +9032,63 @@ function renderBlqStatsTipoCuenta(data) {
         ${topCiudadesHtml(blq.top_ciudades_pasajero)}
       </div>
     </div>
+    ${renderBlqMotivosPorTipoCuenta(data)}
   `;
+}
+
+// v2.1: Top 10 motivos de bloqueo segmentados por tipo_cuenta.
+// 3 columnas: Piloto Pibox / Piloto Rent / Pasajero (Piloto Pibox+Rent va al
+// final si tiene datos). Cada columna tiene su propio % calculado sobre el
+// total de bloqueados de ESE tipo (no del total global) — así "X% de los
+// pasajeros bloqueados" tiene sentido al leerlo.
+function renderBlqMotivosPorTipoCuenta(data) {
+  const motivosPorTc = ((data.resumen || {}).motivos_por_tipo_cuenta) || {};
+  const fmtN = (n) => (n||0).toLocaleString('es-CO');
+  const tipoCfg = {
+    'Piloto Pibox':       { emoji: '📦', color: '#3b82f6', bg: '#eff6ff' },
+    'Piloto Rent':        { emoji: '🛵', color: '#16a34a', bg: '#f0fdf4' },
+    'Piloto Pibox+Rent':  { emoji: '⚡', color: '#ec4899', bg: '#fdf2f8' },
+    'Pasajero':           { emoji: '👤', color: '#f59e0b', bg: '#fffbeb' },
+  };
+  const tipos = ['Piloto Pibox', 'Piloto Rent', 'Piloto Pibox+Rent', 'Pasajero'];
+
+  // Filtrar a los que tienen datos para no mostrar columnas vacías
+  const tiposConDatos = tipos.filter(t => (motivosPorTc[t] || {}).total > 0);
+  if (tiposConDatos.length === 0) return '';
+
+  const colHtml = (tc) => {
+    const cfg = tipoCfg[tc];
+    const info = motivosPorTc[tc] || {};
+    const top = info.top || [];
+    const itemsHtml = top.length > 0 ? top.map((m, idx) => `
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:11px;line-height:1.35">
+        <span style="background:${cfg.color};color:#fff;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:9px;flex-shrink:0">${idx+1}</span>
+        <span style="flex:1;color:var(--text2)" title="${m.motivo}">${m.motivo.length > 50 ? m.motivo.slice(0,48)+'…' : m.motivo}</span>
+        <span style="color:var(--text3);min-width:24px;text-align:right">${fmtN(m.count)}</span>
+        <span style="color:${cfg.color};font-weight:700;min-width:42px;text-align:right">${m.pct}%</span>
+      </div>`).join('') : '<div style="font-size:11px;color:var(--text3);font-style:italic">Sin datos</div>';
+    return `
+      <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px;border-top:3px solid ${cfg.color}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:12px;font-weight:800;color:${cfg.color}">${cfg.emoji} ${tc}</div>
+          <div style="font-size:11px;color:var(--text3)">${fmtN(info.total)} bloqueados</div>
+        </div>
+        ${itemsHtml}
+      </div>`;
+  };
+
+  // Layout: hasta 3 columnas por fila, responsivo
+  const cols = tiposConDatos.length === 1 ? 1 : (tiposConDatos.length === 2 ? 2 : 3);
+  let grid = `<div style="margin-top:4px"><div style="font-size:13px;font-weight:800;color:#5a2bb8;margin-bottom:10px">🎯 Top 10 Motivos de Bloqueo · Por Tipo de Cuenta</div>`;
+  // Si hay 4 tipos (incluido Pibox+Rent), los primeros 3 van en una fila y el 4to en otra
+  if (tiposConDatos.length === 4) {
+    grid += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">${tiposConDatos.slice(0,3).map(colHtml).join('')}</div>`;
+    grid += `<div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px">${colHtml(tiposConDatos[3])}</div>`;
+  } else {
+    grid += `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:14px;margin-bottom:14px">${tiposConDatos.map(colHtml).join('')}</div>`;
+  }
+  grid += `</div>`;
+  return grid;
 }
 
 // v2: modal envío email Bloqueos (mismo patrón que MoviiRed)

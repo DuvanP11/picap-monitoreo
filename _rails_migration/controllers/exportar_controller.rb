@@ -181,6 +181,8 @@ module Api
       # Enrich con país + motivo + veredicto (igual que bloqueos_controller)
       rows = rows.map do |r|
         r["pais_nombre"] = MotivoMapper::PAISES_MAP[r["pais_codigo"]] || r["pais_codigo"]
+        # v2.1: normalizar ciudad (Bogotá variants → "Bogotá")
+        r["ciudad"] = MotivoMapper.normalizar_ciudad(r["ciudad"])
         r["motivo_mapeado"] = MotivoMapper.mapear_segun_tipo(
           r["tipo_usuario"],
           comentario_driver: r["comentario_driver"],
@@ -311,6 +313,24 @@ module Api
                                .sort_by { |_, n| -n }
                                .first(10)
           ciudades.each { |c, n| s.data_row([c, n, "#{(bloqueados.size > 0 ? n.to_f / bloqueados.size * 100 : 0).round(1)}% (de bloqueados)", ""], right_align: [2]) }
+
+          # v2.1: Top 10 motivos por tipo de cuenta (Piloto Pibox / Piloto Rent / Pasajero)
+          ["Piloto Pibox", "Piloto Rent", "Piloto Pibox+Rent", "Pasajero"].each do |tc|
+            subset = bloqueados.select { |r| r["tipo_cuenta"] == tc }
+            next if subset.empty?
+            s.data_row(["", "", "", ""])
+            s.data_row(["── Top 10 Motivos · #{tc} (#{subset.size} bloqueados) ──", "", "", ""])
+            motivos = Hash.new(0)
+            subset.each do |r|
+              m = r["motivo_mapeado"].to_s.strip
+              motivos[m] += 1 unless m.empty?
+            end
+            motivos.sort_by { |_, v| -v }.first(10).each do |motivo, count|
+              pct_tc = subset.size > 0 ? (count.to_f / subset.size * 100).round(1) : 0
+              s.data_row([motivo, count, "#{pct_tc}% (de #{tc})", ""], right_align: [2])
+            end
+          end
+
           s.finalize(freeze_row: 4)
         end
       end

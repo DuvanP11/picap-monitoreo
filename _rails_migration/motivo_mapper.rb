@@ -68,6 +68,20 @@ module MotivoMapper
     "GT" => "Guatemala", "PE" => "Perú", "EC" => "Ecuador",
   }.freeze
 
+  # v2.1 (May 2026): normalización de ciudades. La data en Mongo tiene Bogotá
+  # escrita de 5+ formas distintas (Bogotá, Bogotá D.C, Bogotá D.C., "Bogotá,
+  # D.C.", Bogota, etc.) lo cual fragmenta los conteos en el top de ciudades.
+  # Devuelve "Bogotá" para cualquier variante; en otro caso devuelve la
+  # ciudad tal cual venía (manteniendo capitalización original).
+  def self.normalizar_ciudad(ciudad)
+    return "" if ciudad.nil?
+    s = ciudad.to_s.strip
+    return "" if s.empty?
+    # Match permisivo: bogota / bogotá [(,)? d.? c.?]
+    return "Bogotá" if s.match?(/\Abogot[áa](?:[\s,]+d\.?\s*c\.?)?\z/i)
+    s
+  end
+
   # Quita tildes (descomposición NFD + elimina caracteres combinantes)
   def self.normalizar(texto)
     return "" if texto.nil?

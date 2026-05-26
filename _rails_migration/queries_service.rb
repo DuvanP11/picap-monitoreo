@@ -1572,27 +1572,42 @@ module QueriesService
             WHEN p.driver_enrollment_status_cd = 3 THEN 'PILOTO'
             ELSE 'USUARIO'
         END AS tipo_usuario,
-        -- v2 (May 2026): tipo_cuenta basado en suspended_service_types del
-        -- driver_suspension más reciente. JSON array de strings:
-        --   '["pibox"]' → Piloto Pibox
-        --   '["rent"]'  → Piloto Rent
-        --   '["pibox","rent"]' → Piloto Pibox+Rent
-        --   '' / null / '[]' → Pasajero (no tiene driver suspension activa)
+        -- v2.1 (May 2026): tipo_cuenta basado en el ESTADO ACTUAL del usuario.
+        -- Antes (v2.0) solo usábamos `suspended_service_types` y eso causaba
+        -- que registros viejos (con ds row pero service_types vacío) cayeran
+        -- en "Pasajero" → sobre-conteo de Pasajeros vs Pilotos.
+        --
+        -- Nueva lógica:
+        --   1. `is_driver_suspended=true` → es PILOTO actualmente bloqueado.
+        --      Si service_types vacío → Piloto Pibox (legacy default).
+        --   2. `expelled=true` + comentario_driver no vacío → expulsado como PILOTO.
+        --   3. Resto (suspended=true OR expelled sin comentario driver) → Pasajero.
         ifNull(ds.service_types_raw, '')                 AS service_types,
         multiIf(
-            ds.service_types_raw IS NULL
-              OR ds.service_types_raw = ''
-              OR ds.service_types_raw = '[]'
-              OR length(replaceRegexpAll(ds.service_types_raw, '[\\[\\]" ,]', '')) = 0,
-            'Pasajero',
-            positionCaseInsensitive(ds.service_types_raw, 'pibox') > 0
-              AND positionCaseInsensitive(ds.service_types_raw, 'rent') > 0,
-            'Piloto Pibox+Rent',
-            positionCaseInsensitive(ds.service_types_raw, 'rent') > 0,
-            'Piloto Rent',
-            positionCaseInsensitive(ds.service_types_raw, 'pibox') > 0,
-            'Piloto Pibox',
-            'Piloto'
+            -- 1) Currently driver-suspended → Piloto X
+            lower(ifNull(toString(p.is_driver_suspended),'')) = 'true',
+            multiIf(
+                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'pibox') > 0
+                  AND positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
+                'Piloto Pibox+Rent',
+                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
+                'Piloto Rent',
+                'Piloto Pibox'
+            ),
+            -- 2) Expelled AND has driver-side context → Piloto X
+            lower(ifNull(toString(p.expelled),'')) = 'true'
+              AND (ifNull(p.driver_suspension_comment,'') != ''
+                   OR ds.created_at IS NOT NULL),
+            multiIf(
+                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'pibox') > 0
+                  AND positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
+                'Piloto Pibox+Rent',
+                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
+                'Piloto Rent',
+                'Piloto Pibox'
+            ),
+            -- 3) Default → Pasajero
+            'Pasajero'
         ) AS tipo_cuenta,
         formatDateTime(
             toTimeZone(
