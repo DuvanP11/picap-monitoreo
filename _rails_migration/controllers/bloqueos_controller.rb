@@ -10,13 +10,23 @@ module Api
 
     SAMPLE_SIZE = 3000
 
-    # GET /api/bloqueos?desde=&hasta=
+    # GET /api/bloqueos?desde=&hasta=&tipo_cuenta=
+    # v2 (May 2026): nuevo filtro `tipo_cuenta` (Piloto Pibox | Piloto Rent |
+    # Pasajero). El campo viene en cada fila desde Q_BLOQUEOS basado en
+    # `suspended_service_types` de driver_suspensions.
     def index
       sql = QueriesService.format(
         QueriesService::Q_BLOQUEOS,
         fecha_desde: desde_param, fecha_hasta: hasta_param
       )
       rows = ch.query(sql)
+
+      # Filtro opcional por tipo_cuenta (case insensitive, partial match)
+      tipo_cuenta_filter = params[:tipo_cuenta].to_s.strip
+      unless tipo_cuenta_filter.empty?
+        tc_low = tipo_cuenta_filter.downcase
+        rows = rows.select { |r| r["tipo_cuenta"].to_s.downcase.include?(tc_low) }
+      end
 
       # 1. Enriquecer cada fila: país, motivo, veredicto
       rows.each do |r|
@@ -66,6 +76,13 @@ module Api
 
       muestra_truncada = [alertas, bloqueados, reactivados].any? { |a| a.size > SAMPLE_SIZE }
 
+      # v2: breakdowns por tipo_cuenta para alertas / bloqueados / reactivados
+      breakdowns = {
+        alertas:     breakdown_por_tipo_cuenta(alertas),
+        bloqueados:  breakdown_por_tipo_cuenta(bloqueados),
+        reactivados: breakdown_por_tipo_cuenta(reactivados),
+      }
+
       render json: limpiar({
         ok: true,
         desde: desde_param, hasta: hasta_param,
@@ -85,6 +102,8 @@ module Api
           pct_ok:           total > 0 ? (n_ok.to_f / total * 100).round : 0,
           muestra_size:     SAMPLE_SIZE,
           muestra_truncada: muestra_truncada,
+          # v2: nuevos campos
+          por_tipo_cuenta:  breakdowns,
         },
         stats_bloqueados:  top10_stats(bloqueados),
         stats_reactivados: top10_stats(reactivados),
@@ -171,7 +190,153 @@ module Api
              status: :internal_server_error
     end
 
+    # POST /api/bloqueos/enviar_email
+    # Body: { email | to (str|array), cc?, bcc?, asunto?, mensaje?,
+    #         desde, hasta, tipo_cuenta? }
+    # Genera el xlsx de Bloqueos (mismas hojas que el export directo) y lo
+    # envía por email vía Resend. Mismo patrón que MoviiRed.
+    def enviar_email
+      to_list  = parse_email_list(params[:email] || params[:to])
+      cc_list  = parse_email_list(params[:cc])
+      bcc_list = parse_email_list(params[:bcc])
+      asunto   = params[:asunto].to_s.strip
+      mensaje  = params[:mensaje].to_s.strip[0, 1000]
+      desde    = desde_param
+      hasta    = hasta_param
+
+      if to_list.empty?
+        return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request)
+      end
+      invalid = (to_list + cc_list + bcc_list).reject { |e| e.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/) }
+      if invalid.any?
+        return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
+      end
+
+      # Reusa el builder centralizado del ExportarController (mismo xlsx que
+      # se descarga manualmente). El método es estático y recibe ch como
+      # parámetro para no depender de instancia.
+      xlsx = Api::ExportarController.build_bloqueos_xlsx(desde, hasta, ch)
+
+      filename = "Picap_Bloqueos_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+      subject_default = "Reporte de Bloqueos · #{desde} → #{hasta}"
+      html = construir_html_email_bloqueos(desde, hasta, mensaje, current_usuario)
+
+      result = ResendMailerService.send_email(
+        to:                  to_list,
+        cc:                  cc_list,
+        bcc:                 bcc_list,
+        subject:             asunto.empty? ? subject_default : asunto,
+        html:                html,
+        attachment_bytes:    xlsx[:data],
+        attachment_filename: filename,
+      )
+
+      render json: {
+        ok: true,
+        destinatarios: to_list,
+        cc: cc_list,
+        bcc: bcc_list,
+        filename: filename,
+        resend_id: result[:id],
+      }
+    rescue ResendMailerService::ConfigError, ResendMailerService::AuthError => e
+      Rails.logger.error("[BloqueosController#enviar_email] Resend: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    rescue ResendMailerService::ValidationError => e
+      Rails.logger.error("[BloqueosController#enviar_email] Validation: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :bad_request
+    rescue ResendMailerService::NetworkError => e
+      Rails.logger.error("[BloqueosController#enviar_email] Network: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :bad_gateway
+    rescue => e
+      Rails.logger.error("[BloqueosController#enviar_email] #{e.class}: #{e.message}")
+      Rails.logger.error(e.backtrace.first(8).join("\n"))
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
     private
+
+    def parse_email_list(val)
+      return [] if val.nil?
+      raw = val.is_a?(Array) ? val.join(",") : val.to_s
+      raw.split(/[,;\s\n]+/).map(&:strip).reject(&:empty?).uniq
+    end
+
+    def construir_html_email_bloqueos(desde, hasta, mensaje, usuario)
+      msj_html = mensaje.to_s.empty? ? "" : %Q(<p style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:12px 16px;margin:16px 0;border-radius:4px;color:#78350F"><strong>Mensaje:</strong> #{ERB::Util.h(mensaje)}</p>)
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#F5F3FF;color:#1F2937;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:20px 0">
+            <tr><td align="center">
+              <table cellpadding="0" cellspacing="0" border="0" width="640" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+                <tr><td style="background:linear-gradient(90deg,#6B21A8 0%,#7C3AED 100%);padding:24px 28px;color:#ffffff">
+                  <div style="font-size:22px;font-weight:700;letter-spacing:-0.5px">🛡️ Reporte de Bloqueos</div>
+                  <div style="font-size:13px;margin-top:6px;opacity:0.92">Período: #{desde} → #{hasta}</div>
+                </td></tr>
+                <tr><td style="padding:28px">
+                  <p style="margin:0 0 12px;font-size:14px">Hola,</p>
+                  <p style="margin:0 0 12px;font-size:14px;line-height:1.5">Te compartimos el reporte de bloqueos del período indicado. El archivo Excel adjunto incluye <strong>4 hojas</strong>: Alertas, Bloqueos Actuales, Reactivaciones y Estadística General, todas con la columna <strong>Tipo de Cuenta</strong> (Piloto Pibox / Piloto Rent / Pasajero).</p>
+                  #{msj_html}
+                  <p style="margin:24px 0 0;color:#6B7280;font-size:12px;line-height:1.5">📎 <strong>Adjunto:</strong> archivo Excel (.xlsx) con el detalle completo del módulo Bloqueos.</p>
+                </td></tr>
+                <tr><td style="background:#F9FAFB;padding:16px 28px;text-align:center;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">
+                  Generado automáticamente · <strong style="color:#6B21A8">Picap Monitoreo</strong> · #{Time.now.strftime('%d/%m/%Y %H:%M')}<br>
+                  Por: #{ERB::Util.h(usuario || 'sistema')}
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </body></html>
+      HTML
+    end
+
+    # v2 (May 2026): breakdown por tipo_cuenta (Pasajero / Piloto Pibox /
+    # Piloto Rent / Piloto Pibox+Rent / Piloto). Devuelve counts y % cruzados
+    # con tipo_bloqueo (expulsado vs suspendido) para que el frontend muestre
+    # las cards "X% de los expulsados son pilotos" / "X% son pasajeros".
+    def breakdown_por_tipo_cuenta(rows)
+      total = rows.size
+      result = {
+        total: total,
+        # counts por tipo_cuenta
+        pasajero:           rows.count { |r| r["tipo_cuenta"] == "Pasajero" },
+        piloto_pibox:       rows.count { |r| r["tipo_cuenta"] == "Piloto Pibox" },
+        piloto_rent:        rows.count { |r| r["tipo_cuenta"] == "Piloto Rent" },
+        piloto_pibox_rent:  rows.count { |r| r["tipo_cuenta"] == "Piloto Pibox+Rent" },
+        piloto_otro:        rows.count { |r| r["tipo_cuenta"] == "Piloto" },
+        # cross-stats: expulsados vs suspendidos × pibox/rent/pasajero
+        expulsados_pibox:   rows.count { |r| r["tipo_bloqueo"] == "EXPULSADO"   && r["tipo_cuenta"].to_s.include?("Pibox") },
+        expulsados_rent:    rows.count { |r| r["tipo_bloqueo"] == "EXPULSADO"   && r["tipo_cuenta"].to_s.include?("Rent") },
+        expulsados_pasajero:rows.count { |r| r["tipo_bloqueo"] == "EXPULSADO"   && r["tipo_cuenta"] == "Pasajero" },
+        suspendidos_pibox:  rows.count { |r| r["tipo_bloqueo"] == "SUSPENDIDO" && r["tipo_cuenta"].to_s.include?("Pibox") },
+        suspendidos_rent:   rows.count { |r| r["tipo_bloqueo"] == "SUSPENDIDO" && r["tipo_cuenta"].to_s.include?("Rent") },
+        suspendidos_pasajero: rows.count { |r| r["tipo_bloqueo"] == "SUSPENDIDO" && r["tipo_cuenta"] == "Pasajero" },
+      }
+      # Porcentajes (sobre total, evita /0)
+      div = total > 0 ? total.to_f : 1.0
+      result[:pct_pasajero]            = (result[:pasajero] / div * 100).round(1)
+      result[:pct_piloto_pibox]        = (result[:piloto_pibox] / div * 100).round(1)
+      result[:pct_piloto_rent]         = (result[:piloto_rent]  / div * 100).round(1)
+      result[:pct_piloto_pibox_rent]   = (result[:piloto_pibox_rent] / div * 100).round(1)
+      # Top ciudades segmentado por tipo_cuenta
+      result[:top_ciudades_piloto] = top_ciudades(rows.select { |r| r["tipo_cuenta"].to_s.start_with?("Piloto") }, 8)
+      result[:top_ciudades_pasajero] = top_ciudades(rows.select { |r| r["tipo_cuenta"] == "Pasajero" }, 8)
+      # Top tipos de servicio (Pibox / Rent / Pibox+Rent / Pasajero)
+      tipos = rows.group_by { |r| r["tipo_cuenta"].to_s.empty? ? "(sin tipo)" : r["tipo_cuenta"] }
+                  .map { |k, v| { tipo: k, count: v.size, pct: total > 0 ? (v.size.to_f / total * 100).round(1) : 0 } }
+                  .sort_by { |h| -h[:count] }
+      result[:top_servicios] = tipos
+      result
+    end
+
+    def top_ciudades(rows, n = 8)
+      rows.group_by { |r| r["ciudad"].to_s.empty? ? "(sin ciudad)" : r["ciudad"] }
+          .map { |c, v| { ciudad: c, count: v.size } }
+          .sort_by { |h| -h[:count] }
+          .first(n)
+    end
 
     # Replica top10_stats() del Python. Segmenta por PILOTO/USUARIO/TODOS.
     def top10_stats(rows)

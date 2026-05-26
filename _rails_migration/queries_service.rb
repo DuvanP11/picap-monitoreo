@@ -1532,6 +1532,10 @@ module QueriesService
             driver_id,
             created_at,
             updated_at  AS reactivado_en_d,
+            -- v2 (May 2026): traemos suspended_service_types para derivar
+            -- tipo_cuenta. Viene como JSON array string: '["pibox"]' o
+            -- '["rent"]' o '["pibox","rent"]' o '' / null.
+            ifNull(toString(suspended_service_types), '') AS service_types_raw,
             ROW_NUMBER() OVER (
                 PARTITION BY driver_id
                 ORDER BY created_at DESC NULLS LAST
@@ -1568,6 +1572,28 @@ module QueriesService
             WHEN p.driver_enrollment_status_cd = 3 THEN 'PILOTO'
             ELSE 'USUARIO'
         END AS tipo_usuario,
+        -- v2 (May 2026): tipo_cuenta basado en suspended_service_types del
+        -- driver_suspension más reciente. JSON array de strings:
+        --   '["pibox"]' → Piloto Pibox
+        --   '["rent"]'  → Piloto Rent
+        --   '["pibox","rent"]' → Piloto Pibox+Rent
+        --   '' / null / '[]' → Pasajero (no tiene driver suspension activa)
+        ifNull(ds.service_types_raw, '')                 AS service_types,
+        multiIf(
+            ds.service_types_raw IS NULL
+              OR ds.service_types_raw = ''
+              OR ds.service_types_raw = '[]'
+              OR length(replaceRegexpAll(ds.service_types_raw, '[\\[\\]" ,]', '')) = 0,
+            'Pasajero',
+            positionCaseInsensitive(ds.service_types_raw, 'pibox') > 0
+              AND positionCaseInsensitive(ds.service_types_raw, 'rent') > 0,
+            'Piloto Pibox+Rent',
+            positionCaseInsensitive(ds.service_types_raw, 'rent') > 0,
+            'Piloto Rent',
+            positionCaseInsensitive(ds.service_types_raw, 'pibox') > 0,
+            'Piloto Pibox',
+            'Piloto'
+        ) AS tipo_cuenta,
         formatDateTime(
             toTimeZone(
                 coalesce(

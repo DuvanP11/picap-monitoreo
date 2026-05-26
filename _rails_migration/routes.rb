@@ -19,6 +19,7 @@ Rails.application.routes.draw do
     # Bloqueos
     get  "bloqueos",             to: "bloqueos#index"
     get  "estadisticas_bloqueos",to: "bloqueos#estadisticas"
+    post "bloqueos/enviar_email",to: "bloqueos#enviar_email"
 
     # Pagos
     namespace :pagos do

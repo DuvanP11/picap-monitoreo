@@ -1883,7 +1883,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         </div>
       </div>
 
-      <div class="export-bar"><button class="btn-export-xl" onclick="exportarBloqueos(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Bloqueos Excel</button></div>
+      <div class="export-bar" style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-export-xl" onclick="enviarBloqueosEmail(this)" style="background:#7C3AED" title="Enviar el reporte por email con xlsx adjunto (4 hojas + Tipo de Cuenta)">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarBloqueos(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Bloqueos Excel</button>
+      </div>
 
       <!-- Filtros de período -->
       <div class="period-bar" style="margin-bottom:14px;">
@@ -1926,6 +1932,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         <input class="blq-search-input" id="blq-id-input"
           placeholder="Pega el driver_id o user_id completo..."
           oninput="filtrarPorId()" autocomplete="off" spellcheck="false">
+        <span style="font-size:11px;font-weight:600;color:var(--text3);margin-left:14px">Tipo de Cuenta:</span>
+        <select id="blq-tipo-cuenta-filtro" onchange="filtrarPorTipoCuenta()" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Todos</option>
+          <option value="Pasajero">Pasajero</option>
+          <option value="Piloto Pibox">Piloto Pibox</option>
+          <option value="Piloto Rent">Piloto Rent</option>
+          <option value="Piloto Pibox+Rent">Piloto Pibox+Rent</option>
+        </select>
         <button class="blq-search-clear" onclick="limpiarBusquedaId()">✕ Limpiar</button>
         <span id="blq-id-resultado" style="font-size:11px;color:var(--text3);margin-left:4px;"></span>
       </div>
@@ -1969,11 +1983,46 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
           📊 <strong>Estadística General</strong> — vista <em>consolidada</em> del rango: total de cuentas en cada estado, distribución entre PILOTOS y USUARIOS, top motivos de bloqueo, y reparto geográfico. <strong>Es la pestaña principal para reportes ejecutivos.</strong>
           <span style="display:block;margin-top:4px;color:#6b21a8">Cómo leer: los KPIs reflejan la <strong>totalidad</strong> del rango (no solo lo que cabe en las tablas); si la "Tasa de alerta" sube de un mes a otro, hay rezago acumulado en gestiones.</span>
         </div>
+
+        <!-- v2: Cards de stats por tipo de cuenta / servicio -->
+        <div id="blq-stats-tipo-cuenta" style="margin-bottom:14px"></div>
+
         <div id="blq-estadistica-content">
           <div style="text-align:center;padding:24px;color:var(--text3)">Haz clic en ↻ Actualizar para cargar estadísticas.</div>
         </div>
       </div>
 
+    </div>
+
+    <!-- Modal: Enviar Bloqueos por email -->
+    <div id="modal-blq-email" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+      <div style="background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.2);width:min(560px,92vw);max-height:92vh;overflow-y:auto">
+        <div style="background:linear-gradient(90deg,#6B21A8 0%,#7C3AED 100%);padding:18px 22px;color:#fff;border-radius:12px 12px 0 0">
+          <div style="font-size:18px;font-weight:700">📧 Enviar reporte de Bloqueos</div>
+          <div id="modal-blq-email-periodo" style="font-size:12px;opacity:0.92;margin-top:4px"></div>
+        </div>
+        <div style="padding:20px 22px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Para <span style="color:#ef4444">*</span></label>
+          <textarea id="blq-email-to" rows="3" placeholder="email1@dominio.com&#10;email2@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5"></textarea>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:12px">Un email por línea (también acepta coma o ; como separadores)</div>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CC (con copia)</label>
+          <textarea id="blq-email-cc" rows="2" placeholder="opcional — un email por línea" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CCO (con copia oculta)</label>
+          <textarea id="blq-email-bcc" rows="2" placeholder="opcional — un email por línea" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Asunto (opcional)</label>
+          <input id="blq-email-asunto" type="text" placeholder="Si lo dejás vacío usa el default" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;margin-bottom:12px">
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Mensaje (opcional)</label>
+          <textarea id="blq-email-mensaje" placeholder="Texto que va en el cuerpo del email" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;resize:vertical;font-family:inherit"></textarea>
+        </div>
+        <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
+          <button onclick="cerrarModalBlqEmail()" style="padding:9px 18px;background:#fff;border:1.5px solid var(--border);border-radius:8px;color:var(--text1);font-weight:600;cursor:pointer;font-size:13px">Cancelar</button>
+          <button id="blq-email-enviar-btn" onclick="ejecutarEnviarBlqEmail()" style="padding:9px 18px;background:#7C3AED;border:1.5px solid #7C3AED;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:13px">Enviar</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -5018,6 +5067,19 @@ function blqTipoBadge(v){
   if(!v) return '—';
   return `<span class="blq-tipo ${v.toLowerCase()}">${v}</span>`;
 }
+// v2 (May 2026): badge para tipo_cuenta (Pasajero / Piloto Pibox / Piloto Rent / Piloto Pibox+Rent)
+function blqTipoCuentaBadge(v){
+  if(!v) return '—';
+  const map = {
+    'Pasajero':           { bg: '#fef3c7', fg: '#92400e', emoji: '👤' },
+    'Piloto Pibox':       { bg: '#dbeafe', fg: '#1e40af', emoji: '📦' },
+    'Piloto Rent':        { bg: '#dcfce7', fg: '#166534', emoji: '🛵' },
+    'Piloto Pibox+Rent':  { bg: '#fce7f3', fg: '#9d174d', emoji: '⚡' },
+    'Piloto':             { bg: '#f3e8ff', fg: '#6b21a8', emoji: '🏍' },
+  };
+  const cfg = map[v] || { bg: '#f1f5f9', fg: '#475569', emoji: '·' };
+  return `<span style="display:inline-block;background:${cfg.bg};color:${cfg.fg};padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;white-space:nowrap">${cfg.emoji} ${v}</span>`;
+}
 function blqVeredicto(v){
   return `<span class="blq-veredicto ${v==='ALERTA DE TIEMPO'?'alerta':'ok'}">${v||'—'}</span>`;
 }
@@ -5190,6 +5252,7 @@ function renderBloqueos(data){
     {k:'esta_activo',     l:'Estado',               fn: v => blqEstadoBadge(v)},
     {k:'veredicto',       l:'Veredicto',            fn: v => blqVeredicto(v)},
     {k:'tipo_usuario',    l:'Tipo',                 fn: v => blqTipoBadge(v)},
+    {k:'tipo_cuenta',     l:'Tipo Cuenta',          fn: v => blqTipoCuentaBadge(v)},
   ];
   document.getElementById('blq-alertas-content').innerHTML = kpisHtml + renderBlqTabla(data.alertas||[], COLS_ALERTAS);
 
@@ -5198,6 +5261,7 @@ function renderBloqueos(data){
     {k:'nombre',       l:'Nombre'},
     {k:'id_usuario',   l:'Id',            fn: v => `<span class="blq-id">${v||'—'}</span>`},
     {k:'tipo_usuario', l:'Tipo',          fn: v => blqTipoBadge(v)},
+    {k:'tipo_cuenta',  l:'Tipo Cuenta',   fn: v => blqTipoCuentaBadge(v)},
     {k:'tipo_bloqueo', l:'Clase bloqueo', fn: v => `<span class="blq-tipo-blq ${v||''}">${v||'—'}</span>`},
     {k:'pais_nombre',  l:'País'},
     {k:'ciudad',       l:'Ciudad'},
@@ -5281,6 +5345,7 @@ function renderBloqueos(data){
     {k:'nombre',          l:'Nombre'},
     {k:'id_usuario',      l:'Id',                  fn: v => `<span class="blq-id">${v||'—'}</span>`},
     {k:'tipo_usuario',    l:'Tipo',                 fn: v => blqTipoBadge(v)},
+    {k:'tipo_cuenta',     l:'Tipo Cuenta',          fn: v => blqTipoCuentaBadge(v)},
     {k:'pais_nombre',     l:'País'},
     {k:'ciudad',          l:'Ciudad'},
     {k:'fecha_ultima_suspension', l:'Inicio susp.'},
@@ -8821,7 +8886,11 @@ cargarBloqueos = async function() {
     const data = await resp.json();
     if(data.error) throw new Error(data.error);
     _blqData = data;  // guardar para filtrado
+    window._blqDesde = desde;
+    window._blqHasta = hasta;
     aplicarFiltroId();  // renderizar con filtro activo si hay uno
+    // v2: cards de stats por tipo_cuenta (sección Estadística General)
+    renderBlqStatsTipoCuenta(data);
   } catch(err){
     ['alertas','actuales','reactivaciones'].forEach(p => {
       const el = document.getElementById(`blq-${p}-content`);
@@ -8849,13 +8918,16 @@ function filtrarPorId() {
 
 function aplicarFiltroId() {
   const q = (document.getElementById('blq-id-input')?.value || '').trim().toLowerCase();
+  const tc = (document.getElementById('blq-tipo-cuenta-filtro')?.value || '').trim();
   if(!_blqData) return;
-  if(!q || q.length < 6) { renderBloqueos(_blqData); return; }
+  if((!q || q.length < 6) && !tc) { renderBloqueos(_blqData); return; }
 
-  // Filtrar: busca en id_usuario (cubre tanto driver (piloto) como pasajero)
+  // Filtro combinado: id (substring) + tipo_cuenta (exacto)
   const filtrar = arr => (arr||[]).filter(r => {
     const uid = (r.id_usuario||'').toLowerCase();
-    return uid.includes(q);
+    const okId = !q || q.length < 6 || uid.includes(q);
+    const okTc = !tc || (r.tipo_cuenta||'') === tc;
+    return okId && okTc;
   });
 
   const filtrado = {
@@ -8881,6 +8953,144 @@ function aplicarFiltroId() {
     : '⚠ Sin coincidencias';
 
   renderBloqueos(filtrado);
+}
+
+// v2: filtro por tipo_cuenta (Pasajero / Piloto Pibox / Piloto Rent / Piloto Pibox+Rent)
+function filtrarPorTipoCuenta() {
+  aplicarFiltroId();
+}
+
+// v2: renderiza las cards de stats por tipo_cuenta + servicio (sección "Estadística General")
+function renderBlqStatsTipoCuenta(data) {
+  const cont = document.getElementById('blq-stats-tipo-cuenta');
+  if (!cont) return;
+  const breakdowns = ((data.resumen || {}).por_tipo_cuenta) || {};
+  const blq = breakdowns.bloqueados || {};
+  const total = blq.total || 0;
+  if (total === 0) { cont.innerHTML = ''; return; }
+
+  const fmtN = (n) => (n||0).toLocaleString('es-CO');
+  const card = (titulo, val, pct, color, emoji) => `
+    <div class="bloqueos-kpi" style="border-top:3px solid ${color}">
+      <div class="bloqueos-kpi-val" style="color:${color}">${fmtN(val)}</div>
+      <div class="bloqueos-kpi-lbl">${emoji} ${titulo}${pct ? ` · ${pct}%` : ''}</div>
+    </div>`;
+  const topServiciosHtml = (blq.top_servicios || []).map(s => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px">
+      <span style="flex:1;font-weight:600">${s.tipo}</span>
+      <span style="color:var(--text3)">${fmtN(s.count)}</span>
+      <span style="color:#7C3AED;font-weight:600;min-width:48px;text-align:right">${s.pct}%</span>
+    </div>`).join('');
+  const topCiudadesHtml = (cs) => (cs || []).slice(0, 8).map(c => `
+    <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+      <span style="font-weight:600">${c.ciudad}</span>
+      <span style="color:#7C3AED;font-weight:600">${fmtN(c.count)}</span>
+    </div>`).join('') || '<div style="font-size:11px;color:var(--text3);font-style:italic">Sin datos</div>';
+
+  cont.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:800;color:#5a2bb8;margin-bottom:10px">🧩 Bloqueos por Tipo de Cuenta</div>
+      <div class="bloqueos-resumen" style="grid-template-columns:repeat(4,1fr)">
+        ${card('Pasajeros', blq.pasajero, blq.pct_pasajero, '#f59e0b', '👤')}
+        ${card('Pilotos Pibox', blq.piloto_pibox, blq.pct_piloto_pibox, '#3b82f6', '📦')}
+        ${card('Pilotos Rent', blq.piloto_rent, blq.pct_piloto_rent, '#16a34a', '🛵')}
+        ${card('Pilotos Pibox+Rent', blq.piloto_pibox_rent, blq.pct_piloto_pibox_rent, '#ec4899', '⚡')}
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:800;color:#5a2bb8;margin-bottom:10px">🚫 Expulsados vs Suspendidos × Tipo de Cuenta</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#991B1B;margin-bottom:6px">EXPULSADOS (permanentes)</div>
+          <div style="display:flex;flex-direction:column;gap:4px;font-size:12px">
+            <div style="display:flex;justify-content:space-between"><span>📦 Pilotos Pibox</span><span style="font-weight:700">${fmtN(blq.expulsados_pibox)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>🛵 Pilotos Rent</span><span style="font-weight:700">${fmtN(blq.expulsados_rent)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>👤 Pasajeros</span><span style="font-weight:700">${fmtN(blq.expulsados_pasajero)}</span></div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#92400E;margin-bottom:6px">SUSPENDIDOS</div>
+          <div style="display:flex;flex-direction:column;gap:4px;font-size:12px">
+            <div style="display:flex;justify-content:space-between"><span>📦 Pilotos Pibox</span><span style="font-weight:700">${fmtN(blq.suspendidos_pibox)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>🛵 Pilotos Rent</span><span style="font-weight:700">${fmtN(blq.suspendidos_rent)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>👤 Pasajeros</span><span style="font-weight:700">${fmtN(blq.suspendidos_pasajero)}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+      <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px">
+        <div style="font-size:12px;font-weight:800;color:#5a2bb8;margin-bottom:8px">🏆 Top Tipos de Servicio</div>
+        ${topServiciosHtml || '<div style="font-size:11px;color:var(--text3);font-style:italic">Sin datos</div>'}
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px">
+        <div style="font-size:12px;font-weight:800;color:#5a2bb8;margin-bottom:8px">🏍 Top Ciudades · Pilotos</div>
+        ${topCiudadesHtml(blq.top_ciudades_piloto)}
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px">
+        <div style="font-size:12px;font-weight:800;color:#5a2bb8;margin-bottom:8px">👤 Top Ciudades · Pasajeros</div>
+        ${topCiudadesHtml(blq.top_ciudades_pasajero)}
+      </div>
+    </div>
+  `;
+}
+
+// v2: modal envío email Bloqueos (mismo patrón que MoviiRed)
+function enviarBloqueosEmail(btn) {
+  const desde = (window._blqDesde || daysAgo(15));
+  const hasta = (window._blqHasta || today());
+  document.getElementById('modal-blq-email-periodo').textContent = `Período: ${desde} → ${hasta}`;
+  ['to','cc','bcc','asunto','mensaje'].forEach(k => {
+    const el = document.getElementById(`blq-email-${k}`);
+    if (el) el.value = '';
+  });
+  document.getElementById('modal-blq-email').style.display = 'flex';
+  setTimeout(() => document.getElementById('blq-email-to')?.focus(), 50);
+}
+function cerrarModalBlqEmail() {
+  document.getElementById('modal-blq-email').style.display = 'none';
+}
+async function ejecutarEnviarBlqEmail() {
+  const desde = (window._blqDesde || daysAgo(15));
+  const hasta = (window._blqHasta || today());
+  const parseEmails = (s) => (s || '').split(/[,;\s\n]+/).map(e => e.trim()).filter(e => e);
+  const to      = parseEmails(document.getElementById('blq-email-to').value);
+  const cc      = parseEmails(document.getElementById('blq-email-cc').value);
+  const bcc     = parseEmails(document.getElementById('blq-email-bcc').value);
+  const asunto  = document.getElementById('blq-email-asunto').value.trim();
+  const mensaje = document.getElementById('blq-email-mensaje').value.trim();
+
+  if (to.length === 0) { alert('Tenés que ingresar al menos un email en "Para".'); return; }
+  const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const invalid = [...to, ...cc, ...bcc].filter(e => !reEmail.test(e));
+  if (invalid.length > 0) { alert(`Email(s) inválido(s):\n${invalid.join('\n')}`); return; }
+
+  const btn = document.getElementById('blq-email-enviar-btn');
+  const txtOrig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '⏳ Enviando...';
+
+  try {
+    const body = { email: to.join(','), desde, hasta, mensaje };
+    if (cc.length)  body.cc  = cc.join(',');
+    if (bcc.length) body.bcc = bcc.join(',');
+    if (asunto)     body.asunto = asunto;
+    const r = await fetch(`${API}/api/bloqueos/enviar_email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    const destL = (d.destinatarios || []).join(', ');
+    const ccL   = (d.cc  || []).length ? `\nCC: ${d.cc.join(', ')}`   : '';
+    const bccL  = (d.bcc || []).length ? `\nCCO: ${d.bcc.join(', ')}` : '';
+    alert(`✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}\nAdjunto: ${d.filename}`);
+    cerrarModalBlqEmail();
+  } catch(err) {
+    alert('Error al enviar email: ' + (err.message || err));
+  } finally {
+    btn.disabled = false; btn.innerHTML = txtOrig;
+  }
 }
 
 // También limpiar filtro cuando se cambia el período

@@ -155,8 +155,26 @@ module Api
     end
 
     # GET /api/exportar/bloqueos?desde=&hasta=
+    # v2: ahora genera 4 hojas (Alertas / Bloqueados Actuales / Reactivaciones /
+    # Estadística General) e incluye la columna "Tipo de Cuenta" derivada de
+    # suspended_service_types. Reutilizado por BloqueosController#enviar_email.
     def bloqueos
       desde, hasta = desde_param, hasta_param
+      send_xlsx(self.class.build_bloqueos_xlsx(desde, hasta, ch))
+    rescue => e
+      handle_error(e, "bloqueos")
+    end
+
+    # Builder centralizado del xlsx de Bloqueos. Recibe `ch` como dependencia
+    # explícita para que pueda ser llamado desde otro controller sin
+    # instanciar ExportarController.
+    #
+    # Genera 4 hojas:
+    #   1. Alertas (filas con veredicto != TODO OK)
+    #   2. Bloqueados Actuales (esta_activo = bloqueado)
+    #   3. Reactivaciones (esta_activo = activo)
+    #   4. Estadística General (resumen + breakdown por tipo_cuenta)
+    def self.build_bloqueos_xlsx(desde, hasta, ch)
       rows = ch.query(QueriesService.format(QueriesService::Q_BLOQUEOS,
                                              fecha_desde: desde, fecha_hasta: hasta), timeout: 300)
 
@@ -179,40 +197,123 @@ module Api
         r
       end
 
-      xlsx = ExcelExportService.build("Picap_Bloqueos") do |x|
-        x.add_sheet("Detalle") do |s|
-          s.banner("Vista de Bloqueos — Detalle",
-                   "Período: #{desde} → #{hasta}  ·  Registros: #{rows.size}", 14)
-          s.headers([
-            "Fecha", "ID Usuario", "Nombre", "Tipo Usuario", "País", "Ciudad",
-            "Tipo Bloqueo", "Veredicto", "Días bloqueado", "Motivo",
-            "Comentario driver", "Comentario user", "Expulsado", "Activo",
-          ])
-          rows.each do |r|
-            s.data_row([
-              r["fecha_bloqueo"].to_s,
-              r["id_usuario"].to_s,
-              r["nombre"].to_s,
-              r["tipo_usuario"].to_s,
-              r["pais_nombre"].to_s,
-              r["ciudad"].to_s,
-              r["tipo_bloqueo"].to_s,
-              r["veredicto"].to_s,
-              r["dias_bloqueado_total"].to_i,
-              r["motivo_mapeado"].to_s,
-              r["comentario_driver"].to_s[0, 300],
-              r["comentario_user"].to_s[0, 300],
-              r["expulsado"].to_s,
-              r["esta_activo"].to_s,
-            ], right_align: [9])
+      # Clasificar
+      alertas     = rows.select { |r| r["veredicto"] != "TODO OK" }
+      bloqueados  = rows.select { |r| r["esta_activo"] == "bloqueado" }
+      reactivados = rows.select { |r| r["esta_activo"] == "activo" }
+
+      headers_detalle = [
+        "Fecha", "ID Usuario", "Nombre", "Tipo Usuario", "Tipo de Cuenta",
+        "Service Types", "País", "Ciudad", "Tipo Bloqueo", "Veredicto",
+        "Días bloqueado", "Motivo", "Comentario driver", "Comentario user",
+        "Expulsado", "Activo",
+      ].freeze
+
+      build_data_row = ->(r) {
+        [
+          r["fecha_ultima_suspension"].to_s,
+          r["id_usuario"].to_s,
+          r["nombre"].to_s,
+          r["tipo_usuario"].to_s,
+          r["tipo_cuenta"].to_s,
+          r["service_types"].to_s,
+          r["pais_nombre"].to_s,
+          r["ciudad"].to_s,
+          r["tipo_bloqueo"].to_s,
+          r["veredicto"].to_s,
+          r["dias_bloqueado_total"].to_i,
+          r["motivo_mapeado"].to_s,
+          r["comentario_driver"].to_s[0, 300],
+          r["comentario_user"].to_s[0, 300],
+          r["expulsado"].to_s,
+          r["esta_activo"].to_s,
+        ]
+      }
+
+      ExcelExportService.build("Picap_Bloqueos") do |x|
+        # ── Hoja 1: Alertas ───────────────────────────────────────────────
+        x.add_sheet("Alertas") do |s|
+          s.banner("Alertas de Bloqueo",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{alertas.size}", 16)
+          s.headers(headers_detalle)
+          alertas.each { |r| s.data_row(build_data_row.(r), right_align: [11]) }
+          s.finalize(freeze_row: 4)
+        end
+
+        # ── Hoja 2: Bloqueados Actuales ────────────────────────────────────
+        x.add_sheet("Bloqueados Actuales") do |s|
+          s.banner("Cuentas Actualmente Bloqueadas",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{bloqueados.size}", 16)
+          s.headers(headers_detalle)
+          bloqueados.each { |r| s.data_row(build_data_row.(r), right_align: [11]) }
+          s.finalize(freeze_row: 4)
+        end
+
+        # ── Hoja 3: Reactivaciones ────────────────────────────────────────
+        x.add_sheet("Reactivaciones") do |s|
+          s.banner("Cuentas Reactivadas",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{reactivados.size}", 16)
+          s.headers(headers_detalle)
+          reactivados.each { |r| s.data_row(build_data_row.(r), right_align: [11]) }
+          s.finalize(freeze_row: 4)
+        end
+
+        # ── Hoja 4: Estadística General ───────────────────────────────────
+        x.add_sheet("Estadística General") do |s|
+          s.banner("Estadística General de Bloqueos",
+                   "Período: #{desde} → #{hasta}", 4)
+          s.headers(["Métrica", "Total", "% del total", "Detalle"])
+          total = rows.size.to_f
+          pct = ->(n) { total > 0 ? "#{(n.to_f / total * 100).round(1)}%" : "0%" }
+
+          # Cross-stats: tipo_bloqueo × tipo_cuenta
+          counts = {
+            "Total cuentas en período"            => rows.size,
+            "Bloqueados (suspendidos + expulsados)" => bloqueados.size,
+            "  - Expulsados (permanentes)"        => rows.count { |r| r["tipo_bloqueo"] == "EXPULSADO" },
+            "  - Suspendidos"                     => rows.count { |r| r["tipo_bloqueo"] == "SUSPENDIDO" },
+            "Reactivados"                         => reactivados.size,
+            "Alertas (>30 días bloqueados)"       => alertas.count { |r| r["veredicto"] == "ALERTA DE TIEMPO" },
+          }
+          counts.each do |label, n|
+            s.data_row([label, n, label.start_with?("  ") ? "" : pct.(n), ""], right_align: [2])
           end
+          # Por tipo de cuenta
+          s.data_row(["", "", "", ""])  # separator
+          s.data_row(["── Por Tipo de Cuenta ──", "", "", ""])
+          %w[Pasajero Piloto\ Pibox Piloto\ Rent Piloto\ Pibox+Rent].each do |tc|
+            n = rows.count { |r| r["tipo_cuenta"] == tc }
+            next if n.zero?
+            s.data_row([tc, n, pct.(n), ""], right_align: [2])
+          end
+          # Por tipo de bloqueo cruzado con tipo de cuenta
+          s.data_row(["", "", "", ""])
+          s.data_row(["── Expulsados × Tipo de Cuenta ──", "", "", ""])
+          exp_pibox  = rows.count { |r| r["tipo_bloqueo"] == "EXPULSADO" && r["tipo_cuenta"].to_s.include?("Pibox") }
+          exp_rent   = rows.count { |r| r["tipo_bloqueo"] == "EXPULSADO" && r["tipo_cuenta"].to_s.include?("Rent") }
+          exp_pasaj  = rows.count { |r| r["tipo_bloqueo"] == "EXPULSADO" && r["tipo_cuenta"] == "Pasajero" }
+          s.data_row(["Pilotos Pibox expulsados",   exp_pibox,  pct.(exp_pibox),  ""], right_align: [2])
+          s.data_row(["Pilotos Rent expulsados",    exp_rent,   pct.(exp_rent),   ""], right_align: [2])
+          s.data_row(["Pasajeros expulsados",       exp_pasaj,  pct.(exp_pasaj),  ""], right_align: [2])
+          s.data_row(["", "", "", ""])
+          s.data_row(["── Suspendidos × Tipo de Cuenta ──", "", "", ""])
+          sus_pibox  = rows.count { |r| r["tipo_bloqueo"] == "SUSPENDIDO" && r["tipo_cuenta"].to_s.include?("Pibox") }
+          sus_rent   = rows.count { |r| r["tipo_bloqueo"] == "SUSPENDIDO" && r["tipo_cuenta"].to_s.include?("Rent") }
+          sus_pasaj  = rows.count { |r| r["tipo_bloqueo"] == "SUSPENDIDO" && r["tipo_cuenta"] == "Pasajero" }
+          s.data_row(["Pilotos Pibox suspendidos",  sus_pibox,  pct.(sus_pibox),  ""], right_align: [2])
+          s.data_row(["Pilotos Rent suspendidos",   sus_rent,   pct.(sus_rent),   ""], right_align: [2])
+          s.data_row(["Pasajeros suspendidos",      sus_pasaj,  pct.(sus_pasaj),  ""], right_align: [2])
+          # Top 10 ciudades
+          s.data_row(["", "", "", ""])
+          s.data_row(["── Top 10 Ciudades con Más Bloqueos ──", "", "", ""])
+          ciudades = bloqueados.group_by { |r| r["ciudad"].to_s.empty? ? "(sin ciudad)" : r["ciudad"] }
+                               .map { |c, v| [c, v.size] }
+                               .sort_by { |_, n| -n }
+                               .first(10)
+          ciudades.each { |c, n| s.data_row([c, n, "#{(bloqueados.size > 0 ? n.to_f / bloqueados.size * 100 : 0).round(1)}% (de bloqueados)", ""], right_align: [2]) }
           s.finalize(freeze_row: 4)
         end
       end
-
-      send_xlsx(xlsx)
-    rescue => e
-      handle_error(e, "bloqueos")
     end
 
     # GET /api/exportar/pagos?desde=&hasta=&pais=&tipo=tc|promo
