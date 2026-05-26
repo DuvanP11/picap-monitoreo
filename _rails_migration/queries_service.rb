@@ -1588,18 +1588,26 @@ module QueriesService
             WHEN p.driver_enrollment_status_cd = 3 THEN 'PILOTO'
             ELSE 'USUARIO'
         END AS tipo_usuario,
-        -- v2.2: quien suspende (PRESTADOR=driver, CONSUMIDOR=passenger). Alinea
-        -- exactamente con la columna "A QUIEN SE SUSPENDERÁ" del Excel del cliente.
-        s.quien_suspende                                 AS quien_suspende,
+        -- v2.4: quien_suspende deriva del ENROLLMENT del user, no de la tabla
+        -- origen de la suspensión (data dirty en Mongo: un piloto puede tener
+        -- record en passenger_suspensions y viceversa, por bugs de migración).
+        -- El comentario en api.py linea 968-971 lo deja explícito:
+        --   "la tabla donde está el registro NO siempre coincide con el tipo
+        --    de cuenta — un USUARIO puede tener record en driver_suspensions"
+        -- Tu Excel reporta 339 PRESTADOR : 35 CONSUMIDOR (10:1 piloto), pero
+        -- las tablas en CH tienen 234 ds + 227 ps (1:1). Por eso clasificamos
+        -- por enrollment, no por tabla.
+        CASE
+            WHEN p.driver_enrollment_status_cd = 3 THEN 'USUARIO PRESTADOR'
+            ELSE 'USUARIO CONSUMIDOR'
+        END AS quien_suspende,
+        -- quien_suspende_tabla: indicador "raw" de la tabla de origen, para
+        -- debugging y para que el Excel exportado tenga visibilidad.
+        s.quien_suspende                                 AS quien_suspende_tabla,
         s.service_types_raw                              AS service_types,
-        -- tipo_cuenta basado en quien_suspende + service_types:
-        --   CONSUMIDOR (ps row)      → "Pasajero"
-        --   PRESTADOR + service_types con pibox+rent → "Piloto Pibox+Rent"
-        --   PRESTADOR + service_types con rent       → "Piloto Rent"
-        --   PRESTADOR + service_types con pibox      → "Piloto Pibox"
-        --   PRESTADOR + service_types vacío (legacy) → "Piloto Pibox" (default)
+        -- tipo_cuenta basado en quien_suspende (enrollment-based) + service_types:
         multiIf(
-            s.quien_suspende = 'USUARIO CONSUMIDOR',
+            p.driver_enrollment_status_cd != 3,
             'Pasajero',
             positionCaseInsensitive(s.service_types_raw, 'pibox') > 0
               AND positionCaseInsensitive(s.service_types_raw, 'rent') > 0,
