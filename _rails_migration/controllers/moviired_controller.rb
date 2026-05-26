@@ -164,12 +164,12 @@ module Api
       }
     end
 
-    # CSV con SÓLO las 8 columnas regulatorias que pidió el equipo MoviiRed
-    # (sin ID_TX, ID_USER, CIUDAD, NOMBRE_MUNICIPIO). Los IDs siguen
-    # disponibles en la tabla del portal — el CSV es el formato estricto
-    # para reportería externa.
+    # CSV con las 8 columnas regulatorias que pidió el equipo MoviiRed.
+    # v3.11: separador ';' (punto y coma) — Excel en es-CO usa ';' por
+    # default, con ',' todo el CSV cae en una sola columna. VALOR TX como
+    # entero (sin decimales).
     def construir_csv(rows)
-      CSV.generate(col_sep: ",", force_quotes: true) do |csv|
+      CSV.generate(col_sep: ";", force_quotes: true) do |csv|
         csv << [
           "CODIGO_SERVICE_TYPE", "FECHA_HORA", "NUMERO MOVIIRED", "VALOR TX",
           "NUMERO REFERENCIA TRANSACCION", "NUMERO TX MAHINDRA",
@@ -180,7 +180,7 @@ module Api
             r["codigo_service_type"],
             r["fecha_hora"],
             r["numero_moviired"],
-            r["valor_tx"],
+            r["valor_tx"].to_f.round,  # entero, sin decimales
             r["numero_referencia_transaccion"],
             r["numero_tx_mahindra"],
             r["dane"],

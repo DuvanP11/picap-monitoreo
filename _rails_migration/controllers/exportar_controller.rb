@@ -524,11 +524,11 @@ module Api
       rows = ch.query(sql, timeout: 300)
 
       require "csv"
-      # v3.10: CSV con SÓLO las 8 columnas regulatorias que pidió el equipo
-      # MoviiRed (sin ID_TX, ID_USER, CIUDAD, NOMBRE_MUNICIPIO). Los IDs
-      # siguen disponibles en la tabla del portal — el CSV es el formato
-      # estricto para reportería externa.
-      csv_str = CSV.generate(col_sep: ",", force_quotes: true) do |csv|
+      # v3.10: CSV con las 8 columnas regulatorias que pidió el equipo MoviiRed.
+      # v3.11: separador ';' (punto y coma) — Excel en es-CO usa ';' por
+      # default, con ',' todo el CSV cae en una sola columna. VALOR TX como
+      # entero (sin decimales).
+      csv_str = CSV.generate(col_sep: ";", force_quotes: true) do |csv|
         csv << [
           "CODIGO_SERVICE_TYPE", "FECHA_HORA", "NUMERO MOVIIRED", "VALOR TX",
           "NUMERO REFERENCIA TRANSACCION", "NUMERO TX MAHINDRA",
@@ -539,7 +539,7 @@ module Api
             r["codigo_service_type"].to_s,
             r["fecha_hora"].to_s,
             r["numero_moviired"].to_s,
-            r["valor_tx"].to_f.round(2),
+            r["valor_tx"].to_f.round,  # entero, sin decimales
             r["numero_referencia_transaccion"].to_s,
             r["numero_tx_mahindra"].to_s,
             r["dane"].to_s,
