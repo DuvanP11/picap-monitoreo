@@ -3612,14 +3612,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         </div>
         <div style="padding:20px 22px">
           <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Para <span style="color:#ef4444">*</span></label>
-          <input id="mvr-email-to" type="text" placeholder="email@dominio.com, otro@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none">
-          <div style="font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:12px">Separá múltiples emails con coma o salto de línea</div>
+          <textarea id="mvr-email-to" rows="3" placeholder="email1@dominio.com&#10;email2@dominio.com&#10;email3@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5"></textarea>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:12px">Un email por línea (también acepta coma o ; como separadores)</div>
 
           <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CC (con copia)</label>
-          <input id="mvr-email-cc" type="text" placeholder="opcional — email@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;margin-bottom:12px">
+          <textarea id="mvr-email-cc" rows="2" placeholder="opcional — un email por línea" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
 
           <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CCO (con copia oculta)</label>
-          <input id="mvr-email-bcc" type="text" placeholder="opcional — email@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;margin-bottom:12px">
+          <textarea id="mvr-email-bcc" rows="2" placeholder="opcional — un email por línea" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
 
           <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Asunto (opcional)</label>
           <input id="mvr-email-asunto" type="text" placeholder="Si lo dejás vacío usa el default" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;margin-bottom:12px">
