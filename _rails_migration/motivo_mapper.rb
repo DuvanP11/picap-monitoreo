@@ -104,11 +104,29 @@ module MotivoMapper
   end
 
   # Resuelve el motivo según el tipo de usuario (prioridad distinta).
+  # v2.0: con fallback al otro lado si el comentario propio está vacío.
   def self.mapear_segun_tipo(tipo_usuario, comentario_driver:, comentario_user:, comentario_expulsion_user:)
     candidatos = if tipo_usuario.to_s == "PILOTO"
       [comentario_driver, comentario_user, comentario_expulsion_user]
     else
       [comentario_user, comentario_expulsion_user, comentario_driver]
+    end
+    raw = candidatos.map(&:to_s).map(&:strip).find { |x| !x.empty? }
+    mapear(raw)
+  end
+
+  # v2.3: Modo ESTRICTO — solo usa comentarios del MISMO lado.
+  # CONSUMIDOR (ps suspension) → solo comentario_user / comentario_expulsion_user.
+  # PRESTADOR (ds suspension) → solo comentario_driver.
+  # Si el comentario propio está vacío, devuelve nil (no fallback cruzado).
+  # Esto fixea el caso en que un pasajero ve "no entregar paquete" como motivo
+  # porque el user también es piloto y `driver_suspension_comment` se filtraba
+  # como fallback.
+  def self.mapear_estricto(quien_suspende, comentario_driver:, comentario_user:, comentario_expulsion_user:)
+    candidatos = if quien_suspende.to_s == "USUARIO PRESTADOR"
+      [comentario_driver]
+    else
+      [comentario_user, comentario_expulsion_user]
     end
     raw = candidatos.map(&:to_s).map(&:strip).find { |x| !x.empty? }
     mapear(raw)

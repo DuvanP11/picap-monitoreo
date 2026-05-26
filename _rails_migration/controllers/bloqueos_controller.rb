@@ -36,14 +36,14 @@ module Api
         # v2.1: normalizar ciudad (Bogotá D.C / Bogotá / Bogotá, D.C. → "Bogotá")
         r["ciudad"] = MotivoMapper.normalizar_ciudad(r["ciudad"])
 
-        # v2.2: motivo desde el lado correcto de la suspensión.
-        # PRESTADOR (ds row) → prioriza comentario_driver.
-        # CONSUMIDOR (ps row) → prioriza comentario_user / comentario_expulsion_user.
-        # (Antes usábamos `tipo_usuario` que es del enrollment, no de la suspensión.)
-        quien = r["quien_suspende"].to_s
-        tipo_para_motivo = quien == "USUARIO PRESTADOR" ? "PILOTO" : "USUARIO"
-        r["motivo_mapeado"] = MotivoMapper.mapear_segun_tipo(
-          tipo_para_motivo,
+        # v2.3: motivo ESTRICTO desde el lado correcto de la suspensión.
+        # Antes (v2.2) había fallback al lado opuesto cuando el comentario propio
+        # estaba vacío → un Pasajero terminaba con motivo "no entregar paquete"
+        # porque caía al `comentario_driver` del user. Sin fallback cruzado:
+        # PRESTADOR (ds row) → SOLO comentario_driver
+        # CONSUMIDOR (ps row) → SOLO comentario_user / comentario_expulsion_user
+        r["motivo_mapeado"] = MotivoMapper.mapear_estricto(
+          r["quien_suspende"],
           comentario_driver: r["comentario_driver"],
           comentario_user:   r["comentario_user"],
           comentario_expulsion_user: r["comentario_expulsion_user"],

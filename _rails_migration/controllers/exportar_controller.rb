@@ -183,11 +183,9 @@ module Api
         r["pais_nombre"] = MotivoMapper::PAISES_MAP[r["pais_codigo"]] || r["pais_codigo"]
         # v2.1: normalizar ciudad (Bogotá variants → "Bogotá")
         r["ciudad"] = MotivoMapper.normalizar_ciudad(r["ciudad"])
-        # v2.2: motivo desde el lado correcto de la suspensión (PRESTADOR/CONSUMIDOR)
-        quien = r["quien_suspende"].to_s
-        tipo_para_motivo = quien == "USUARIO PRESTADOR" ? "PILOTO" : "USUARIO"
-        r["motivo_mapeado"] = MotivoMapper.mapear_segun_tipo(
-          tipo_para_motivo,
+        # v2.3: motivo ESTRICTO (sin fallback cruzado opposite-side)
+        r["motivo_mapeado"] = MotivoMapper.mapear_estricto(
+          r["quien_suspende"],
           comentario_driver: r["comentario_driver"],
           comentario_user:   r["comentario_user"],
           comentario_expulsion_user: r["comentario_expulsion_user"],
