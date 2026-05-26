@@ -183,8 +183,11 @@ module Api
         r["pais_nombre"] = MotivoMapper::PAISES_MAP[r["pais_codigo"]] || r["pais_codigo"]
         # v2.1: normalizar ciudad (Bogotá variants → "Bogotá")
         r["ciudad"] = MotivoMapper.normalizar_ciudad(r["ciudad"])
+        # v2.2: motivo desde el lado correcto de la suspensión (PRESTADOR/CONSUMIDOR)
+        quien = r["quien_suspende"].to_s
+        tipo_para_motivo = quien == "USUARIO PRESTADOR" ? "PILOTO" : "USUARIO"
         r["motivo_mapeado"] = MotivoMapper.mapear_segun_tipo(
-          r["tipo_usuario"],
+          tipo_para_motivo,
           comentario_driver: r["comentario_driver"],
           comentario_user:   r["comentario_user"],
           comentario_expulsion_user: r["comentario_expulsion_user"],
@@ -204,8 +207,10 @@ module Api
       bloqueados  = rows.select { |r| r["esta_activo"] == "bloqueado" }
       reactivados = rows.select { |r| r["esta_activo"] == "activo" }
 
+      # v2.2: nuevas columnas Suspension ID y A QUIEN SE SUSPENDE
       headers_detalle = [
-        "Fecha", "ID Usuario", "Nombre", "Tipo Usuario", "Tipo de Cuenta",
+        "Suspensión ID", "Fecha", "ID Usuario", "Nombre",
+        "A Quien Suspende", "Tipo Usuario", "Tipo de Cuenta",
         "Service Types", "País", "Ciudad", "Tipo Bloqueo", "Veredicto",
         "Días bloqueado", "Motivo", "Comentario driver", "Comentario user",
         "Expulsado", "Activo",
@@ -213,9 +218,11 @@ module Api
 
       build_data_row = ->(r) {
         [
+          r["suspension_id"].to_s,
           r["fecha_ultima_suspension"].to_s,
           r["id_usuario"].to_s,
           r["nombre"].to_s,
+          r["quien_suspende"].to_s,
           r["tipo_usuario"].to_s,
           r["tipo_cuenta"].to_s,
           r["service_types"].to_s,
@@ -238,7 +245,7 @@ module Api
           s.banner("Alertas de Bloqueo",
                    "Período: #{desde} → #{hasta}  ·  Registros: #{alertas.size}", 16)
           s.headers(headers_detalle)
-          alertas.each { |r| s.data_row(build_data_row.(r), right_align: [11]) }
+          alertas.each { |r| s.data_row(build_data_row.(r), right_align: [13]) }
           s.finalize(freeze_row: 4)
         end
 
@@ -247,7 +254,7 @@ module Api
           s.banner("Cuentas Actualmente Bloqueadas",
                    "Período: #{desde} → #{hasta}  ·  Registros: #{bloqueados.size}", 16)
           s.headers(headers_detalle)
-          bloqueados.each { |r| s.data_row(build_data_row.(r), right_align: [11]) }
+          bloqueados.each { |r| s.data_row(build_data_row.(r), right_align: [13]) }
           s.finalize(freeze_row: 4)
         end
 
@@ -256,7 +263,7 @@ module Api
           s.banner("Cuentas Reactivadas",
                    "Período: #{desde} → #{hasta}  ·  Registros: #{reactivados.size}", 16)
           s.headers(headers_detalle)
-          reactivados.each { |r| s.data_row(build_data_row.(r), right_align: [11]) }
+          reactivados.each { |r| s.data_row(build_data_row.(r), right_align: [13]) }
           s.finalize(freeze_row: 4)
         end
 

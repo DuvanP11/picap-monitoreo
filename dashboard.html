@@ -8967,6 +8967,9 @@ function renderBlqStatsTipoCuenta(data) {
   const breakdowns = ((data.resumen || {}).por_tipo_cuenta) || {};
   const blq = breakdowns.bloqueados || {};
   const total = blq.total || 0;
+  // v2.2: nuevo breakdown por quien_suspende (alinea con Excel "A QUIEN SE SUSPENDE")
+  const porQuien = (data.resumen || {}).por_quien_suspende || {};
+  const unicos = (data.resumen || {}).conteos_unicos || {};
   if (total === 0) { cont.innerHTML = ''; return; }
 
   const fmtN = (n) => (n||0).toLocaleString('es-CO');
@@ -8987,7 +8990,29 @@ function renderBlqStatsTipoCuenta(data) {
       <span style="color:#7C3AED;font-weight:600">${fmtN(c.count)}</span>
     </div>`).join('') || '<div style="font-size:11px;color:var(--text3);font-style:italic">Sin datos</div>';
 
+  // v2.2: card de A QUIEN SE SUSPENDE (alinea con Excel pivot)
+  const cardQuienHtml = (porQuien.total || 0) > 0 ? `
+    <div style="background:linear-gradient(135deg,#faf5ff 0%,#fff 100%);border:1px solid #d8c4ff;border-radius:12px;padding:14px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:800;color:#5a2bb8">🎭 A Quién Suspende · Vista alineada con Excel pivot</div>
+        <div style="font-size:11px;color:var(--text3)">${fmtN(porQuien.total)} suspensiones · ${fmtN(unicos.usuarios_unicos || 0)} usuarios únicos</div>
+      </div>
+      <div class="bloqueos-resumen" style="grid-template-columns:repeat(2,1fr);gap:14px">
+        <div class="bloqueos-kpi" style="border-top:3px solid #6366f1">
+          <div class="bloqueos-kpi-val" style="color:#6366f1">${fmtN(porQuien.prestador)}</div>
+          <div class="bloqueos-kpi-lbl">🛵 USUARIO PRESTADOR · ${porQuien.pct_prestador}%</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:4px">${fmtN(porQuien.prestador_expulsion)} expulsiones · ${fmtN(porQuien.prestador_suspension)} suspensiones</div>
+        </div>
+        <div class="bloqueos-kpi" style="border-top:3px solid #f59e0b">
+          <div class="bloqueos-kpi-val" style="color:#f59e0b">${fmtN(porQuien.consumidor)}</div>
+          <div class="bloqueos-kpi-lbl">👤 USUARIO CONSUMIDOR · ${porQuien.pct_consumidor}%</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:4px">${fmtN(porQuien.consumidor_expulsion)} expulsiones · ${fmtN(porQuien.consumidor_suspension)} suspensiones</div>
+        </div>
+      </div>
+    </div>` : '';
+
   cont.innerHTML = `
+    ${cardQuienHtml}
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:800;color:#5a2bb8;margin-bottom:10px">🧩 Bloqueos por Tipo de Cuenta</div>
       <div class="bloqueos-resumen" style="grid-template-columns:repeat(4,1fr)">

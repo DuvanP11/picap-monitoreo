@@ -1510,182 +1510,140 @@ module QueriesService
   # cuenta hasta today().
   # Filtra por fecha de la suspensión más reciente entre passenger y driver.
   # ════════════════════════════════════════════════════════════════════════
+  # v2.2 (May 2026): RESTRUCTURED — 1 fila por SUSPENSIÓN (no por usuario).
+  # Antes (v2.0/v2.1) hacíamos LEFT JOIN deduplicado por user_id → 1 row per
+  # user con su suspensión más reciente. Eso sub-contaba vs el Excel del
+  # cliente que cuenta 1 row por suspensión.
+  #
+  # Ahora UNION ALL de:
+  #   - passenger_suspensions (quien_suspende = 'USUARIO CONSUMIDOR')
+  #   - driver_suspensions    (quien_suspende = 'USUARIO PRESTADOR')
+  # Resultado: si un piloto tuvo 3 suspensiones en el período, aparece 3 veces.
+  # Esto alinea los conteos con el Excel pivot del cliente.
+  #
+  # Filtro temporal: created_at de la SUSPENSIÓN dentro del rango (no del user).
   Q_BLOQUEOS = <<~'SQL'
-    WITH ultimos_ps AS (
+    WITH
+    ps_susp AS (
         SELECT
-            starts_at   AS starts_block_p,
-            ends_at     AS ends_block_p,
-            passenger_id,
-            created_at,
-            updated_at  AS reactivado_en_p,
-            ROW_NUMBER() OVER (
-                PARTITION BY passenger_id
-                ORDER BY created_at DESC NULLS LAST
-            ) AS rn
+            toString(_id)                                    AS suspension_id,
+            toString(passenger_id)                           AS user_id,
+            created_at                                       AS fecha_suspension_dt,
+            starts_at                                        AS starts_block,
+            ends_at                                          AS ends_block,
+            updated_at                                       AS reactivado_en,
+            ''                                               AS service_types_raw,
+            'USUARIO CONSUMIDOR'                             AS quien_suspende
         FROM picapmongoprod.passenger_suspensions
-        WHERE created_at IS NOT NULL
+        WHERE created_at BETWEEN toDateTime('%{fecha_desde} 00:00:00')
+                             AND toDateTime('%{fecha_hasta} 23:59:59')
     ),
-    ultimos_ds AS (
+    ds_susp AS (
         SELECT
-            starts_at   AS starts_block_d,
-            ends_at     AS ends_block_d,
-            driver_id,
-            created_at,
-            updated_at  AS reactivado_en_d,
-            -- v2 (May 2026): traemos suspended_service_types para derivar
-            -- tipo_cuenta. Viene como JSON array string: '["pibox"]' o
-            -- '["rent"]' o '["pibox","rent"]' o '' / null.
-            ifNull(toString(suspended_service_types), '') AS service_types_raw,
-            ROW_NUMBER() OVER (
-                PARTITION BY driver_id
-                ORDER BY created_at DESC NULLS LAST
-            ) AS rn
+            toString(_id)                                    AS suspension_id,
+            toString(driver_id)                              AS user_id,
+            created_at                                       AS fecha_suspension_dt,
+            starts_at                                        AS starts_block,
+            ends_at                                          AS ends_block,
+            updated_at                                       AS reactivado_en,
+            ifNull(toString(suspended_service_types), '')    AS service_types_raw,
+            'USUARIO PRESTADOR'                              AS quien_suspende
         FROM picapmongoprod.driver_suspensions
-        WHERE created_at IS NOT NULL
+        WHERE created_at BETWEEN toDateTime('%{fecha_desde} 00:00:00')
+                             AND toDateTime('%{fecha_hasta} 23:59:59')
     ),
-    ps_final AS (SELECT * FROM ultimos_ps WHERE rn = 1),
-    ds_final AS (SELECT * FROM ultimos_ds WHERE rn = 1)
+    todas_susp AS (
+        SELECT * FROM ps_susp
+        UNION ALL
+        SELECT * FROM ds_susp
+    )
     SELECT
-        p._id                                        AS id_usuario,
-        p.name                                       AS nombre,
-        p.g_country                                  AS pais_codigo,
-        p.g_adm_area_lv_1                            AS ciudad,
-        ps.starts_block_p                            AS starts_block_user,
-        ps.ends_block_p                              AS ends_block_user,
-        ifNull(toString(p.suspended), '')            AS suspendido,
-        ifNull(p.passenger_suspension_comment, '')   AS comentario_user,
-        ifNull(p.passenger_expulsion_comment, '')    AS comentario_expulsion_user,
-        dateDiff('day', toDate(ps.created_at), today()) AS dias_suspension_user,
-        ds.starts_block_d                            AS starts_block_driver,
-        ds.ends_block_d                              AS ends_block_driver,
-        ifNull(toString(p.is_driver_suspended), '')  AS driver_suspendido,
-        ifNull(p.driver_suspension_comment, '')      AS comentario_driver,
-        dateDiff('day', toDate(ds.created_at), today()) AS dias_suspension_driver,
-        ifNull(toString(p.expelled), '')             AS expulsado,
-        CASE
-            WHEN lower(ifNull(toString(p.expelled),'')) = 'true' THEN 'EXPULSADO'
-            WHEN lower(ifNull(toString(p.suspended),'')) = 'true'
-              OR lower(ifNull(toString(p.is_driver_suspended),'')) = 'true' THEN 'SUSPENDIDO'
-            ELSE 'ACTIVO'
-        END AS tipo_bloqueo,
+        s.suspension_id                                  AS suspension_id,
+        s.user_id                                        AS id_usuario,
+        p.name                                           AS nombre,
+        p.g_country                                      AS pais_codigo,
+        p.g_adm_area_lv_1                                AS ciudad,
+        s.starts_block                                   AS starts_block_user,
+        s.ends_block                                     AS ends_block_user,
+        ifNull(toString(p.suspended), '')                AS suspendido,
+        ifNull(p.passenger_suspension_comment, '')       AS comentario_user,
+        ifNull(p.passenger_expulsion_comment, '')        AS comentario_expulsion_user,
+        dateDiff('day', toDate(s.fecha_suspension_dt), today()) AS dias_suspension_user,
+        s.starts_block                                   AS starts_block_driver,
+        s.ends_block                                     AS ends_block_driver,
+        ifNull(toString(p.is_driver_suspended), '')      AS driver_suspendido,
+        ifNull(p.driver_suspension_comment, '')          AS comentario_driver,
+        dateDiff('day', toDate(s.fecha_suspension_dt), today()) AS dias_suspension_driver,
+        ifNull(toString(p.expelled), '')                 AS expulsado,
+        -- tipo_bloqueo a nivel de SUSPENSION:
+        --   EXPULSADO si user.expelled=true (la expulsión es a nivel user, no suspensión).
+        --   Si no, SUSPENDIDO (esta suspensión es un evento de suspensión).
+        --   ACTIVO solo si el user ya está totalmente activo Y la suspensión es vieja.
+        multiIf(
+            lower(ifNull(toString(p.expelled),'')) = 'true',
+            'EXPULSADO',
+            'SUSPENDIDO'
+        ) AS tipo_bloqueo,
         CASE
             WHEN p.driver_enrollment_status_cd = 3 THEN 'PILOTO'
             ELSE 'USUARIO'
         END AS tipo_usuario,
-        -- v2.1 (May 2026): tipo_cuenta basado en el ESTADO ACTUAL del usuario.
-        -- Antes (v2.0) solo usábamos `suspended_service_types` y eso causaba
-        -- que registros viejos (con ds row pero service_types vacío) cayeran
-        -- en "Pasajero" → sobre-conteo de Pasajeros vs Pilotos.
-        --
-        -- Nueva lógica:
-        --   1. `is_driver_suspended=true` → es PILOTO actualmente bloqueado.
-        --      Si service_types vacío → Piloto Pibox (legacy default).
-        --   2. `expelled=true` + comentario_driver no vacío → expulsado como PILOTO.
-        --   3. Resto (suspended=true OR expelled sin comentario driver) → Pasajero.
-        ifNull(ds.service_types_raw, '')                 AS service_types,
+        -- v2.2: quien suspende (PRESTADOR=driver, CONSUMIDOR=passenger). Alinea
+        -- exactamente con la columna "A QUIEN SE SUSPENDERÁ" del Excel del cliente.
+        s.quien_suspende                                 AS quien_suspende,
+        s.service_types_raw                              AS service_types,
+        -- tipo_cuenta basado en quien_suspende + service_types:
+        --   CONSUMIDOR (ps row)      → "Pasajero"
+        --   PRESTADOR + service_types con pibox+rent → "Piloto Pibox+Rent"
+        --   PRESTADOR + service_types con rent       → "Piloto Rent"
+        --   PRESTADOR + service_types con pibox      → "Piloto Pibox"
+        --   PRESTADOR + service_types vacío (legacy) → "Piloto Pibox" (default)
         multiIf(
-            -- 1) Currently driver-suspended → Piloto X
-            lower(ifNull(toString(p.is_driver_suspended),'')) = 'true',
-            multiIf(
-                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'pibox') > 0
-                  AND positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
-                'Piloto Pibox+Rent',
-                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
-                'Piloto Rent',
-                'Piloto Pibox'
-            ),
-            -- 2) Expelled AND has driver-side context → Piloto X
-            lower(ifNull(toString(p.expelled),'')) = 'true'
-              AND (ifNull(p.driver_suspension_comment,'') != ''
-                   OR ds.created_at IS NOT NULL),
-            multiIf(
-                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'pibox') > 0
-                  AND positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
-                'Piloto Pibox+Rent',
-                positionCaseInsensitive(ifNull(ds.service_types_raw,''), 'rent') > 0,
-                'Piloto Rent',
-                'Piloto Pibox'
-            ),
-            -- 3) Default → Pasajero
-            'Pasajero'
+            s.quien_suspende = 'USUARIO CONSUMIDOR',
+            'Pasajero',
+            positionCaseInsensitive(s.service_types_raw, 'pibox') > 0
+              AND positionCaseInsensitive(s.service_types_raw, 'rent') > 0,
+            'Piloto Pibox+Rent',
+            positionCaseInsensitive(s.service_types_raw, 'rent') > 0,
+            'Piloto Rent',
+            positionCaseInsensitive(s.service_types_raw, 'pibox') > 0,
+            'Piloto Pibox',
+            'Piloto Pibox'
         ) AS tipo_cuenta,
-        formatDateTime(
-            toTimeZone(
-                coalesce(
-                    if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
-                       greatest(ps.created_at, ds.created_at), NULL),
-                    ps.created_at, ds.created_at
-                ), 'America/Bogota'
-            ), '%Y-%m-%d %H:%M'
-        ) AS fecha_ultima_suspension,
-        dateDiff('day', toDate(coalesce(
-            if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
-               greatest(ps.created_at, ds.created_at), NULL),
-            ps.created_at, ds.created_at
-        )), today()) AS dias_bloqueado_total,
-        multiIf(
-            ds.starts_block_d IS NOT NULL
-                AND (ps.created_at IS NULL OR ds.created_at >= ps.created_at),
-            greatest(0, dateDiff('day',
-                toDate(ds.starts_block_d),
-                if(
-                    ds.reactivado_en_d IS NOT NULL
-                    AND ds.reactivado_en_d > ds.starts_block_d
-                    AND ds.reactivado_en_d <= now()
-                    AND lower(ifNull(toString(p.expelled),'')) != 'true'
-                    AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
-                    AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0',''),
-                    toDate(ds.reactivado_en_d),
-                    today()
-                )
-            )),
-            ps.starts_block_p IS NOT NULL,
-            greatest(0, dateDiff('day',
-                toDate(ps.starts_block_p),
-                if(
-                    ps.reactivado_en_p IS NOT NULL
-                    AND ps.reactivado_en_p > ps.starts_block_p
-                    AND ps.reactivado_en_p <= now()
-                    AND lower(ifNull(toString(p.expelled),'')) != 'true'
-                    AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
-                    AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0',''),
-                    toDate(ps.reactivado_en_p),
-                    today()
-                )
-            )),
-            dateDiff('day', toDate(coalesce(
-                if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
-                   greatest(ps.created_at, ds.created_at), NULL),
-                ps.created_at, ds.created_at
-            )), today())
-        ) AS dias_bloqueo_real,
+        formatDateTime(toTimeZone(s.fecha_suspension_dt, 'America/Bogota'), '%Y-%m-%d %H:%M') AS fecha_ultima_suspension,
+        dateDiff('day', toDate(s.fecha_suspension_dt), today()) AS dias_bloqueado_total,
+        greatest(0, dateDiff('day',
+            toDate(s.starts_block),
+            if(
+                s.reactivado_en IS NOT NULL
+                  AND s.reactivado_en > s.starts_block
+                  AND s.reactivado_en <= now()
+                  AND lower(ifNull(toString(p.expelled),'')) != 'true'
+                  AND lower(ifNull(toString(p.suspended),'')) IN ('false','0','')
+                  AND lower(ifNull(toString(p.is_driver_suspended),'')) IN ('false','0',''),
+                toDate(s.reactivado_en),
+                today()
+            )
+        )) AS dias_bloqueo_real,
         CASE
             WHEN lower(ifNull(toString(p.expelled),'')) = 'true' THEN 'Permanente (expulsión)'
-            WHEN dateDiff('day', toDate(coalesce(
-                if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
-                   greatest(ps.created_at, ds.created_at), NULL),
-                ps.created_at, ds.created_at
-            )), today()) > 30 THEN 'Más de 30 días'
+            WHEN dateDiff('day', toDate(s.fecha_suspension_dt), today()) > 30 THEN 'Más de 30 días'
             ELSE 'Menos de 30 días'
         END AS estado_suspension,
+        -- esta_activo a nivel de USER (no de suspensión individual): si el user
+        -- está actualmente bloqueado, TODAS sus suspensiones aparecen como
+        -- 'bloqueado'. Si está reactivado, TODAS como 'activo'. Esto preserva
+        -- la semántica original de las tabs Bloqueados/Reactivados del frontend.
         CASE
             WHEN lower(ifNull(toString(p.expelled),'')) = 'true'
-              OR lower(ifNull(toString(p.suspended),'')) = 'true' THEN 'bloqueado'
-            WHEN lower(ifNull(toString(p.expelled),'')) = 'false'
-             AND lower(ifNull(toString(p.suspended),'')) = 'false' THEN 'activo'
-            ELSE ''
+              OR lower(ifNull(toString(p.suspended),'')) = 'true'
+              OR lower(ifNull(toString(p.is_driver_suspended),'')) = 'true' THEN 'bloqueado'
+            ELSE 'activo'
         END AS esta_activo
-    FROM picapmongoprod.passengers AS p
-    LEFT JOIN ps_final AS ps ON p._id = ps.passenger_id
-    LEFT JOIN ds_final AS ds ON p._id = ds.driver_id
-    WHERE coalesce(
-        if(ps.created_at IS NOT NULL AND ds.created_at IS NOT NULL,
-           greatest(ps.created_at, ds.created_at), NULL),
-        ps.created_at, ds.created_at
-    ) BETWEEN toDateTime('%{fecha_desde} 00:00:00')
-          AND toDateTime('%{fecha_hasta} 23:59:59')
-    ORDER BY fecha_ultima_suspension DESC
-    LIMIT 10000
+    FROM todas_susp AS s
+    LEFT JOIN picapmongoprod.passengers AS p ON s.user_id = toString(p._id)
+    ORDER BY s.fecha_suspension_dt DESC
+    LIMIT 50000
   SQL
 
   # Estafa — stub simple (se reescribirá en bloque D con la query agregada del Python)

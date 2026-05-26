@@ -36,9 +36,14 @@ module Api
         # v2.1: normalizar ciudad (Bogotá D.C / Bogotá / Bogotá, D.C. → "Bogotá")
         r["ciudad"] = MotivoMapper.normalizar_ciudad(r["ciudad"])
 
-        # Motivo mapeado según tipo de usuario
+        # v2.2: motivo desde el lado correcto de la suspensión.
+        # PRESTADOR (ds row) → prioriza comentario_driver.
+        # CONSUMIDOR (ps row) → prioriza comentario_user / comentario_expulsion_user.
+        # (Antes usábamos `tipo_usuario` que es del enrollment, no de la suspensión.)
+        quien = r["quien_suspende"].to_s
+        tipo_para_motivo = quien == "USUARIO PRESTADOR" ? "PILOTO" : "USUARIO"
         r["motivo_mapeado"] = MotivoMapper.mapear_segun_tipo(
-          r["tipo_usuario"],
+          tipo_para_motivo,
           comentario_driver: r["comentario_driver"],
           comentario_user:   r["comentario_user"],
           comentario_expulsion_user: r["comentario_expulsion_user"],
@@ -89,6 +94,18 @@ module Api
       # v2.1: top 10 motivos segmentados por tipo_cuenta (sobre bloqueados)
       motivos_por_tc = motivos_por_tipo_cuenta(bloqueados)
 
+      # v2.2: breakdown por quien_suspende (alinea con columna "A QUIEN SE SUSPENDERÁ"
+      # del Excel del cliente). Cuenta SUSPENSIONES (no usuarios) — un usuario
+      # con N suspensiones aparece N veces.
+      por_quien_susp = quien_suspende_breakdown(alertas)
+      # USUARIOS únicos (por id_usuario) para reportes operativos
+      usuarios_unicos = {
+        total_suspensiones:   alertas.size,
+        usuarios_unicos:      alertas.map { |r| r["id_usuario"] }.uniq.size,
+        bloq_suspensiones:    bloqueados.size,
+        bloq_usuarios_unicos: bloqueados.map { |r| r["id_usuario"] }.uniq.size,
+      }
+
       render json: limpiar({
         ok: true,
         desde: desde_param, hasta: hasta_param,
@@ -112,6 +129,9 @@ module Api
           por_tipo_cuenta:        breakdowns,
           # v2.1: top motivos por tipo de cuenta
           motivos_por_tipo_cuenta: motivos_por_tc,
+          # v2.2: nuevos campos (1-fila-por-suspension)
+          por_quien_suspende:     por_quien_susp,
+          conteos_unicos:         usuarios_unicos,
         },
         stats_bloqueados:  top10_stats(bloqueados),
         stats_reactivados: top10_stats(reactivados),
@@ -344,6 +364,33 @@ module Api
           .map { |c, v| { ciudad: c, count: v.size } }
           .sort_by { |h| -h[:count] }
           .first(n)
+    end
+
+    # v2.2: breakdown por quien_suspende (PRESTADOR vs CONSUMIDOR) — alinea con
+    # la columna "A QUIEN SE SUSPENDERÁ" del Excel del cliente. Devuelve también
+    # el cruce con tipo_bloqueo (Expulsión/Suspensión) y service_types para
+    # replicar exactamente el pivot del Excel.
+    def quien_suspende_breakdown(rows)
+      total = rows.size
+      prestador = rows.count { |r| r["quien_suspende"] == "USUARIO PRESTADOR" }
+      consumidor = rows.count { |r| r["quien_suspende"] == "USUARIO CONSUMIDOR" }
+      # Cross: quien_suspende × tipo_bloqueo
+      pres_exp = rows.count { |r| r["quien_suspende"] == "USUARIO PRESTADOR" && r["tipo_bloqueo"] == "EXPULSADO" }
+      pres_sus = rows.count { |r| r["quien_suspende"] == "USUARIO PRESTADOR" && r["tipo_bloqueo"] == "SUSPENDIDO" }
+      cons_exp = rows.count { |r| r["quien_suspende"] == "USUARIO CONSUMIDOR" && r["tipo_bloqueo"] == "EXPULSADO" }
+      cons_sus = rows.count { |r| r["quien_suspende"] == "USUARIO CONSUMIDOR" && r["tipo_bloqueo"] == "SUSPENDIDO" }
+      div = total > 0 ? total.to_f : 1.0
+      {
+        total:               total,
+        prestador:           prestador,
+        consumidor:          consumidor,
+        pct_prestador:       (prestador / div * 100).round(1),
+        pct_consumidor:      (consumidor / div * 100).round(1),
+        prestador_expulsion: pres_exp,
+        prestador_suspension: pres_sus,
+        consumidor_expulsion: cons_exp,
+        consumidor_suspension: cons_sus,
+      }
     end
 
     # v2.1: Top 10 motivos de bloqueo SEGMENTADOS por tipo_cuenta.
