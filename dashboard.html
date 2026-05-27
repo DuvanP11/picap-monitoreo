@@ -383,10 +383,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   align-items:center;
   text-align:left;
 }
-/* v3.0.3: mascota Pibox integrada al banner — versión corregida.
-   v3.0.2 usaba mask RADIAL que cortaba la mitad derecha de la animación.
-   Ahora: mask LINEAR que solo difumina los últimos ~18% contra el banner,
-   dejando toda la animación (moto + portal) visible completamente. */
+/* v3.0.4: mascota Pibox con HALO SUAVE detrás de la moto.
+   Issue v3.0.3: el cuerpo del piloto y manubrio son #7c3aed, IGUAL que el
+   gradient medio del banner → se confunden y la moto parece incompleta.
+   Fix: halo oscuro radial localizado solo donde está la moto (~30% izq),
+   manteniendo el resto transparente para que el portal y el borde derecho
+   sigan fundiendo con el banner. */
 .welcome-moto-stage{
   position:absolute;
   left:14px;
@@ -395,7 +397,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   width:260px;
   height:170px;
   z-index:2;
-  background:transparent;
+  background:radial-gradient(ellipse 70% 75% at 30% 55%,
+                rgba(15,11,46,.55) 0%,
+                rgba(30,27,75,.30) 45%,
+                transparent 85%);
   pointer-events:none;
   border-radius:18px;
   overflow:hidden;
@@ -2756,13 +2761,14 @@ window.fetch = function(url, opts) {
             </svg>
           </div>
         </div>
+        <!-- v3.0.4: foto AGRUPADA junto a la moto (avatar principal), antes
+             del bloque nombre/email/rol. Orden: [moto] [foto] [info]. -->
+        <div class="perfil-hero-foto" id="perfil-hero-foto" title="Tu foto de perfil"></div>
         <div class="perfil-hero-info">
           <div class="perfil-name" id="perfil-nombre">—</div>
           <div class="perfil-email" id="perfil-email" style="opacity:.8;font-size:13px;margin-top:2px">—</div>
           <div class="perfil-role-badge" id="perfil-rol" style="margin-top:8px">—</div>
         </div>
-        <!-- v3.0.2: foto de perfil del usuario a la derecha del header -->
-        <div class="perfil-hero-foto" id="perfil-hero-foto" title="Tu foto de perfil"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px;">
         <div class="perfil-section">
