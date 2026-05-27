@@ -1308,6 +1308,22 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .user-dd-avatar-img{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.3);}
 .dd-animal-wrap{width:44px;height:44px;display:flex;align-items:center;justify-content:center;}
 </style>
+<script>
+// Wrapper global de fetch — inyecta X-Token en cualquier URL que contenga
+// '/api/'. Soluciona el problema de los HTTP 401 cuando alguna función
+// llama a `fetch(url)` directamente sin pasar por apiFetch() ni agregar
+// el header manualmente. Originalmente vivía en dashboard.html.erb de
+// picap-inc; lo subimos a DuvanP11 para que los repos no se desincronicen.
+const _origFetch = window.fetch;
+window.fetch = function(url, opts) {
+  opts = opts || {};
+  const tk = localStorage.getItem('picap_token') || '';
+  if (tk && String(url).includes('/api/')) {
+    opts.headers = Object.assign({}, opts.headers || {}, {'X-Token': tk});
+  }
+  return _origFetch(url, opts);
+};
+</script>
 </head>
 <body>
 
