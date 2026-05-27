@@ -1348,6 +1348,70 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .foto-perfil-btns{display:flex;gap:8px;flex-wrap:wrap;}
 .user-dd-avatar-img{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.3);}
 .dd-animal-wrap{width:44px;height:44px;display:flex;align-items:center;justify-content:center;}
+/* ────────────────────────────────────────────────────────────────────
+   v3.1: VIEW INFORMES — centro de reportes operativos
+   ──────────────────────────────────────────────────────────────────── */
+.informes-hero{
+  display:flex;align-items:center;gap:18px;
+  background:linear-gradient(135deg,#1e1b4b 0%,#3b0764 60%,#1e1b4b 100%);
+  border-radius:18px;padding:22px 26px;margin-bottom:22px;color:#fff;
+  box-shadow:0 12px 32px rgba(76,29,149,.25);
+  position:relative;overflow:hidden;
+}
+.informes-hero::before{
+  content:'';position:absolute;right:-40px;top:-40px;width:160px;height:160px;
+  background:radial-gradient(circle,rgba(167,139,250,.25),transparent 70%);border-radius:50%;
+  pointer-events:none;
+}
+.informes-hero-icon{font-size:38px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.3));}
+.informes-hero-title{font-size:22px;font-weight:800;margin:0;line-height:1.2;}
+.informes-hero-desc{font-size:13px;color:rgba(255,255,255,.78);margin:4px 0 0;line-height:1.45;}
+.informes-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px;
+}
+.inf-card{
+  background:#fff;border-radius:16px;border:2px solid #e8e0f7;
+  padding:18px 18px 16px;transition:.2s;position:relative;cursor:pointer;
+  box-shadow:0 2px 6px rgba(76,29,149,.05);
+}
+.inf-card:hover{border-color:var(--purple2);transform:translateY(-3px);
+  box-shadow:0 8px 18px rgba(124,58,237,.16);}
+.inf-card-leaf{display:flex;flex-direction:column;gap:6px;min-height:170px;}
+.inf-card-leaf .inf-card-icon-wrap{
+  width:50px;height:50px;border-radius:12px;display:flex;align-items:center;
+  justify-content:center;font-size:24px;color:#fff;margin-bottom:8px;
+  box-shadow:0 4px 10px rgba(0,0,0,.12);
+}
+.inf-card-name{font-size:16px;font-weight:800;color:var(--text1);}
+.inf-card-desc{font-size:12px;color:var(--text3);margin-top:2px;line-height:1.4;}
+.inf-card-badge{
+  align-self:flex-start;font-size:10px;font-weight:700;letter-spacing:.5px;
+  padding:3px 10px;border-radius:10px;text-transform:uppercase;margin-top:auto;
+}
+.inf-badge-ok{background:#dcfce7;color:#15803d;}
+.inf-badge-soon{background:#fef3c7;color:#92400e;}
+.inf-card-group{cursor:default;}
+.inf-card-group:hover{transform:none;}
+.inf-card-group .inf-card-top{
+  display:flex;align-items:center;gap:12px;margin-bottom:14px;
+  padding-bottom:12px;border-bottom:1px dashed #e8e0f7;
+}
+.inf-card-group .inf-card-icon-wrap{
+  width:50px;height:50px;border-radius:12px;display:flex;align-items:center;
+  justify-content:center;font-size:24px;color:#fff;flex-shrink:0;
+  box-shadow:0 4px 10px rgba(0,0,0,.12);
+}
+.inf-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;}
+.inf-mini{
+  display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;
+  background:#faf5ff;border:1px solid #ede9fe;cursor:pointer;transition:.15s;
+  font-size:13px;font-weight:600;color:var(--text2);
+}
+.inf-mini:hover{background:#ede9fe;border-color:var(--purple2);color:var(--purple);transform:translateX(2px);}
+.inf-mini-icon{font-size:16px;flex-shrink:0;}
+.inf-mini-label{flex:1;}
+.inf-mini-arrow{color:var(--text3);font-size:18px;font-weight:700;}
+.inf-mini:hover .inf-mini-arrow{color:var(--purple);}
 </style>
 <script>
 // Wrapper global de fetch — inyecta X-Token en cualquier URL que contenga
@@ -1575,15 +1639,23 @@ window.fetch = function(url, opts) {
   <div class="fly-link" id="nav-rec-alertas" onclick="switchView('recaudos','alertas')"><span>🔁</span> Recaudos Ida y Vuelta</div>
     </div>
   </div>
-  <!-- MoviiRed (admin / monitoreo / financiero) -->
-  <div class="sb2-item" id="sbg-moviired">
-    <div class="sb2-icon" title="MoviiRed">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 7h14M3 11h14M5 4v12M15 4v12" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
-      <span class="sb2-label">MoviiRed</span>
+  <!-- Informes (admin / monitoreo / financiero) — antes MoviiRed.
+       v3.1 (May 2026): renombrado a Informes, agrupando MoviiRed + otros
+       reportes operativos (Dispersiones, Reporte OPS CV, Mintic) + 3 grupos
+       (Recaudos, Storage, Facturación) con sus mini-módulos. El click en el
+       sidebar abre la página view-informes con todas las cards. -->
+  <div class="sb2-item" id="sbg-informes">
+    <div class="sb2-icon" title="Informes">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <rect x="3" y="3" width="14" height="14" rx="2" stroke="white" stroke-width="1.5"/>
+        <path d="M6 8h8M6 11h8M6 14h5" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span class="sb2-label">Informes</span>
     </div>
     <div class="sb2-flyout">
-      <div class="fly-title">MoviiRed</div>
-      <div class="fly-link" id="nav-moviired" onclick="switchView('moviired')"><span>📊</span> Transacciones MoviiRed</div>
+      <div class="fly-title">Informes</div>
+      <div class="fly-link" id="nav-informes" onclick="switchView('informes')"><span>📋</span> Centro de Informes</div>
+      <div class="fly-link" id="nav-moviired" onclick="switchView('moviired')"><span>📊</span> MoviiRed</div>
     </div>
   </div>
   <div class="sb2-item sb2-disabled" id="sbg-retencion">
@@ -3726,6 +3798,128 @@ window.fetch = function(url, opts) {
   </div>
 
 
+  <!-- ══ VISTA: INFORMES — centro de reportes operativos (v3.1) ══
+       Card-page con todos los reportes agrupados. Click en una card abre
+       el reporte. MoviiRed es funcional; el resto muestra "Próximamente". -->
+  <div class="view" id="view-informes">
+    <div class="wrap">
+      <div class="informes-hero">
+        <div class="informes-hero-icon">📋</div>
+        <div>
+          <h1 class="informes-hero-title">Centro de Informes</h1>
+          <p class="informes-hero-desc">Reportes operativos, financieros y regulatorios. Selecciona un informe para abrir su detalle.</p>
+        </div>
+      </div>
+
+      <!-- Fila 1: reportes leaf (acceso directo) -->
+      <div class="informes-grid">
+        <div class="inf-card inf-card-leaf" onclick="switchView('moviired')" title="MoviiRed — Transacciones">
+          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">📊</div>
+          <div class="inf-card-name">MoviiRed</div>
+          <div class="inf-card-desc">Transacciones MoviiRed</div>
+          <div class="inf-card-badge inf-badge-ok">Activo</div>
+        </div>
+
+        <div class="inf-card inf-card-leaf" onclick="informesProximamente('Dispersiones')" title="Dispersiones">
+          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#059669,#047857)">💸</div>
+          <div class="inf-card-name">Dispersiones</div>
+          <div class="inf-card-desc">Movimientos a cuentas</div>
+          <div class="inf-card-badge inf-badge-soon">Próximamente</div>
+        </div>
+
+        <div class="inf-card inf-card-leaf" onclick="informesProximamente('Reporte OPS CV')" title="Reporte OPS CV">
+          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#0e7490,#0369a1)">🚀</div>
+          <div class="inf-card-name">Reporte OPS CV</div>
+          <div class="inf-card-desc">Operaciones cash-vault</div>
+          <div class="inf-card-badge inf-badge-soon">Próximamente</div>
+        </div>
+
+        <div class="inf-card inf-card-leaf" onclick="informesProximamente('Mintic')" title="Mintic">
+          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#b45309,#92400e)">📡</div>
+          <div class="inf-card-name">Mintic</div>
+          <div class="inf-card-desc">Reportes regulatorios</div>
+          <div class="inf-card-badge inf-badge-soon">Próximamente</div>
+        </div>
+      </div>
+
+      <!-- Fila 2: grupo Recaudos (4 mini-módulos) -->
+      <div class="inf-card inf-card-group">
+        <div class="inf-card-top">
+          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#16a34a,#15803d)">💰</div>
+          <div>
+            <div class="inf-card-name">Recaudos</div>
+            <div class="inf-card-desc">4 reportes de gestión de recaudos</div>
+          </div>
+        </div>
+        <div class="inf-mini-grid">
+          <div class="inf-mini" onclick="informesProximamente('Comisiones por Recaudo')">
+            <span class="inf-mini-icon">📈</span>
+            <span class="inf-mini-label">Comisiones por Recaudo</span>
+            <span class="inf-mini-arrow">›</span>
+          </div>
+          <div class="inf-mini" onclick="informesProximamente('Estado de Cuenta Surtido')">
+            <span class="inf-mini-icon">📒</span>
+            <span class="inf-mini-label">Estado de Cuenta Surtido</span>
+            <span class="inf-mini-arrow">›</span>
+          </div>
+          <div class="inf-mini" onclick="informesProximamente('Pérdidas por Recaudo')">
+            <span class="inf-mini-icon">📉</span>
+            <span class="inf-mini-label">Pérdidas por Recaudo</span>
+            <span class="inf-mini-arrow">›</span>
+          </div>
+          <div class="inf-mini" onclick="informesProximamente('Recaudos y Dispersiones')">
+            <span class="inf-mini-icon">🔄</span>
+            <span class="inf-mini-label">Recaudos y Dispersiones</span>
+            <span class="inf-mini-arrow">›</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fila 3: Storage + Facturación -->
+      <div class="informes-grid">
+        <div class="inf-card inf-card-group">
+          <div class="inf-card-top">
+            <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#6366f1,#4338ca)">💾</div>
+            <div>
+              <div class="inf-card-name">Storage</div>
+              <div class="inf-card-desc">Reportes de almacenamiento</div>
+            </div>
+          </div>
+          <div class="inf-mini-grid">
+            <div class="inf-mini" onclick="informesProximamente('Storage SMU')">
+              <span class="inf-mini-icon">📦</span>
+              <span class="inf-mini-label">Storage SMU</span>
+              <span class="inf-mini-arrow">›</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="inf-card inf-card-group">
+          <div class="inf-card-top">
+            <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#dc2626,#991b1b)">🧾</div>
+            <div>
+              <div class="inf-card-name">Facturación</div>
+              <div class="inf-card-desc">Reportes contables y de cobro</div>
+            </div>
+          </div>
+          <div class="inf-mini-grid">
+            <div class="inf-mini" onclick="informesProximamente('Facturación Masiva')">
+              <span class="inf-mini-icon">📑</span>
+              <span class="inf-mini-label">Masiva</span>
+              <span class="inf-mini-arrow">›</span>
+            </div>
+            <div class="inf-mini" onclick="informesProximamente('Facturación Recargas')">
+              <span class="inf-mini-icon">🔋</span>
+              <span class="inf-mini-label">Recargas</span>
+              <span class="inf-mini-arrow">›</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ══ VISTA: MOVIIRED (admin / monitoreo / financiero) ══ -->
   <div class="view" id="view-moviired">
     <div class="wrap">
@@ -4156,6 +4350,7 @@ function switchView(view){
     'estafa':         'Servicios Estafa — Detección',
     'recaudos':       'Validación de Recaudos',
     'moviired':       'MoviiRed — Transacciones',
+    'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
     'pibox-stats':    'Auditorías de Servicios Pibox — Estadísticas',
@@ -5995,7 +6190,8 @@ function aplicarRol() {
     'sbg-bloqueos':  ['admin','monitoreo','sac'],
     'sbg-pagos':     ['admin','monitoreo','financiero'],
     'sbg-recaudos':  ['admin','monitoreo','financiero','pibox'],
-    'sbg-moviired':  ['admin','monitoreo','financiero'],
+    // v3.1: renombrado sbg-moviired → sbg-informes (agrupa MoviiRed + otros reportes)
+    'sbg-informes':  ['admin','monitoreo','financiero'],
     'sbg-retencion': ['admin','monitoreo'],
     'sbg-auditoria': ['admin','monitoreo','financiero','pibox'],
     'sbg-pibox':     ['admin','monitoreo','pibox'],
@@ -6558,6 +6754,12 @@ function getPiboxAnimationHTML(){
         <rect x="62" y="64" width="9" height="18" rx="4" fill="#5b21b6"/>
       </svg>
     </div>`;
+}
+
+// v3.1: handler para informes no implementados aún. Muestra un toast/alert
+// amistoso indicando que el reporte está en construcción.
+function informesProximamente(nombre){
+  alert(`📋 ${nombre}\n\nEste reporte está en construcción.\nPróximamente disponible.`);
 }
 
 function initWelcomePiboxAnim(){
@@ -12188,7 +12390,10 @@ function sb2SetActive(view) {
     bloqueos:  'sbg-bloqueos',
     pagos:     'sbg-pagos',
     recaudos:  'sbg-recaudos',
-    moviired:  'sbg-moviired',
+    // v3.1: informes agrupa moviired + otros reportes. Ambos highlightean
+    // el mismo ítem del sidebar.
+    informes:  'sbg-informes',
+    moviired:  'sbg-informes',
     auditoria: 'sbg-auditoria',
   };
   const grpId = MAP[view];
