@@ -12837,31 +12837,33 @@ function renderReporteOpsCv(data) {
       if (e === 'Expirado')   return `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px">${e}</span>`;
       return `<span style="background:#e2e8f0;color:#475569;padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px">${e||'—'}</span>`;
     };
+    // v3.3.11: estilo común para celdas con texto que puede desbordarse
+    const ellipsis = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     const rowsHtml = filas.map(f => `<tr>
-      <td><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.uuid_booking)}">${(f.uuid_booking||'').slice(0,12)}…</span></td>
-      <td style="font-size:11px;font-family:monospace;white-space:nowrap">${(f.iniciado||'').slice(0,16)}</td>
-      <td>${badgeEstado(f.estado)}</td>
-      <td style="font-size:10px"><span style="background:#f3f0fa;color:#5a2bb8;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap">${f.next_day||'—'}</span></td>
-      <td style="font-size:11px;text-align:center">${f.finalizado_fallido === 'SI' ? '<span style="color:#dc2626;font-weight:700">SI</span>' : 'NO'}</td>
-      <td style="font-size:11px;font-family:monospace">${f.num_orden||'—'}</td>
-      <td style="font-size:12px;font-weight:600">${(f.nombre_usuario||'—').slice(0,40)}</td>
-      <td style="font-size:11px">${f.ciudad||'—'}</td>
-      <td style="font-size:12px">${(f.nombre_cliente||'—').slice(0,30)}</td>
+      <td style="${ellipsis}"><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="${(f.uuid_booking||'').replace(/"/g,'&quot;')}" onclick="${copyJs(f.uuid_booking)}">${(f.uuid_booking||'').slice(0,12)}…</span></td>
+      <td style="font-size:11px;font-family:monospace;${ellipsis}">${(f.iniciado||'').slice(0,16)}</td>
+      <td style="${ellipsis}">${badgeEstado(f.estado)}</td>
+      <td style="font-size:10px;${ellipsis}"><span style="background:#f3f0fa;color:#5a2bb8;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap">${f.next_day||'—'}</span></td>
+      <td style="font-size:11px;text-align:center;${ellipsis}">${f.finalizado_fallido === 'SI' ? '<span style="color:#dc2626;font-weight:700">SI</span>' : 'NO'}</td>
+      <td style="font-size:11px;font-family:monospace;${ellipsis}" title="${(f.num_orden||'').replace(/"/g,'&quot;')}">${f.num_orden||'—'}</td>
+      <td style="font-size:12px;font-weight:600;${ellipsis}" title="${(f.nombre_usuario||'').replace(/"/g,'&quot;')}">${f.nombre_usuario||'—'}</td>
+      <td style="font-size:11px;${ellipsis}">${f.ciudad||'—'}</td>
+      <td style="font-size:12px;${ellipsis}" title="${(f.nombre_cliente||'').replace(/"/g,'&quot;')}">${f.nombre_cliente||'—'}</td>
       <td class="right" style="font-weight:700;color:#16a34a;white-space:nowrap;font-family:monospace">${fmtMoney(f.costo_servicio)}</td>
-      <td class="right" style="font-family:monospace;font-size:11px">${(f.distancia_km||0).toFixed(1)} km</td>
-      <td class="right" style="font-family:monospace;font-size:11px">${(f.min_tiempo_de_servicio||0).toFixed(0)} min</td>
-      <td style="font-size:10px;color:var(--text3)" title="${(f.descripcion||'').replace(/"/g,'&quot;')}">${(f.descripcion||'—').slice(0,28)}</td>
+      <td class="right" style="font-family:monospace;font-size:11px;${ellipsis}">${(f.distancia_km||0).toFixed(1)} km</td>
+      <td class="right" style="font-family:monospace;font-size:11px;${ellipsis}">${(f.min_tiempo_de_servicio||0).toFixed(0)} min</td>
+      <td style="font-size:10px;color:var(--text3);${ellipsis}" title="${(f.descripcion||'').replace(/"/g,'&quot;')}">${f.descripcion||'—'}</td>
     </tr>`).join('');
     filasHtml = `
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
-        ${filas.length} servicios · Las primeras 5.000 (export sin límite, 37 columnas) · Click en ID para copiar
+        ${filas.length} servicios · Las primeras 5.000 (export sin límite, 37 columnas) · Click en ID para copiar · Pasa el mouse sobre las celdas truncadas para ver el contenido completo
       </div>
       <div style="overflow-x:auto;">
-        <table class="aud-table rec-detail-table" style="min-width:1500px">
+        <table class="aud-table rec-detail-table" style="min-width:1700px;table-layout:fixed">
           <colgroup>
-            <col style="width:130px"><col style="width:140px"><col style="width:110px"><col style="width:90px">
-            <col style="width:70px"><col style="width:120px"><col style="width:200px"><col style="width:110px">
-            <col style="width:180px"><col style="width:120px"><col style="width:90px"><col style="width:90px"><col style="width:200px">
+            <col style="width:120px"><col style="width:130px"><col style="width:110px"><col style="width:90px">
+            <col style="width:70px"><col style="width:220px"><col style="width:200px"><col style="width:110px">
+            <col style="width:180px"><col style="width:110px"><col style="width:90px"><col style="width:90px"><col style="width:200px">
           </colgroup>
           <thead><tr>
             <th>Booking</th><th>Iniciado</th><th>Estado</th><th>Tipo</th><th>Fallido</th>
