@@ -3065,10 +3065,25 @@ window.fetch = function(url, opts) {
           <div id="cron-form-msg" style="font-size:12px;margin-top:8px;text-align:right"></div>
         </div>
 
+        <!-- v3.3.14: progreso + filtro admin -->
+        <div id="cron-progreso-wrap" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:13px;font-weight:700;color:var(--text2)">📊 Progreso de tareas</div>
+            <!-- Toggle scope solo visible para admin -->
+            <div id="cron-scope-toggle" style="display:none;gap:6px">
+              <button class="apply-btn" id="cron-scope-mias" onclick="cronCambiarScope('mias')" style="font-size:11px;padding:4px 12px;background:#7c3aed">👤 Mis tareas</button>
+              <button class="apply-btn" id="cron-scope-todas" onclick="cronCambiarScope('todas')" style="font-size:11px;padding:4px 12px;background:#cbd5e1;color:#475569">🏢 Equipo</button>
+            </div>
+          </div>
+          <div id="cron-progreso-content" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+            <!-- La dona y los KPIs se renderizan aquí -->
+          </div>
+        </div>
+
         <!-- Lista de tareas -->
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-            <div style="font-size:13px;font-weight:700;color:var(--text2)">📋 Tareas programadas</div>
+            <div style="font-size:13px;font-weight:700;color:var(--text2)"><span id="cron-lista-titulo">📋 Tareas programadas</span></div>
             <button class="apply-btn" onclick="cargarCronograma()" style="font-size:11px;padding:4px 10px">↻ Recargar</button>
           </div>
           <div id="cron-lista">
@@ -7608,19 +7623,115 @@ function cronCancelarEdicion() { cronLimpiarForm(); }
   else wire();
 })();
 
+// v3.3.14: scope para admin (mias|todas)
+let _cronScope = 'mias';
+let _cronEsAdmin = false;
+let _cronUsuarioActual = '';
+
 async function cargarCronograma() {
   const cont = document.getElementById('cron-lista');
   if (!cont) return;
   cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Cargando...</div>';
   try {
-    const r = await fetch(`${API}/api/cronograma`, {headers: {'X-Token': _sesionToken}});
+    const url = `${API}/api/cronograma?scope=${encodeURIComponent(_cronScope)}`;
+    const r = await fetch(url, {headers: {'X-Token': _sesionToken}});
     const d = await safeJson(r);
     if (!d.ok) throw new Error(d.error || 'Error');
     _cronTareas = d.tareas || [];
+    _cronEsAdmin = !!d.es_admin;
+    _cronUsuarioActual = d.usuario_actual || _sesionUsuario || '';
+    _cronScope = d.scope || 'mias';
+    // Toggle admin visible solo si rol admin
+    const toggleWrap = document.getElementById('cron-scope-toggle');
+    if (toggleWrap) toggleWrap.style.display = _cronEsAdmin ? 'flex' : 'none';
+    // Estado visual del toggle
+    const btnMias  = document.getElementById('cron-scope-mias');
+    const btnTodas = document.getElementById('cron-scope-todas');
+    if (btnMias && btnTodas) {
+      const activo = 'background:#7c3aed;color:#fff';
+      const inact  = 'background:#cbd5e1;color:#475569';
+      btnMias.style.cssText  = 'font-size:11px;padding:4px 12px;' + (_cronScope === 'mias'  ? activo : inact);
+      btnTodas.style.cssText = 'font-size:11px;padding:4px 12px;' + (_cronScope === 'todas' ? activo : inact);
+    }
+    // Título lista
+    const tituloEl = document.getElementById('cron-lista-titulo');
+    if (tituloEl) {
+      tituloEl.textContent = _cronEsAdmin && _cronScope === 'todas'
+        ? '📋 Tareas del equipo'
+        : '📋 Mis tareas programadas';
+    }
+    renderCronogramaProgreso();
     renderCronogramaLista();
   } catch (err) {
     cont.innerHTML = `<div style="text-align:center;padding:24px;color:var(--red);font-size:12px">❌ ${err.message}</div>`;
   }
+}
+
+function cronCambiarScope(nuevo) {
+  if (nuevo === _cronScope) return;
+  _cronScope = nuevo;
+  cargarCronograma();
+}
+
+// v3.3.14: dona SVG mostrando Hecho vs Pendiente del período actual.
+// Solo cuenta tareas ACTIVAS (las pausadas no entran).
+function renderCronogramaProgreso() {
+  const wrap    = document.getElementById('cron-progreso-wrap');
+  const content = document.getElementById('cron-progreso-content');
+  if (!wrap || !content) return;
+  const activas = _cronTareas.filter(t => t.activo === 1);
+  if (!activas.length) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+
+  const hechas   = activas.filter(t => t.hecho_en_periodo_actual).length;
+  const pendientes = activas.length - hechas;
+  const total    = activas.length;
+  const pct      = total ? Math.round((hechas / total) * 100) : 0;
+
+  // Dona SVG: circunferencia 2πr con r=42 → ~263.89
+  const r = 42, circ = 2 * Math.PI * r;
+  const dashHecho = (hechas / total) * circ;
+  const dashPend  = circ - dashHecho;
+  // Roto -90° para empezar arriba; rojo si <50%, ámbar 50-79%, verde ≥80%
+  const colorHecho = pct >= 80 ? '#16a34a' : pct >= 50 ? '#f59e0b' : '#dc2626';
+
+  content.innerHTML = `
+    <div style="position:relative;width:160px;height:160px;flex-shrink:0">
+      <svg viewBox="0 0 100 100" width="160" height="160" style="transform:rotate(-90deg)">
+        <circle cx="50" cy="50" r="${r}" fill="none" stroke="#f1f5f9" stroke-width="12"/>
+        <circle cx="50" cy="50" r="${r}" fill="none" stroke="${colorHecho}" stroke-width="12"
+                stroke-dasharray="${dashHecho.toFixed(2)} ${dashPend.toFixed(2)}"
+                stroke-linecap="round"
+                style="transition:stroke-dasharray 0.6s ease"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+        <div style="font-size:26px;font-weight:700;color:${colorHecho};line-height:1">${pct}%</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${hechas}/${total} hechas</div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:14px;height:14px;border-radius:50%;background:${colorHecho};flex-shrink:0"></div>
+        <div style="flex:1">
+          <div style="font-size:12px;color:var(--text2);font-weight:600">Hechas en este período</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text1)">${hechas}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:14px;height:14px;border-radius:50%;background:#f1f5f9;border:2px solid #cbd5e1;flex-shrink:0"></div>
+        <div style="flex:1">
+          <div style="font-size:12px;color:var(--text2);font-weight:600">Pendientes</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text1)">${pendientes}</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;border-top:1px dashed var(--border);padding-top:6px">
+        ${_cronEsAdmin && _cronScope === 'todas' ? '👥 Vista del equipo · ' : '👤 Tus tareas · '}${total} activa${total===1?'':'s'} en seguimiento
+      </div>
+    </div>
+  `;
 }
 
 // Texto humano para describir la frecuencia de una tarea (para la lista).
@@ -7647,6 +7758,7 @@ function renderCronogramaLista() {
     cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">📭 No hay tareas programadas. Crea una con el formulario de arriba.</div>';
     return;
   }
+  const verTodas = _cronEsAdmin && _cronScope === 'todas';
   const html = _cronTareas.map(t => {
     const freqHtml = _cronFreqLabel(t);
     const activoBadge = t.activo === 1
@@ -7657,29 +7769,37 @@ function renderCronogramaLista() {
     const hechoBadge = hecho
       ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">✓ HECHO ${periodoLabel.toUpperCase()}</span>`
       : '';
+    // v3.3.14: badge "creado_por" cuando admin ve tareas del equipo
+    const propietarioBadge = verTodas
+      ? `<span style="background:#ede9fe;color:#5a2bb8;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px" title="Creador de la tarea">👤 ${(t.creado_por||'?').replace(/</g,'&lt;')}</span>`
+      : '';
     const ultEjec = t.ultima_ejecucion
       ? `<span style="font-size:10px;color:var(--text3)">Última ejecución: ${t.ultima_ejecucion}</span>`
       : '<span style="font-size:10px;color:var(--text3)">Nunca ejecutada</span>';
     const desc = t.descripcion
       ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;white-space:pre-wrap">${(t.descripcion||'').replace(/</g,'&lt;')}</div>`
       : '';
-    const btnHecho = hecho
+    // v3.3.14: puede editar/borrar/marcar si es propia o si es admin
+    const puedeEditar = t.es_propia || _cronEsAdmin;
+    const btnHecho = !puedeEditar ? '' : (hecho
       ? `<button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#a78bfa" onclick="cronMarcarHecho('${t.id}', false)" title="Volver a permitir disparo en este período">↺ Desmarcar</button>`
-      : `<button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#16a34a" onclick="cronMarcarHecho('${t.id}', true)" title="Marca la tarea como completada en ${periodoLabel}; no volverá a dispararse hasta el próximo período">✓ Marcar hecho</button>`;
+      : `<button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#16a34a" onclick="cronMarcarHecho('${t.id}', true)" title="Marca la tarea como completada en ${periodoLabel}; no volverá a dispararse hasta el próximo período">✓ Marcar hecho</button>`);
+    const otrosBtns = !puedeEditar ? '' : `
+      <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#0ea5e9" onclick="cronTest('${t.id}')">🧪 Probar</button>
+      <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="cronEditar('${t.id}')">✎ Editar</button>
+      <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:${t.activo===1?'#9ca3af':'#16a34a'}" onclick="cronToggleActivo('${t.id}', ${t.activo===1?0:1})">${t.activo===1?'⏸ Pausar':'▶ Activar'}</button>
+      <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#dc2626" onclick="cronEliminar('${t.id}', '${(t.titulo||'').replace(/'/g,'').replace(/"/g,'')}')">🗑 Eliminar</button>`;
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
         <div style="flex:1;min-width:240px">
-          <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(t.titulo||'').replace(/</g,'&lt;')} ${activoBadge} ${hechoBadge}</div>
+          <div style="font-size:14px;font-weight:700;color:var(--text1);margin-bottom:4px">${(t.titulo||'').replace(/</g,'&lt;')} ${activoBadge} ${hechoBadge} ${propietarioBadge}</div>
           <div style="font-size:12px;color:var(--text2);margin-bottom:4px">⏰ <strong style="font-family:monospace">${t.hora}</strong> · ${freqHtml}</div>
           <div style="font-size:11px;color:var(--text3)">📧 ${t.email} · ${ultEjec}</div>
           ${desc}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${btnHecho}
-          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#0ea5e9" onclick="cronTest('${t.id}')">🧪 Probar</button>
-          <button class="apply-btn" style="font-size:11px;padding:4px 10px" onclick="cronEditar('${t.id}')">✎ Editar</button>
-          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:${t.activo===1?'#9ca3af':'#16a34a'}" onclick="cronToggleActivo('${t.id}', ${t.activo===1?0:1})">${t.activo===1?'⏸ Pausar':'▶ Activar'}</button>
-          <button class="apply-btn" style="font-size:11px;padding:4px 10px;background:#dc2626" onclick="cronEliminar('${t.id}', '${(t.titulo||'').replace(/'/g,'').replace(/"/g,'')}')">🗑 Eliminar</button>
+          ${otrosBtns}
         </div>
       </div>
     </div>`;
