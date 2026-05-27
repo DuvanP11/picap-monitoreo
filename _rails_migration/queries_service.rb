@@ -1817,4 +1817,43 @@ module QueriesService
     ORDER BY e.fecha_hora DESC
     LIMIT %{limit_filas}
   SQL
+
+  # ── Dispersiones ──────────────────────────────────────────────────────────
+  # Transacciones WalletAccountDriverBalanceTransactionDaviplataCashOut —
+  # dispersiones de Picap hacia cuentas Daviplata de las companies.
+  # Se categorizan en:
+  #   - Dispersión Recaudo: company_id IN ('5f9b1847dc3d1101c7ece86c', '5e908acb4f75ba007912a4fd')
+  #   - Dispersión Garantía: resto
+  # Valores negativos = dispersión efectiva; positivos = reversión.
+  #
+  # Placeholders:
+  #   %{fecha_desde}, %{fecha_hasta}  YYYY-MM-DD (rango created_at en zona Bogotá)
+  Q_DISPERSIONES = <<~'SQL'
+    WITH filtered_wat AS (
+        SELECT *
+        FROM picapmongoprod.wallet_account_transactions FINAL
+        WHERE _type = 'WalletAccountDriverBalanceTransactionDaviplataCashOut'
+          AND toDate(toTimeZone(created_at, 'America/Bogota'))
+              BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+    )
+    SELECT DISTINCT
+        toString(wat._id)                                                 AS id_tx,
+        toString(toDate(toTimeZone(wat.created_at, 'America/Bogota')))    AS fecha_tx,
+        ifNull(JSONExtractFloat(wat.amount, 'cents') / 100, 0)            AS valor,
+        wat._type                                                         AS tipo_tx,
+        toString(comp._id)                                                AS company_id,
+        comp.name                                                         AS company_name,
+        CASE
+            WHEN toString(comp._id) IN (
+                '5f9b1847dc3d1101c7ece86c',
+                '5e908acb4f75ba007912a4fd'
+            ) THEN 'Dispersión Recaudo'
+            ELSE 'Dispersión Garantía'
+        END                                                               AS tipo_dispersion
+    FROM filtered_wat wat
+    INNER JOIN picapmongoprod.wallet_accounts wa ON wa._id = wat.account_id
+    INNER JOIN picapmongoprod.companies comp     ON comp._id = wa.company_id
+    ORDER BY fecha_tx DESC, id_tx
+    LIMIT 50000
+  SQL
 end

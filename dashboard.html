@@ -1656,6 +1656,7 @@ window.fetch = function(url, opts) {
       <div class="fly-title">Informes</div>
       <div class="fly-link" id="nav-informes" onclick="switchView('informes')"><span>📋</span> Centro de Informes</div>
       <div class="fly-link" id="nav-moviired" onclick="switchView('moviired')"><span>📊</span> MoviiRed</div>
+      <div class="fly-link" id="nav-dispersiones" onclick="switchView('dispersiones')"><span>💸</span> Dispersiones</div>
     </div>
   </div>
   <div class="sb2-item sb2-disabled" id="sbg-retencion">
@@ -3820,11 +3821,11 @@ window.fetch = function(url, opts) {
           <div class="inf-card-badge inf-badge-ok">Activo</div>
         </div>
 
-        <div class="inf-card inf-card-leaf" onclick="informesProximamente('Dispersiones')" title="Dispersiones">
+        <div class="inf-card inf-card-leaf" onclick="switchView('dispersiones')" title="Dispersiones — Daviplata CashOut">
           <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#059669,#047857)">💸</div>
           <div class="inf-card-name">Dispersiones</div>
-          <div class="inf-card-desc">Movimientos a cuentas</div>
-          <div class="inf-card-badge inf-badge-soon">Próximamente</div>
+          <div class="inf-card-desc">Movimientos a cuentas Daviplata</div>
+          <div class="inf-card-badge inf-badge-ok">Activo</div>
         </div>
 
         <div class="inf-card inf-card-leaf" onclick="informesProximamente('Reporte OPS CV')" title="Reporte OPS CV">
@@ -3917,6 +3918,101 @@ window.fetch = function(url, opts) {
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ══ VISTA: DISPERSIONES (admin / monitoreo / financiero) v3.2 ══
+       Reporte de dispersiones — transacciones Daviplata CashOut hacia
+       cuentas de companies (Recaudo vs Garantía). Mismo patrón UX que
+       MoviiRed: filtros + KPIs + análisis + tabla + Excel/email. -->
+  <div class="view" id="view-dispersiones">
+    <div class="wrap">
+
+      <!-- Barra de filtros: período rápido + fechas custom + mes/año -->
+      <div class="rec-search-bar">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Período:</label>
+        <button class="pbtn" onclick="setDisPeriod(7,this)">7 días</button>
+        <button class="pbtn active" onclick="setDisPeriod(15,this)">15 días</button>
+        <button class="pbtn" onclick="setDisPeriod(30,this)">30 días</button>
+        <div class="dateinputs">
+          <input type="date" id="dis-desde">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="dis-hasta">
+          <button class="search-btn" onclick="cargarDispersiones()">Aplicar</button>
+        </div>
+        <select id="dis-mes" onchange="setDisMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Mes</option>
+          <option value="1">Enero</option><option value="2">Febrero</option>
+          <option value="3">Marzo</option><option value="4">Abril</option>
+          <option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option>
+          <option value="9">Septiembre</option><option value="10">Octubre</option>
+          <option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select id="dis-anio" onchange="setDisMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Año</option>
+        </select>
+      </div>
+
+      <!-- Búsqueda + filtros adicionales + botones de export/email -->
+      <div class="rec-search-bar" style="margin-top:8px">
+        <input type="text" id="dis-company" placeholder="🔍 Filtrar por Company Name…" class="rec-search-input" onkeydown="if(event.key==='Enter')cargarDispersiones()">
+        <select id="dis-tipo" onchange="cargarDispersiones()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Todos los tipos</option>
+          <option value="Recaudo">Dispersión Recaudo</option>
+          <option value="Garantía">Dispersión Garantía</option>
+        </select>
+        <button class="search-btn" onclick="cargarDispersiones()">↻ Actualizar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="enviarDispersionesEmail(this)" style="background:#059669" title="Enviar el reporte por email con xlsx adjunto (2 hojas)">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarDispersiones(this)" title="Descargar Excel con BD + TD pivot">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+
+      <!-- KPIs -->
+      <div id="dis-kpis" style="margin-top:16px"></div>
+
+      <!-- Top companies + Tendencia diaria -->
+      <div id="dis-analysis" style="margin-top:8px"></div>
+
+      <!-- Tabla detallada -->
+      <div id="dis-table-container" style="margin-top:16px"></div>
+    </div>
+
+    <!-- Modal: Enviar por email -->
+    <div id="modal-dis-email" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+      <div style="background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.2);width:min(560px,92vw);max-height:92vh;overflow-y:auto">
+        <div style="background:linear-gradient(90deg,#047857 0%,#10b981 100%);padding:18px 22px;color:#fff;border-radius:12px 12px 0 0">
+          <div style="font-size:18px;font-weight:700">📧 Enviar reporte Dispersiones</div>
+          <div id="modal-dis-email-periodo" style="font-size:12px;opacity:0.92;margin-top:4px"></div>
+        </div>
+        <div style="padding:20px 22px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Para <span style="color:#ef4444">*</span></label>
+          <textarea id="dis-email-to" rows="3" placeholder="email1@dominio.com&#10;email2@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5"></textarea>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:12px">Un email por línea (también acepta coma o ; como separadores)</div>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CC (con copia)</label>
+          <textarea id="dis-email-cc" rows="2" placeholder="opcional — un email por línea" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CCO (con copia oculta)</label>
+          <textarea id="dis-email-bcc" rows="2" placeholder="opcional — un email por línea" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Asunto (opcional)</label>
+          <input id="dis-email-asunto" type="text" placeholder="Si lo dejás vacío usa el default" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;margin-bottom:12px">
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Mensaje (opcional)</label>
+          <textarea id="dis-email-mensaje" placeholder="Texto que va en el cuerpo del email" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;resize:vertical;font-family:inherit"></textarea>
+        </div>
+        <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
+          <button onclick="cerrarModalDisEmail()" style="padding:9px 18px;background:#fff;border:1.5px solid var(--border);border-radius:8px;color:var(--text1);font-weight:600;cursor:pointer;font-size:13px">Cancelar</button>
+          <button id="dis-email-enviar-btn" onclick="ejecutarEnviarDisEmail()" style="padding:9px 18px;background:#059669;border:1.5px solid #059669;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:13px">Enviar</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -4350,6 +4446,7 @@ function switchView(view){
     'estafa':         'Servicios Estafa — Detección',
     'recaudos':       'Validación de Recaudos',
     'moviired':       'MoviiRed — Transacciones',
+    'dispersiones':   'Dispersiones — Daviplata CashOut',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -4393,6 +4490,10 @@ function switchView(view){
   if(view === 'moviired'){
     if(!_mvrDesde){ setMvrPeriod(15, document.querySelector('#view-moviired .pbtn.active')); }
     else { cargarMoviired(); }
+  }
+  if(view === 'dispersiones'){
+    if(!_disDesde){ setDisPeriod(15, document.querySelector('#view-dispersiones .pbtn.active')); }
+    else { cargarDispersiones(); }
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -12181,6 +12282,268 @@ async function ejecutarEnviarMvrEmail() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DISPERSIONES — admin / monitoreo / financiero (v3.2)
+// Reporte de transacciones WalletAccountDriverBalanceTransactionDaviplataCashOut
+// agrupadas por Company × Tipo Dispersión (Recaudo / Garantía).
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _disDesde = null;
+let _disHasta = null;
+
+function setDisPeriod(dias, btn) {
+  if (btn) {
+    document.querySelectorAll('#view-dispersiones .pbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  _disDesde = daysAgo(dias);
+  _disHasta = today();
+  document.getElementById('dis-desde').value = _disDesde;
+  document.getElementById('dis-hasta').value = _disHasta;
+  document.getElementById('dis-mes').value = '';
+  document.getElementById('dis-anio').value = '';
+  cargarDispersiones();
+}
+
+function setDisMes() {
+  const mes  = parseInt(document.getElementById('dis-mes').value, 10);
+  const anio = parseInt(document.getElementById('dis-anio').value, 10);
+  if (!mes || !anio) return;
+  const desde = new Date(anio, mes - 1, 1);
+  const hasta = new Date(anio, mes, 0);
+  _disDesde = desde.toISOString().slice(0, 10);
+  _disHasta = hasta.toISOString().slice(0, 10);
+  document.getElementById('dis-desde').value = _disDesde;
+  document.getElementById('dis-hasta').value = _disHasta;
+  document.querySelectorAll('#view-dispersiones .pbtn').forEach(b => b.classList.remove('active'));
+  cargarDispersiones();
+}
+
+function initDisAnioSelect() {
+  const sel = document.getElementById('dis-anio');
+  if (!sel || sel.options.length > 1) return;
+  const y = new Date().getFullYear();
+  for (let i = y; i >= y - 4; i--) {
+    sel.innerHTML += `<option value="${i}">${i}</option>`;
+  }
+}
+
+async function cargarDispersiones() {
+  initDisAnioSelect();
+  if (!_disDesde) { _disDesde = daysAgo(15); document.getElementById('dis-desde').value = _disDesde; }
+  if (!_disHasta) { _disHasta = today();     document.getElementById('dis-hasta').value = _disHasta; }
+  const di = document.getElementById('dis-desde').value;
+  const hi = document.getElementById('dis-hasta').value;
+  if (di) _disDesde = di;
+  if (hi) _disHasta = hi;
+
+  const company = document.getElementById('dis-company')?.value.trim() || '';
+  const tipo    = document.getElementById('dis-tipo')?.value           || '';
+
+  document.getElementById('dis-kpis').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando…</div>';
+  document.getElementById('dis-table-container').innerHTML = '';
+  document.getElementById('dis-analysis').innerHTML = '';
+
+  try {
+    const params = new URLSearchParams({ desde: _disDesde, hasta: _disHasta });
+    if (company) params.set('company', company);
+    if (tipo)    params.set('tipo', tipo);
+    const r = await fetch(`${API}/api/dispersiones?${params}`, { headers: { 'X-Token': _sesionToken } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    renderDispersiones(d);
+  } catch(err) {
+    document.getElementById('dis-kpis').innerHTML =
+      `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}</div>`;
+  }
+}
+
+function renderDispersiones(data) {
+  const s = data.stats || {};
+  const filas = data.filas || [];
+
+  // KPIs: 4 principales + 2 secundarios (Recaudo / Garantía)
+  const kpisHtml = `
+    <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr);">
+      <div class="rec-kpi" style="border-top:3px solid #059669">
+        <div class="rec-kpi-val" style="color:#059669">${fmtNum(s.total||0)}</div>
+        <div class="rec-kpi-sub">Transacciones</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #DC2626">
+        <div class="rec-kpi-val" style="color:#DC2626;font-size:20px">${fmtMoney(s.valor_dispersado||0)}</div>
+        <div class="rec-kpi-sub">Total dispersado</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #16A34A">
+        <div class="rec-kpi-val" style="color:#16A34A;font-size:20px">${fmtMoney(s.valor_revertido||0)}</div>
+        <div class="rec-kpi-sub">Total revertido</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #7C3AED">
+        <div class="rec-kpi-val" style="color:#7C3AED">${fmtNum(s.n_companies||0)}</div>
+        <div class="rec-kpi-sub">Companies únicas</div>
+      </div>
+    </div>
+    <div class="rec-kpis" style="grid-template-columns:repeat(2,1fr);margin-bottom:16px;">
+      <div class="rec-kpi" style="border-top:3px solid #2563EB">
+        <div class="rec-kpi-val" style="color:#2563EB;font-size:18px">${fmtNum(s.n_recaudo||0)} tx · ${fmtMoney(s.v_recaudo||0)}</div>
+        <div class="rec-kpi-sub">Dispersión Recaudo</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #F59E0B">
+        <div class="rec-kpi-val" style="color:#F59E0B;font-size:18px">${fmtNum(s.n_garantia||0)} tx · ${fmtMoney(s.v_garantia||0)}</div>
+        <div class="rec-kpi-sub">Dispersión Garantía</div>
+      </div>
+    </div>`;
+  document.getElementById('dis-kpis').innerHTML = kpisHtml;
+
+  // Análisis: tendencia diaria + top companies
+  const porDia = s.por_dia || [];
+  const maxCant = Math.max(1, ...porDia.map(d => d.cant || 0));
+  const tendenciaHtml = porDia.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">📈 Movimientos por día</div>
+      ${porDia.map(d => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px">
+          <span style="width:80px;color:var(--text3);white-space:nowrap;font-family:monospace">${d.fecha}</span>
+          <div style="flex:1;background:#dcfce7;border-radius:4px;height:18px;position:relative;overflow:hidden">
+            <div style="position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#047857,#10b981);width:${(d.cant/maxCant*100).toFixed(1)}%;border-radius:4px"></div>
+          </div>
+          <span style="width:50px;text-align:right;font-weight:600;color:var(--text1)">${fmtNum(d.cant)}</span>
+          <span style="width:120px;text-align:right;color:${d.valor < 0 ? '#dc2626' : '#16a34a'};font-weight:600;font-family:monospace">${fmtMoney(d.valor)}</span>
+        </div>
+      `).join('')}
+    </div>` : '';
+
+  const topComp = s.top_companies || [];
+  const compHtml = topComp.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">🏢 Top 20 companies · Company × Tipo</div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr style="border-bottom:1px solid var(--border);color:var(--text3)">
+          <th style="text-align:left;padding:4px 6px">Company</th>
+          <th style="text-align:left;padding:4px 6px">Tipo</th>
+          <th style="text-align:right;padding:4px 6px">Tx</th>
+          <th style="text-align:right;padding:4px 6px">Valor</th>
+        </tr></thead>
+        <tbody>
+        ${topComp.map(c => `<tr>
+          <td style="padding:4px 6px;font-weight:600">${c.company || '(sin nombre)'}</td>
+          <td style="padding:4px 6px;font-size:10px"><span style="background:${c.tipo === 'Dispersión Recaudo' ? '#dbeafe' : '#fef3c7'};color:${c.tipo === 'Dispersión Recaudo' ? '#1e40af' : '#92400e'};padding:1px 6px;border-radius:4px;font-weight:600">${c.tipo}</span></td>
+          <td style="padding:4px 6px;text-align:right">${fmtNum(c.cant)}</td>
+          <td style="padding:4px 6px;text-align:right;color:${c.valor < 0 ? '#dc2626' : '#16a34a'};font-weight:600;font-family:monospace">${fmtMoney(c.valor)}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  document.getElementById('dis-analysis').innerHTML = (tendenciaHtml || compHtml)
+    ? `<div style="display:flex;gap:14px;flex-wrap:wrap">${tendenciaHtml}${compHtml}</div>` : '';
+
+  // Tabla detallada
+  const copyJs = (id) => `navigator.clipboard.writeText('${id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)`;
+  let filasHtml = '';
+  if (!filas.length) {
+    filasHtml = '<div style="text-align:center;padding:32px;color:var(--text3)">Sin dispersiones en este período.</div>';
+  } else {
+    const rowsHtml = filas.map(f => `<tr>
+      <td><span style="font-family:monospace;font-size:11px;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.id_tx)}">${f.id_tx||'—'}</span></td>
+      <td style="font-size:11px;white-space:nowrap;font-family:monospace">${f.fecha_tx||'—'}</td>
+      <td class="right" style="font-weight:700;color:${(f.valor||0) < 0 ? '#dc2626' : '#16a34a'};white-space:nowrap;font-family:monospace">${fmtMoney(f.valor)}</td>
+      <td><span style="font-family:monospace;font-size:10px;color:var(--text3);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.company_id)}">${f.company_id||'—'}</span></td>
+      <td style="font-size:12px;font-weight:600">${f.company_name||'—'}</td>
+      <td style="font-size:11px"><span style="background:${f.tipo_dispersion === 'Dispersión Recaudo' ? '#dbeafe' : '#fef3c7'};color:${f.tipo_dispersion === 'Dispersión Recaudo' ? '#1e40af' : '#92400e'};padding:2px 8px;border-radius:4px;font-weight:600;white-space:nowrap">${f.tipo_dispersion||'—'}</span></td>
+    </tr>`).join('');
+    filasHtml = `
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+        ${filas.length} transacciones · Las primeras 5.000 (export sin límite) · Click en cualquier ID para copiar
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="aud-table rec-detail-table" style="min-width:1100px">
+          <colgroup>
+            <col style="width:220px"><col style="width:110px"><col style="width:140px"><col style="width:220px"><col style="width:260px"><col style="width:160px">
+          </colgroup>
+          <thead><tr>
+            <th>id_Tx</th><th>Fecha_Tx</th><th class="right">Valor</th><th>Company Id</th><th>Company Name</th><th>Tipo Dispersion</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+  }
+  document.getElementById('dis-table-container').innerHTML = filasHtml;
+}
+
+function exportarDispersiones(btn) {
+  const desde = _disDesde || daysAgo(15);
+  const hasta = _disHasta || today();
+  const company = document.getElementById('dis-company')?.value.trim() || '';
+  const tipo    = document.getElementById('dis-tipo')?.value           || '';
+  const params = new URLSearchParams({ desde, hasta });
+  if (company) params.set('company', company);
+  if (tipo)    params.set('tipo', tipo);
+  window.open(`${API}/api/exportar/dispersiones?${params}`, '_blank');
+}
+
+function enviarDispersionesEmail(btn) {
+  const desde = _disDesde || daysAgo(15);
+  const hasta = _disHasta || today();
+  document.getElementById('modal-dis-email-periodo').textContent = `Período: ${desde} → ${hasta}`;
+  ['to','cc','bcc','asunto','mensaje'].forEach(k => {
+    const el = document.getElementById(`dis-email-${k}`);
+    if (el) el.value = '';
+  });
+  document.getElementById('modal-dis-email').style.display = 'flex';
+  setTimeout(() => document.getElementById('dis-email-to')?.focus(), 50);
+}
+
+function cerrarModalDisEmail() {
+  document.getElementById('modal-dis-email').style.display = 'none';
+}
+
+async function ejecutarEnviarDisEmail() {
+  const desde = _disDesde || daysAgo(15);
+  const hasta = _disHasta || today();
+  const company = document.getElementById('dis-company')?.value.trim() || '';
+  const tipo    = document.getElementById('dis-tipo')?.value           || '';
+  const parseEmails = (s) => (s || '').split(/[,;\s\n]+/).map(e => e.trim()).filter(e => e);
+  const to      = parseEmails(document.getElementById('dis-email-to').value);
+  const cc      = parseEmails(document.getElementById('dis-email-cc').value);
+  const bcc     = parseEmails(document.getElementById('dis-email-bcc').value);
+  const asunto  = document.getElementById('dis-email-asunto').value.trim();
+  const mensaje = document.getElementById('dis-email-mensaje').value.trim();
+
+  if (to.length === 0) { alert('Tenés que ingresar al menos un email en "Para".'); return; }
+  const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const invalid = [...to, ...cc, ...bcc].filter(e => !reEmail.test(e));
+  if (invalid.length > 0) { alert(`Email(s) inválido(s):\n${invalid.join('\n')}`); return; }
+
+  const btn = document.getElementById('dis-email-enviar-btn');
+  const txtOrig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '⏳ Enviando...';
+
+  try {
+    const body = { email: to.join(','), desde, hasta, mensaje };
+    if (cc.length)  body.cc  = cc.join(',');
+    if (bcc.length) body.bcc = bcc.join(',');
+    if (asunto)     body.asunto  = asunto;
+    if (company)    body.company = company;
+    if (tipo)       body.tipo    = tipo;
+    const r = await fetch(`${API}/api/dispersiones/enviar_email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    const destL = (d.destinatarios || []).join(', ');
+    const ccL   = (d.cc  || []).length ? `\nCC: ${d.cc.join(', ')}`   : '';
+    const bccL  = (d.bcc || []).length ? `\nCCO: ${d.bcc.join(', ')}` : '';
+    alert(`✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}\n${d.total} transacciones · adjunto: ${d.filename}`);
+    cerrarModalDisEmail();
+  } catch(err) {
+    alert('Error al enviar email: ' + (err.message || err));
+  } finally {
+    btn.disabled = false; btn.innerHTML = txtOrig;
+  }
+}
+
 
 // ── Panel de usuario dropdown ─────────────────────────────────────────────
 function toggleUserMenu(e) {
@@ -12392,9 +12755,10 @@ function sb2SetActive(view) {
     recaudos:  'sbg-recaudos',
     // v3.1: informes agrupa moviired + otros reportes. Ambos highlightean
     // el mismo ítem del sidebar.
-    informes:  'sbg-informes',
-    moviired:  'sbg-informes',
-    auditoria: 'sbg-auditoria',
+    informes:     'sbg-informes',
+    moviired:     'sbg-informes',
+    dispersiones: 'sbg-informes',
+    auditoria:    'sbg-auditoria',
   };
   const grpId = MAP[view];
   if(grpId) {

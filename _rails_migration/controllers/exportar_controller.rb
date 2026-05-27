@@ -714,6 +714,88 @@ module Api
       handle_error(e, "moviired")
     end
 
+    # GET /api/exportar/dispersiones?desde=&hasta=&company=&tipo=
+    # Devuelve Excel con 2 hojas (BD Dispersiones + TD Dispersiones pivot).
+    # Acceso restringido a admin/monitoreo/financiero.
+    def dispersiones
+      unless Api::DispersionesController::ROLES_PERMITIDOS.include?(current_rol.to_s)
+        return render(json: {
+          ok: false,
+          error: "Acceso restringido — solo roles: admin, monitoreo, financiero",
+        }, status: :forbidden)
+      end
+      send_xlsx(self.class.build_dispersiones_xlsx(
+        desde_param, hasta_param, ch,
+        company: params[:company].to_s.strip,
+        tipo:    params[:tipo].to_s.strip,
+      ))
+    rescue => e
+      handle_error(e, "dispersiones")
+    end
+
+    # Builder centralizado del xlsx de Dispersiones. Recibe `ch` como
+    # dependencia para reuso desde DispersionesController#enviar_email.
+    #
+    # Estructura del libro (espejada al Excel de referencia del cliente):
+    #   Hoja 1 "BD Dispersiones" — datos crudos, 1 fila por tx.
+    #     Columnas: id_Tx, Fecha_Tx, Valor, Tipo_Tx, Company Id, Company Name, Tipo Dispersion
+    #   Hoja 2 "TD Dispersiones" — pivot agrupado por (Company Name, Tipo Dispersion).
+    #     Columnas: Company Name, Tipo Dispersion, Valor (sum)
+    #     + fila Total general al final.
+    def self.build_dispersiones_xlsx(desde, hasta, ch, company: "", tipo: "")
+      rows = ch.query(QueriesService.format(QueriesService::Q_DISPERSIONES,
+                                             fecha_desde: desde, fecha_hasta: hasta), timeout: 300)
+      # Filtros opcionales en memoria
+      unless company.empty?
+        c_low = company.downcase
+        rows = rows.select { |r| r["company_name"].to_s.downcase.include?(c_low) }
+      end
+      unless tipo.empty?
+        t_low = tipo.downcase
+        rows = rows.select { |r| r["tipo_dispersion"].to_s.downcase.include?(t_low) }
+      end
+
+      ExcelExportService.build("Picap_Dispersiones") do |x|
+        # ── Hoja 1: BD Dispersiones (raw data) ────────────────────────────
+        x.add_sheet("BD Dispersiones") do |s|
+          s.banner("Base de Datos · Dispersiones",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{rows.size}", 7)
+          headers = ["id_Tx", "Fecha_Tx", "Valor", "Tipo_Tx", "Company Id", "Company Name", "Tipo Dispersion"]
+          s.headers(headers)
+          rows.each do |r|
+            s.data_row([
+              r["id_tx"].to_s,
+              r["fecha_tx"].to_s,
+              r["valor"].to_f.round(2),
+              r["tipo_tx"].to_s,
+              r["company_id"].to_s,
+              r["company_name"].to_s,
+              r["tipo_dispersion"].to_s,
+            ], right_align: [3])
+          end
+          s.finalize(freeze_row: 4)
+        end
+
+        # ── Hoja 2: TD Dispersiones (pivot) ───────────────────────────────
+        x.add_sheet("TD Dispersiones") do |s|
+          s.banner("Tabla Dinámica · Dispersiones",
+                   "Período: #{desde} → #{hasta}  ·  Total agrupado por Company × Tipo", 3)
+          s.headers(["Company Name", "Tipo Dispersion", "Valor"])
+          # Group rows by (company_name, tipo_dispersion), sum valor
+          pivot = rows.group_by { |r| [r["company_name"].to_s, r["tipo_dispersion"].to_s] }
+                      .map { |(cname, ttipo), grp| [cname, ttipo, grp.sum { |g| g["valor"].to_f }.round(2)] }
+                      .sort_by { |row| [row[0].downcase, row[1]] }
+          pivot.each do |row|
+            s.data_row(row, right_align: [3])
+          end
+          # Total general
+          total = pivot.sum { |row| row[2].to_f }.round(2)
+          s.data_row(["Total general", "", total], right_align: [3])
+          s.finalize(freeze_row: 4)
+        end
+      end
+    end
+
     private
 
     # Carga la recuperación del mes anterior desde CH y delega el cálculo puro a
