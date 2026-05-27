@@ -796,6 +796,104 @@ module Api
       end
     end
 
+    # GET /api/exportar/reporte_ops_cv?desde=&hasta=&estado=&next_day=&ciudad=
+    # Devuelve Excel con 1 hoja "Data" (37 columnas — espejo del archivo
+    # de referencia del cliente). Acceso restringido a admin/monitoreo/financiero.
+    def reporte_ops_cv
+      unless Api::ReporteOpsCvController::ROLES_PERMITIDOS.include?(current_rol.to_s)
+        return render(json: {
+          ok: false,
+          error: "Acceso restringido — solo roles: admin, monitoreo, financiero",
+        }, status: :forbidden)
+      end
+      send_xlsx(self.class.build_reporte_ops_cv_xlsx(
+        desde_param, hasta_param, ch,
+        estado:   params[:estado].to_s.strip,
+        next_day: params[:next_day].to_s.strip,
+        ciudad:   params[:ciudad].to_s.strip,
+      ))
+    rescue => e
+      handle_error(e, "reporte_ops_cv")
+    end
+
+    # Builder centralizado del xlsx de Reporte OPS CV. 1 hoja "Data" con
+    # las 37 columnas exactas que pidió el cliente (espejo del Excel original).
+    # Reusado desde ReporteOpsCvController#enviar_email.
+    def self.build_reporte_ops_cv_xlsx(desde, hasta, ch, estado: "", next_day: "", ciudad: "")
+      rows = ch.query(QueriesService.format(QueriesService::Q_REPORTE_OPS_CV,
+                                             fecha_desde: desde, fecha_hasta: hasta), timeout: 600)
+      # Filtros opcionales en memoria
+      rows = rows.select { |r| r["estado"].to_s == estado }     unless estado.empty?
+      rows = rows.select { |r| r["next_day"].to_s == next_day } unless next_day.empty?
+      unless ciudad.empty?
+        c_low = ciudad.downcase
+        rows = rows.select { |r| r["ciudad"].to_s.downcase.include?(c_low) }
+      end
+
+      headers = %w[
+        uuid_booking id_parada iniciado asignado llego_al_origen salio_de_origen
+        llego_donde_el_cliente id_paquete fecha_entrega_paquete descripcion
+        fecha_devolucion_paquete fecha_cancelacion_paquete fecha_paquete_no_recibido
+        estado programado next_day finalizado_fallido finalizo_servicio
+        num_orden nombre_usuario ciudad direccion_origen direccion_de_destino
+        parada_de_regreso nombre_cliente telefono_cliente duracion_espera
+        duracion_servicio_copy min_tiempo_de_relanzamiento_min min_tiempo_de_servicio
+        latitud longitud recuento_definido_de_uuid costo_servicio distancia_km
+        llegada_a_origen_min orden_parada valor_declarado
+      ].freeze
+
+      ExcelExportService.build("Picap_Reporte_OPS_CV") do |x|
+        x.add_sheet("Data") do |s|
+          s.banner("Reporte Operaciones CV — Cruz Verde Pibox",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{rows.size}", 37)
+          s.headers(headers)
+          rows.each do |r|
+            s.data_row([
+              r["uuid_booking"].to_s,
+              r["id_parada"].to_s,
+              r["iniciado"].to_s,
+              r["asignado"].to_s,
+              r["llego_al_origen"].to_s,
+              r["salio_de_origen"].to_s,
+              r["llego_donde_el_cliente"].to_s,
+              r["id_paquete"].to_s,
+              r["fecha_entrega_paquete"].to_s,
+              r["descripcion"].to_s,
+              r["fecha_devolucion_paquete"].to_s,
+              r["fecha_cancelacion_paquete"].to_s,
+              r["fecha_paquete_no_recibido"].to_s,
+              r["estado"].to_s,
+              r["programado"].to_s,
+              r["next_day"].to_s,
+              r["finalizado_fallido"].to_s,
+              r["finalizo_servicio"].to_s,
+              r["num_orden"].to_s,
+              r["nombre_usuario"].to_s,
+              r["ciudad"].to_s,
+              r["direccion_origen"].to_s,
+              r["direccion_de_destino"].to_s,
+              r["parada_de_regreso"].to_s,
+              r["nombre_cliente"].to_s,
+              r["telefono_cliente"].to_s,
+              r["duracion_espera"].to_i,
+              r["duracion_servicio_copy"].to_i,
+              r["min_tiempo_de_relanzamiento_min"].to_f.round(2),
+              r["min_tiempo_de_servicio"].to_f.round(2),
+              r["latitud"].to_f.round(3),
+              r["longitud"].to_f.round(3),
+              r["recuento_definido_de_uuid"].to_i,
+              r["costo_servicio"].to_f.round(2),
+              r["distancia_km"].to_f.round(2),
+              r["llegada_a_origen_min"].to_f.round(2),
+              r["orden_parada"].to_i,
+              r["valor_declarado"].to_f.round(2),
+            ], right_align: [27, 28, 29, 30, 33, 34, 35, 36, 37])
+          end
+          s.finalize(freeze_row: 4)
+        end
+      end
+    end
+
     private
 
     # Carga la recuperación del mes anterior desde CH y delega el cálculo puro a

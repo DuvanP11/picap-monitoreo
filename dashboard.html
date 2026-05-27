@@ -1657,6 +1657,7 @@ window.fetch = function(url, opts) {
       <div class="fly-link" id="nav-informes" onclick="switchView('informes')"><span>📋</span> Centro de Informes</div>
       <div class="fly-link" id="nav-moviired" onclick="switchView('moviired')"><span>📊</span> MoviiRed</div>
       <div class="fly-link" id="nav-dispersiones" onclick="switchView('dispersiones')"><span>💸</span> Dispersiones</div>
+      <div class="fly-link" id="nav-reporte_ops_cv" onclick="switchView('reporte_ops_cv')"><span>🚀</span> Reporte OPS CV</div>
     </div>
   </div>
   <div class="sb2-item sb2-disabled" id="sbg-retencion">
@@ -3828,11 +3829,11 @@ window.fetch = function(url, opts) {
           <div class="inf-card-badge inf-badge-ok">Activo</div>
         </div>
 
-        <div class="inf-card inf-card-leaf" onclick="informesProximamente('Reporte OPS CV')" title="Reporte OPS CV">
+        <div class="inf-card inf-card-leaf" onclick="switchView('reporte_ops_cv')" title="Reporte OPS CV — Pibox Cruz Verde">
           <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#0e7490,#0369a1)">🚀</div>
           <div class="inf-card-name">Reporte OPS CV</div>
-          <div class="inf-card-desc">Operaciones cash-vault</div>
-          <div class="inf-card-badge inf-badge-soon">Próximamente</div>
+          <div class="inf-card-desc">Operaciones Pibox Cruz Verde</div>
+          <div class="inf-card-badge inf-badge-ok">Activo</div>
         </div>
 
         <div class="inf-card inf-card-leaf" onclick="informesProximamente('Mintic')" title="Mintic">
@@ -4011,6 +4012,107 @@ window.fetch = function(url, opts) {
         <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
           <button onclick="cerrarModalDisEmail()" style="padding:9px 18px;background:#fff;border:1.5px solid var(--border);border-radius:8px;color:var(--text1);font-weight:600;cursor:pointer;font-size:13px">Cancelar</button>
           <button id="dis-email-enviar-btn" onclick="ejecutarEnviarDisEmail()" style="padding:9px 18px;background:#059669;border:1.5px solid #059669;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:13px">Enviar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ VISTA: REPORTE OPS CV (admin / monitoreo / financiero) v3.3 ══
+       Reporte operativo de bookings Pibox para Cruz Verde. Mismo patrón
+       UX que MoviiRed/Dispersiones: filtros + KPIs + análisis + tabla
+       + Excel/email. 37 columnas en el detalle. -->
+  <div class="view" id="view-reporte_ops_cv">
+    <div class="wrap">
+
+      <!-- Filtros: período rápido + fechas + mes/año -->
+      <div class="rec-search-bar">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Período:</label>
+        <button class="pbtn" onclick="setRcvPeriod(7,this)">7 días</button>
+        <button class="pbtn active" onclick="setRcvPeriod(15,this)">15 días</button>
+        <button class="pbtn" onclick="setRcvPeriod(30,this)">30 días</button>
+        <div class="dateinputs">
+          <input type="date" id="rcv-desde">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="rcv-hasta">
+          <button class="search-btn" onclick="cargarReporteOpsCv()">Aplicar</button>
+        </div>
+        <select id="rcv-mes" onchange="setRcvMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Mes</option>
+          <option value="1">Enero</option><option value="2">Febrero</option>
+          <option value="3">Marzo</option><option value="4">Abril</option>
+          <option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option>
+          <option value="9">Septiembre</option><option value="10">Octubre</option>
+          <option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select id="rcv-anio" onchange="setRcvMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Año</option>
+        </select>
+      </div>
+
+      <!-- Filtros adicionales + botones -->
+      <div class="rec-search-bar" style="margin-top:8px">
+        <select id="rcv-estado" onchange="cargarReporteOpsCv()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Todos los estados</option>
+          <option value="Finalizado">Finalizado</option>
+          <option value="Cancelado">Cancelado</option>
+          <option value="Expirado">Expirado</option>
+        </select>
+        <select id="rcv-next-day" onchange="cargarReporteOpsCv()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Same Day / Next Day</option>
+          <option value="Same Day">Same Day</option>
+          <option value="Next Day">Next Day</option>
+        </select>
+        <input type="text" id="rcv-ciudad" placeholder="🔍 Filtrar por ciudad…" class="rec-search-input" onkeydown="if(event.key==='Enter')cargarReporteOpsCv()">
+        <button class="search-btn" onclick="cargarReporteOpsCv()">↻ Actualizar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="enviarReporteOpsCvEmail(this)" style="background:#0369a1" title="Enviar el reporte por email con xlsx adjunto">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarReporteOpsCv(this)" title="Descargar Excel con las 37 columnas">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+
+      <!-- KPIs -->
+      <div id="rcv-kpis" style="margin-top:16px"></div>
+
+      <!-- Top ciudades + tendencia diaria + top motivos -->
+      <div id="rcv-analysis" style="margin-top:8px"></div>
+
+      <!-- Tabla detallada -->
+      <div id="rcv-table-container" style="margin-top:16px"></div>
+    </div>
+
+    <!-- Modal: Enviar por email -->
+    <div id="modal-rcv-email" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+      <div style="background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.2);width:min(560px,92vw);max-height:92vh;overflow-y:auto">
+        <div style="background:linear-gradient(90deg,#0e7490 0%,#0369a1 100%);padding:18px 22px;color:#fff;border-radius:12px 12px 0 0">
+          <div style="font-size:18px;font-weight:700">📧 Enviar Reporte OPS CV</div>
+          <div id="modal-rcv-email-periodo" style="font-size:12px;opacity:0.92;margin-top:4px"></div>
+        </div>
+        <div style="padding:20px 22px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Para <span style="color:#ef4444">*</span></label>
+          <textarea id="rcv-email-to" rows="3" placeholder="email1@dominio.com&#10;email2@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5"></textarea>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:12px">Un email por línea (acepta coma o ; también)</div>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CC (con copia)</label>
+          <textarea id="rcv-email-cc" rows="2" placeholder="opcional" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CCO (con copia oculta)</label>
+          <textarea id="rcv-email-bcc" rows="2" placeholder="opcional" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Asunto (opcional)</label>
+          <input id="rcv-email-asunto" type="text" placeholder="Default si lo dejás vacío" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;margin-bottom:12px">
+
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Mensaje (opcional)</label>
+          <textarea id="rcv-email-mensaje" placeholder="Texto del cuerpo del email" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;resize:vertical;font-family:inherit"></textarea>
+        </div>
+        <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
+          <button onclick="cerrarModalRcvEmail()" style="padding:9px 18px;background:#fff;border:1.5px solid var(--border);border-radius:8px;color:var(--text1);font-weight:600;cursor:pointer;font-size:13px">Cancelar</button>
+          <button id="rcv-email-enviar-btn" onclick="ejecutarEnviarRcvEmail()" style="padding:9px 18px;background:#0369a1;border:1.5px solid #0369a1;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:13px">Enviar</button>
         </div>
       </div>
     </div>
@@ -4447,6 +4549,7 @@ function switchView(view){
     'recaudos':       'Validación de Recaudos',
     'moviired':       'MoviiRed — Transacciones',
     'dispersiones':   'Dispersiones — Daviplata CashOut',
+    'reporte_ops_cv': 'Reporte OPS CV — Cruz Verde Pibox',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -4494,6 +4597,10 @@ function switchView(view){
   if(view === 'dispersiones'){
     if(!_disDesde){ setDisPeriod(15, document.querySelector('#view-dispersiones .pbtn.active')); }
     else { cargarDispersiones(); }
+  }
+  if(view === 'reporte_ops_cv'){
+    if(!_rcvDesde){ setRcvPeriod(15, document.querySelector('#view-reporte_ops_cv .pbtn.active')); }
+    else { cargarReporteOpsCv(); }
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -12544,6 +12651,307 @@ async function ejecutarEnviarDisEmail() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// REPORTE OPS CV — admin / monitoreo / financiero (v3.3)
+// Reporte operativo de bookings Pibox para companies Cruz Verde.
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _rcvDesde = null;
+let _rcvHasta = null;
+
+function setRcvPeriod(dias, btn) {
+  if (btn) {
+    document.querySelectorAll('#view-reporte_ops_cv .pbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  _rcvDesde = daysAgo(dias);
+  _rcvHasta = today();
+  document.getElementById('rcv-desde').value = _rcvDesde;
+  document.getElementById('rcv-hasta').value = _rcvHasta;
+  document.getElementById('rcv-mes').value = '';
+  document.getElementById('rcv-anio').value = '';
+  cargarReporteOpsCv();
+}
+
+function setRcvMes() {
+  const mes  = parseInt(document.getElementById('rcv-mes').value, 10);
+  const anio = parseInt(document.getElementById('rcv-anio').value, 10);
+  if (!mes || !anio) return;
+  const desde = new Date(anio, mes - 1, 1);
+  const hasta = new Date(anio, mes, 0);
+  _rcvDesde = desde.toISOString().slice(0, 10);
+  _rcvHasta = hasta.toISOString().slice(0, 10);
+  document.getElementById('rcv-desde').value = _rcvDesde;
+  document.getElementById('rcv-hasta').value = _rcvHasta;
+  document.querySelectorAll('#view-reporte_ops_cv .pbtn').forEach(b => b.classList.remove('active'));
+  cargarReporteOpsCv();
+}
+
+function initRcvAnioSelect() {
+  const sel = document.getElementById('rcv-anio');
+  if (!sel || sel.options.length > 1) return;
+  const y = new Date().getFullYear();
+  for (let i = y; i >= y - 4; i--) sel.innerHTML += `<option value="${i}">${i}</option>`;
+}
+
+async function cargarReporteOpsCv() {
+  initRcvAnioSelect();
+  if (!_rcvDesde) { _rcvDesde = daysAgo(15); document.getElementById('rcv-desde').value = _rcvDesde; }
+  if (!_rcvHasta) { _rcvHasta = today();     document.getElementById('rcv-hasta').value = _rcvHasta; }
+  const di = document.getElementById('rcv-desde').value;
+  const hi = document.getElementById('rcv-hasta').value;
+  if (di) _rcvDesde = di;
+  if (hi) _rcvHasta = hi;
+
+  const estado   = document.getElementById('rcv-estado')?.value   || '';
+  const nextDay  = document.getElementById('rcv-next-day')?.value || '';
+  const ciudad   = document.getElementById('rcv-ciudad')?.value.trim() || '';
+
+  document.getElementById('rcv-kpis').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando… (esta query puede tardar 30-60s)</div>';
+  document.getElementById('rcv-table-container').innerHTML = '';
+  document.getElementById('rcv-analysis').innerHTML = '';
+
+  try {
+    const params = new URLSearchParams({ desde: _rcvDesde, hasta: _rcvHasta });
+    if (estado)  params.set('estado', estado);
+    if (nextDay) params.set('next_day', nextDay);
+    if (ciudad)  params.set('ciudad', ciudad);
+    const r = await fetch(`${API}/api/reporte_ops_cv?${params}`, { headers: { 'X-Token': _sesionToken } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    renderReporteOpsCv(d);
+  } catch(err) {
+    document.getElementById('rcv-kpis').innerHTML =
+      `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}</div>`;
+  }
+}
+
+function renderReporteOpsCv(data) {
+  const s = data.stats || {};
+  const filas = data.filas || [];
+
+  const kpisHtml = `
+    <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr);">
+      <div class="rec-kpi" style="border-top:3px solid #0e7490">
+        <div class="rec-kpi-val" style="color:#0e7490">${fmtNum(s.total||0)}</div>
+        <div class="rec-kpi-sub">Servicios totales</div>
+      </div>
+      <div class="rec-kpi ok">
+        <div class="rec-kpi-val">${fmtNum(s.finalizados||0)} · ${(s.pct_finalizados||0)}%</div>
+        <div class="rec-kpi-sub">Finalizados</div>
+        <div class="rec-kpi-bar" style="background:#22c55e"></div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #DC2626">
+        <div class="rec-kpi-val" style="color:#DC2626">${fmtNum(s.cancelados||0)} · ${(s.pct_cancelados||0)}%</div>
+        <div class="rec-kpi-sub">Cancelados</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #F59E0B">
+        <div class="rec-kpi-val" style="color:#F59E0B">${fmtNum(s.fallidos||0)} · ${(s.pct_fallidos||0)}%</div>
+        <div class="rec-kpi-sub">Finalizados fallidos</div>
+      </div>
+    </div>
+    <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+      <div class="rec-kpi" style="border-top:3px solid #16A34A">
+        <div class="rec-kpi-val" style="color:#16A34A;font-size:18px">${fmtMoney(s.costo_total||0)}</div>
+        <div class="rec-kpi-sub">Costo total servicios</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #7C3AED">
+        <div class="rec-kpi-val" style="color:#7C3AED;font-size:18px">${fmtNum((s.distancia_total||0).toFixed(0))} km</div>
+        <div class="rec-kpi-sub">Distancia total</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #2563EB">
+        <div class="rec-kpi-val" style="color:#2563EB;font-size:18px">${(s.tiempo_promedio_min||0).toFixed(1)} min</div>
+        <div class="rec-kpi-sub">Tiempo promedio servicio</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #94A3B8">
+        <div class="rec-kpi-val" style="color:#94A3B8;font-size:18px">${fmtNum(s.same_day||0)} · ${fmtNum(s.next_day||0)}</div>
+        <div class="rec-kpi-sub">Same Day · Next Day</div>
+      </div>
+    </div>`;
+  document.getElementById('rcv-kpis').innerHTML = kpisHtml;
+
+  // Análisis: tendencia diaria + top ciudades + top motivos
+  const porDia = s.por_dia || [];
+  const maxCant = Math.max(1, ...porDia.map(d => d.cant || 0));
+  const tendenciaHtml = porDia.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1;min-width:300px">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">📈 Servicios por día</div>
+      ${porDia.map(d => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px">
+          <span style="width:80px;color:var(--text3);white-space:nowrap;font-family:monospace">${d.fecha}</span>
+          <div style="flex:1;background:#e0f2fe;border-radius:4px;height:18px;position:relative;overflow:hidden">
+            <div style="position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#0e7490,#0369a1);width:${(d.cant/maxCant*100).toFixed(1)}%;border-radius:4px"></div>
+          </div>
+          <span style="width:50px;text-align:right;font-weight:600;color:var(--text1)">${fmtNum(d.cant)}</span>
+          <span style="width:60px;text-align:right;color:#16a34a;font-weight:600;font-size:10px">${fmtNum(d.finalizados)} ✓</span>
+        </div>
+      `).join('')}
+    </div>` : '';
+
+  const topCiudades = s.top_ciudades || [];
+  const ciudadesHtml = topCiudades.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1;min-width:280px">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">🏙️ Top 10 ciudades</div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr style="border-bottom:1px solid var(--border);color:var(--text3)">
+          <th style="text-align:left;padding:4px 6px">Ciudad</th>
+          <th style="text-align:right;padding:4px 6px">Servicios</th>
+          <th style="text-align:right;padding:4px 6px">Finalizados</th>
+          <th style="text-align:right;padding:4px 6px">Costo</th>
+        </tr></thead>
+        <tbody>
+        ${topCiudades.map(c => `<tr>
+          <td style="padding:4px 6px;font-weight:600">${c.ciudad}</td>
+          <td style="padding:4px 6px;text-align:right">${fmtNum(c.cant)}</td>
+          <td style="padding:4px 6px;text-align:right;color:#16a34a;font-weight:600">${fmtNum(c.finalizados)}</td>
+          <td style="padding:4px 6px;text-align:right;font-family:monospace">${fmtMoney(c.costo)}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  const topMotivos = s.top_motivos || [];
+  const motivosHtml = topMotivos.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1;min-width:280px">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">⚠️ Top motivos (cancelación / fallo)</div>
+      ${topMotivos.map((m, i) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px;line-height:1.4">
+          <span style="background:#0e7490;color:#fff;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:9px;flex-shrink:0">${i+1}</span>
+          <span style="flex:1;color:var(--text2)" title="${m.motivo}">${m.motivo.length > 55 ? m.motivo.slice(0,53)+'…' : m.motivo}</span>
+          <span style="color:var(--purple);font-weight:700;min-width:32px;text-align:right">${fmtNum(m.cant)}</span>
+        </div>
+      `).join('')}
+    </div>` : '';
+
+  document.getElementById('rcv-analysis').innerHTML = `<div style="display:flex;gap:14px;flex-wrap:wrap">${tendenciaHtml}${ciudadesHtml}${motivosHtml}</div>`;
+
+  // Tabla detallada (15 columnas más relevantes; el resto va al Excel)
+  const copyJs = (id) => `navigator.clipboard.writeText('${id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)`;
+  let filasHtml = '';
+  if (!filas.length) {
+    filasHtml = '<div style="text-align:center;padding:32px;color:var(--text3)">Sin servicios CV en este período.</div>';
+  } else {
+    const badgeEstado = (e) => {
+      if (e === 'Finalizado') return `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px">${e}</span>`;
+      if (e === 'Cancelado')  return `<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px">${e}</span>`;
+      if (e === 'Expirado')   return `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px">${e}</span>`;
+      return `<span style="background:#e2e8f0;color:#475569;padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px">${e||'—'}</span>`;
+    };
+    const rowsHtml = filas.map(f => `<tr>
+      <td><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="${copyJs(f.uuid_booking)}">${(f.uuid_booking||'').slice(0,12)}…</span></td>
+      <td style="font-size:11px;font-family:monospace;white-space:nowrap">${(f.iniciado||'').slice(0,16)}</td>
+      <td>${badgeEstado(f.estado)}</td>
+      <td style="font-size:10px"><span style="background:#f3f0fa;color:#5a2bb8;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap">${f.next_day||'—'}</span></td>
+      <td style="font-size:11px;text-align:center">${f.finalizado_fallido === 'SI' ? '<span style="color:#dc2626;font-weight:700">SI</span>' : 'NO'}</td>
+      <td style="font-size:11px;font-family:monospace">${f.num_orden||'—'}</td>
+      <td style="font-size:12px;font-weight:600">${(f.nombre_usuario||'—').slice(0,40)}</td>
+      <td style="font-size:11px">${f.ciudad||'—'}</td>
+      <td style="font-size:12px">${(f.nombre_cliente||'—').slice(0,30)}</td>
+      <td class="right" style="font-weight:700;color:#16a34a;white-space:nowrap;font-family:monospace">${fmtMoney(f.costo_servicio)}</td>
+      <td class="right" style="font-family:monospace;font-size:11px">${(f.distancia_km||0).toFixed(1)} km</td>
+      <td class="right" style="font-family:monospace;font-size:11px">${(f.min_tiempo_de_servicio||0).toFixed(0)} min</td>
+      <td style="font-size:10px;color:var(--text3)" title="${(f.descripcion||'').replace(/"/g,'&quot;')}">${(f.descripcion||'—').slice(0,28)}</td>
+    </tr>`).join('');
+    filasHtml = `
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+        ${filas.length} servicios · Las primeras 5.000 (export sin límite, 37 columnas) · Click en ID para copiar
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="aud-table rec-detail-table" style="min-width:1500px">
+          <colgroup>
+            <col style="width:130px"><col style="width:140px"><col style="width:110px"><col style="width:90px">
+            <col style="width:70px"><col style="width:120px"><col style="width:200px"><col style="width:110px">
+            <col style="width:180px"><col style="width:120px"><col style="width:90px"><col style="width:90px"><col style="width:200px">
+          </colgroup>
+          <thead><tr>
+            <th>Booking</th><th>Iniciado</th><th>Estado</th><th>Tipo</th><th>Fallido</th>
+            <th>N° Orden</th><th>Usuario</th><th>Ciudad</th><th>Cliente</th>
+            <th class="right">Costo</th><th class="right">Distancia</th><th class="right">T. Serv.</th><th>Descripción</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+  }
+  document.getElementById('rcv-table-container').innerHTML = filasHtml;
+}
+
+function exportarReporteOpsCv(btn) {
+  const desde = _rcvDesde || daysAgo(15);
+  const hasta = _rcvHasta || today();
+  const estado  = document.getElementById('rcv-estado')?.value   || '';
+  const nextDay = document.getElementById('rcv-next-day')?.value || '';
+  const ciudad  = document.getElementById('rcv-ciudad')?.value.trim() || '';
+  const params = new URLSearchParams({ desde, hasta });
+  if (estado)  params.set('estado', estado);
+  if (nextDay) params.set('next_day', nextDay);
+  if (ciudad)  params.set('ciudad', ciudad);
+  window.open(`${API}/api/exportar/reporte_ops_cv?${params}`, '_blank');
+}
+
+function enviarReporteOpsCvEmail(btn) {
+  const desde = _rcvDesde || daysAgo(15);
+  const hasta = _rcvHasta || today();
+  document.getElementById('modal-rcv-email-periodo').textContent = `Período: ${desde} → ${hasta}`;
+  ['to','cc','bcc','asunto','mensaje'].forEach(k => {
+    const el = document.getElementById(`rcv-email-${k}`);
+    if (el) el.value = '';
+  });
+  document.getElementById('modal-rcv-email').style.display = 'flex';
+  setTimeout(() => document.getElementById('rcv-email-to')?.focus(), 50);
+}
+
+function cerrarModalRcvEmail() {
+  document.getElementById('modal-rcv-email').style.display = 'none';
+}
+
+async function ejecutarEnviarRcvEmail() {
+  const desde = _rcvDesde || daysAgo(15);
+  const hasta = _rcvHasta || today();
+  const estado  = document.getElementById('rcv-estado')?.value   || '';
+  const nextDay = document.getElementById('rcv-next-day')?.value || '';
+  const ciudad  = document.getElementById('rcv-ciudad')?.value.trim() || '';
+  const parseEmails = (s) => (s || '').split(/[,;\s\n]+/).map(e => e.trim()).filter(e => e);
+  const to      = parseEmails(document.getElementById('rcv-email-to').value);
+  const cc      = parseEmails(document.getElementById('rcv-email-cc').value);
+  const bcc     = parseEmails(document.getElementById('rcv-email-bcc').value);
+  const asunto  = document.getElementById('rcv-email-asunto').value.trim();
+  const mensaje = document.getElementById('rcv-email-mensaje').value.trim();
+
+  if (to.length === 0) { alert('Tenés que ingresar al menos un email en "Para".'); return; }
+  const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const invalid = [...to, ...cc, ...bcc].filter(e => !reEmail.test(e));
+  if (invalid.length > 0) { alert(`Email(s) inválido(s):\n${invalid.join('\n')}`); return; }
+
+  const btn = document.getElementById('rcv-email-enviar-btn');
+  const txtOrig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '⏳ Enviando...';
+  try {
+    const body = { email: to.join(','), desde, hasta, mensaje };
+    if (cc.length)   body.cc       = cc.join(',');
+    if (bcc.length)  body.bcc      = bcc.join(',');
+    if (asunto)      body.asunto   = asunto;
+    if (estado)      body.estado   = estado;
+    if (nextDay)     body.next_day = nextDay;
+    if (ciudad)      body.ciudad   = ciudad;
+    const r = await fetch(`${API}/api/reporte_ops_cv/enviar_email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    const destL = (d.destinatarios || []).join(', ');
+    const ccL   = (d.cc  || []).length ? `\nCC: ${d.cc.join(', ')}`   : '';
+    const bccL  = (d.bcc || []).length ? `\nCCO: ${d.bcc.join(', ')}` : '';
+    alert(`✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}\n${d.total} servicios · adjunto: ${d.filename}`);
+    cerrarModalRcvEmail();
+  } catch(err) {
+    alert('Error al enviar email: ' + (err.message || err));
+  } finally {
+    btn.disabled = false; btn.innerHTML = txtOrig;
+  }
+}
+
 
 // ── Panel de usuario dropdown ─────────────────────────────────────────────
 function toggleUserMenu(e) {
@@ -12755,10 +13163,11 @@ function sb2SetActive(view) {
     recaudos:  'sbg-recaudos',
     // v3.1: informes agrupa moviired + otros reportes. Ambos highlightean
     // el mismo ítem del sidebar.
-    informes:     'sbg-informes',
-    moviired:     'sbg-informes',
-    dispersiones: 'sbg-informes',
-    auditoria:    'sbg-auditoria',
+    informes:       'sbg-informes',
+    moviired:       'sbg-informes',
+    dispersiones:   'sbg-informes',
+    reporte_ops_cv: 'sbg-informes',
+    auditoria:      'sbg-auditoria',
   };
   const grpId = MAP[view];
   if(grpId) {

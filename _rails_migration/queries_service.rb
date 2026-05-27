@@ -1828,6 +1828,466 @@ module QueriesService
   #
   # Placeholders:
   #   %{fecha_desde}, %{fecha_hasta}  YYYY-MM-DD (rango created_at en zona Bogotá)
+  # ── Reporte OPS CV ────────────────────────────────────────────────────────
+  # Reporte operativo de bookings Pibox para companies CV (Cruz Verde):
+  #   '60bfe7d575970c0108014b12' y '624dd6cdac8991004cafc881'.
+  # Trae 37 columnas: timestamps de booking + booking_stops + packages
+  # + costos + distancias + tiempos calculados + evidencias.
+  # Roles permitidos: admin, monitoreo, financiero.
+  #
+  # Placeholders:
+  #   %{fecha_desde}, %{fecha_hasta}   YYYY-MM-DD (rango scheduled_at/created_at)
+  Q_REPORTE_OPS_CV = <<~'SQL'
+    WITH
+        toDate('%{fecha_desde}') AS dat_inicio,
+        toDate('%{fecha_hasta}') AS dat_fin,
+
+        q_service_types AS (
+            SELECT
+                _id,
+                multiIf(
+                    JSONExtractString(name, 'es') IN (
+                        'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor', 'Moto favor',
+                        'Carga', 'Carga Carry', 'Carga Moto-Vagón', 'Carga NHR', 'Carga NKR', 'Carga NPR',
+                        'Mensajería', 'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada', 'Pidelo'
+                    ), 'Pibox',
+                    'Other'
+                ) AS type
+            FROM picapmongoprod.service_types FINAL
+            WHERE JSONExtractString(name, 'es') IN (
+                'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor', 'Moto favor',
+                'Carga', 'Carga Carry', 'Carga Moto-Vagón', 'Carga NHR', 'Carga NKR', 'Carga NPR',
+                'Mensajería', 'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada', 'Pidelo'
+            )
+        ),
+
+        raw_bookings_filtered AS (
+            SELECT
+                _id, requested_service_type_id, country_id, passenger_id, city_id,
+                relaunched_to_id, scheduled_at, created_at, status_cd, express_service,
+                address, events, accepted_time, total_company_final_cost, total_final_cost,
+                final_cost, estimated_traveled_distance
+            FROM picapmongoprod.bookings FINAL
+            WHERE toDate(toTimeZone(ifNull(scheduled_at, created_at), 'America/Bogota'))
+                BETWEEN dat_inicio AND dat_fin
+                AND nullIf(trim(toString(relaunched_to_id)), '') IS NULL
+        ),
+
+        raw_countries  AS (SELECT _id, name FROM picapmongoprod.countries FINAL),
+        raw_passengers AS (SELECT _id, name, company_id FROM picapmongoprod.passengers FINAL),
+        raw_companies  AS (SELECT _id, name FROM picapmongoprod.companies FINAL),
+
+        raw_booking_stops AS (
+            SELECT
+                _id, booking_id, created_at, updated_at, address, address_geojson,
+                rend_geojson, is_return_stop, finished, rend_at, started_at,
+                g_country, g_adm_area_lv_1, g_adm_area_lv_2, g_locality,
+                g_neighborhood, g_sublocality_lv_1
+            FROM picapmongoprod.booking_stops FINAL
+        ),
+
+        raw_packages AS (
+            SELECT
+                _id, booking_id, booking_stop_id, passenger_id, company_id,
+                counter_delivery, created_at, updated_at, indications, reference,
+                status_cd, size_cd, not_received_reason_cd, canceled_pickup_reason_cd,
+                picked_up, rating_by_customer, stop_before_return_id, declared_value, events
+            FROM picapmongoprod.packages FINAL
+        ),
+
+        q_filtered_bookings AS (
+            SELECT
+                b._id, b.requested_service_type_id, b.country_id, b.passenger_id,
+                b.city_id, b.relaunched_to_id, b.scheduled_at, b.created_at,
+                b.status_cd, b.express_service, b.address, b.events, b.accepted_time,
+                b.total_company_final_cost, b.total_final_cost, b.final_cost,
+                b.estimated_traveled_distance,
+                st.type      AS service_type,
+                c.name       AS country_name,
+                p.name       AS passenger_name,
+                p.company_id AS passenger_company_id,
+                compp.name   AS company_name
+            FROM raw_bookings_filtered b
+            INNER JOIN q_service_types st   ON st._id    = b.requested_service_type_id
+            INNER JOIN raw_countries c      ON c._id     = b.country_id
+            INNER JOIN raw_passengers p     ON p._id     = b.passenger_id
+            INNER JOIN raw_companies compp  ON compp._id = p.company_id
+            WHERE compp._id IN ('60bfe7d575970c0108014b12', '624dd6cdac8991004cafc881')
+                AND st.type = 'Pibox'
+        ),
+
+        q_filtered_booking_stops AS (
+            SELECT bs.*
+            FROM raw_booking_stops bs
+            INNER JOIN q_filtered_bookings b ON bs.booking_id = b._id
+        ),
+
+        q_filtered_packages AS (
+            SELECT p.*
+            FROM raw_packages p
+            INNER JOIN q_filtered_bookings b ON p.booking_id = b._id
+        ),
+
+        q_filtered_dm_processed_events AS (
+            SELECT
+                booking_id, tms_accepted, tms_arrived, tms_picked_up,
+                tms_arrived_to_deliver, tms_dropped_off
+            FROM picapmongoprod.dm_processed_events FINAL
+            WHERE booking_id IN (SELECT b._id FROM q_filtered_bookings)
+        ),
+
+        q_booking_stops_precoord AS (
+            SELECT
+                bs._id AS booking_stop_raw_id,
+                bs.booking_id, bs.created_at, bs.updated_at, bs.address,
+                bs.is_return_stop, bs.finished, bs.rend_at, bs.started_at,
+                bs.g_country, bs.g_adm_area_lv_1, bs.g_adm_area_lv_2,
+                bs.g_locality, bs.g_neighborhood, bs.g_sublocality_lv_1,
+                ifNull(arrayElement(JSONExtract(ifNull(bs.address_geojson, '{"coordinates":[0,0]}'), 'coordinates', 'Array(Float64)'), 2), 0) AS num_latitude,
+                ifNull(arrayElement(JSONExtract(ifNull(bs.address_geojson, '{"coordinates":[0,0]}'), 'coordinates', 'Array(Float64)'), 1), 0) AS num_longitude,
+                ifNull(arrayElement(JSONExtract(ifNull(bs.rend_geojson,    '{"coordinates":[0,0]}'), 'coordinates', 'Array(Float64)'), 2), 0) AS num_end_latitude,
+                ifNull(arrayElement(JSONExtract(ifNull(bs.rend_geojson,    '{"coordinates":[0,0]}'), 'coordinates', 'Array(Float64)'), 1), 0) AS num_end_longitude,
+                parseDateTimeBestEffortOrNull(nullIf(trim(toString(bs.rend_at)),    '')) AS parsed_rend_at,
+                parseDateTimeBestEffortOrNull(nullIf(trim(toString(bs.started_at)),'')) AS parsed_started_at
+            FROM q_filtered_booking_stops bs
+        ),
+
+        q_booking_stops AS (
+            SELECT
+                bs.booking_stop_raw_id AS booking_stop_id,
+                bs.booking_id,
+                toDate(toTimeZone(bs.created_at, 'America/Bogota'))   AS dat_created,
+                toTimeZone(bs.created_at, 'America/Bogota')           AS tms_created,
+                toTimeZone(bs.updated_at, 'America/Bogota')           AS tms_updated,
+                bs.address                                             AS str_address,
+                bs.num_latitude, bs.num_longitude,
+                bs.num_end_latitude, bs.num_end_longitude,
+                (toString(bs.is_return_stop) = 'true')                 AS flg_return_stop,
+                (toString(bs.finished)       = 'true')                 AS flg_service_finished,
+                if(
+                    ifNull(bs.parsed_rend_at, be.tms_picked_up) IS NOT NULL
+                    AND ifNull(bs.parsed_rend_at, be.tms_picked_up) >= toDateTime('1971-01-01'),
+                    toTimeZone(ifNull(bs.parsed_rend_at, ifNull(be.tms_picked_up, bs.created_at)), 'America/Bogota'),
+                    NULL
+                ) AS tms_ended,
+                if(
+                    ifNull(
+                        bs.parsed_started_at,
+                        leadInFrame(ifNull(bs.parsed_rend_at, ifNull(be.tms_picked_up, bs.created_at)))
+                        OVER (PARTITION BY bs.booking_id ORDER BY bs.created_at ASC)
+                    ) IS NOT NULL
+                    AND ifNull(
+                        bs.parsed_started_at,
+                        leadInFrame(ifNull(bs.parsed_rend_at, ifNull(be.tms_picked_up, bs.created_at)))
+                        OVER (PARTITION BY bs.booking_id ORDER BY bs.created_at ASC)
+                    ) >= toDateTime('1971-01-01'),
+                    toTimeZone(
+                        ifNull(
+                            bs.parsed_started_at,
+                            leadInFrame(ifNull(bs.parsed_rend_at, ifNull(be.tms_picked_up, bs.created_at)))
+                            OVER (PARTITION BY bs.booking_id ORDER BY bs.created_at ASC)
+                        ),
+                        'America/Bogota'
+                    ),
+                    NULL
+                ) AS tms_started,
+                NULL AS booking_event_id,
+                row_number() OVER (PARTITION BY bs.booking_id ORDER BY bs.created_at ASC) AS num_sequence,
+                count(*)     OVER (PARTITION BY bs.booking_id)                            AS num_total_stops,
+                bs.g_country, bs.g_adm_area_lv_1, bs.g_adm_area_lv_2,
+                bs.g_locality, bs.g_neighborhood, bs.g_sublocality_lv_1
+            FROM q_booking_stops_precoord bs
+            LEFT JOIN q_filtered_dm_processed_events be ON be.booking_id = bs.booking_id
+        ),
+
+        q_packages_with_events AS (
+            SELECT _id AS package_id, events
+            FROM q_filtered_packages
+            WHERE events IS NOT NULL
+                AND nullIf(trim(toString(events)), '') IS NOT NULL
+        ),
+
+        parsed_events AS (
+            SELECT
+                p.package_id,
+                concat('{', replaceAll(replaceAll(event_raw, '{', ''), '}', ''), '}') AS raw_event
+            FROM q_packages_with_events p
+            ARRAY JOIN assumeNotNull(splitByString(
+                '},{',
+                replaceAll(replaceAll(assumeNotNull(toString(p.events)), '[{', ''), '}]', '')
+            )) AS event_raw
+            WHERE event_raw != ''
+        ),
+
+        final_events_collapsed AS (
+            SELECT
+                package_id,
+                if(dt_created IS NOT NULL AND dt_created >= toDateTime('1971-01-01'),
+                   toTimeZone(dt_created, 'America/Bogota'), NULL) AS tms_created,
+                if(dt_updated IS NOT NULL AND dt_updated >= toDateTime('1971-01-01'),
+                   toTimeZone(dt_updated, 'America/Bogota'), NULL) AS tms_updated,
+                toFloat64OrZero(JSONExtractString(raw_event, 'status_cd')) AS status_cd
+            FROM (
+                SELECT
+                    package_id, raw_event,
+                    ifNull(
+                        parseDateTimeBestEffortOrNull(nullIf(trim(JSONExtractString(raw_event, 'created_at')), '')),
+                        parseDateTimeBestEffortOrNull(nullIf(trim(JSONExtractString(raw_event, 'updated_at')), ''))
+                    ) AS dt_created,
+                    parseDateTimeBestEffortOrNull(nullIf(trim(JSONExtractString(raw_event, 'updated_at')), '')) AS dt_updated
+                FROM parsed_events
+            )
+        ),
+
+        package_events_pivot AS (
+            SELECT
+                package_id,
+                maxIf(tms_created, status_cd = 1) AS tms_picked_up,
+                maxIf(tms_created, status_cd = 2) AS tms_delivered,
+                maxIf(tms_created, status_cd = 3) AS tms_canceled,
+                maxIf(tms_created, status_cd = 4) AS tms_not_received,
+                maxIf(tms_created, status_cd = 5) AS tms_returned
+            FROM final_events_collapsed
+            GROUP BY package_id
+        ),
+
+        qry_package_evidence_ranked AS (
+            SELECT
+                fs.booking_id, fs.package_id, ff.field_key, ff.photo_url,
+                row_number() OVER (
+                    PARTITION BY fs.booking_id, fs.package_id, ff.field_key
+                    ORDER BY ff.created_at DESC
+                ) AS rn
+            FROM (
+                SELECT booking_id, package_id, _id
+                FROM picapmongoprod.service_type_specification_form_solutions FINAL
+            ) fs
+            INNER JOIN (
+                SELECT solution_form_id, field_key, photo_url, created_at
+                FROM picapmongoprod.service_type_specification_form_field_solutions FINAL
+            ) ff ON fs._id = ff.solution_form_id
+            WHERE nullIf(trim(toString(ff.photo_url)),    '') IS NOT NULL
+                AND nullIf(trim(toString(fs.booking_id)), '') IS NOT NULL
+                AND nullIf(trim(toString(fs.package_id)), '') IS NOT NULL
+                AND ff.field_key IN ('destination_package_image', 'origin_package_image')
+        ),
+
+        qry_package_evidence AS (
+            SELECT booking_id, package_id, field_key, photo_url
+            FROM qry_package_evidence_ranked
+            WHERE rn = 1
+        ),
+
+        q_packages AS (
+            SELECT
+                fc._id                                                    AS package_id,
+                fc.booking_id,
+                row_number() OVER (PARTITION BY fc.booking_id      ORDER BY fc.created_at) AS seq_booking,
+                fc.booking_stop_id,
+                row_number() OVER (PARTITION BY fc.booking_stop_id ORDER BY fc.created_at) AS seq_booking_stop,
+                fc.passenger_id,
+                ifNull(toString(fc.counter_delivery), 'false')            AS flg_is_counter_delivery_paid,
+                toDate(toTimeZone(fc.created_at, 'America/Bogota'))       AS dat_created,
+                toTimeZone(fc.created_at, 'America/Bogota')               AS tms_created,
+                toTimeZone(fc.updated_at, 'America/Bogota')               AS tms_updated,
+                pe.tms_picked_up,
+                pe.tms_delivered,
+                pe.tms_canceled,
+                pe.tms_not_received,
+                pe.tms_returned,
+                fc.indications                                            AS str_indications,
+                fc.reference,
+                ifNull(fc.status_cd, -1)                                  AS package_status_cd,
+                ifNull(toInt64OrZero(toString(fc.size_cd)), -1)           AS package_size_cd,
+                ifNull(toInt64OrZero(toString(fc.not_received_reason_cd)), -1)   AS not_received_reason_cd,
+                ifNull(toInt64OrZero(toString(fc.canceled_pickup_reason_cd)),-1) AS canceled_pickup_reason_cd,
+                ifNull(toString(fc.picked_up), 'true')                    AS flg_picked_up,
+                fc.company_id,
+                toFloat64OrZero(toString(fc.rating_by_customer))          AS num_rating_by_customer,
+                fc.stop_before_return_id,
+                toFloat64OrZero(JSONExtractString(fc.declared_value, 'cents')) / 100        AS declared_value_amount,
+                ifNull(upper(JSONExtractString(fc.declared_value, 'currency_iso')), 'N/A')  AS cur_declared_value,
+                eori.photo_url                                            AS url_origin_package_image,
+                edst.photo_url                                            AS url_destination_package_image,
+                fc.events                                                 AS jsn_events
+            FROM q_filtered_packages fc
+            LEFT JOIN package_events_pivot pe
+                ON fc._id = pe.package_id
+            LEFT JOIN qry_package_evidence eori
+                ON fc._id = eori.package_id AND fc.booking_id = eori.booking_id
+                AND eori.field_key = 'origin_package_image'
+            LEFT JOIN qry_package_evidence edst
+                ON fc._id = edst.package_id AND fc.booking_id = edst.booking_id
+                AND edst.field_key = 'destination_package_image'
+        ),
+
+        q_tiempos AS (
+            SELECT
+                b._id AS _id,
+                toFloat64(multiIf(
+                    be.tms_accepted IS NULL AND b.accepted_time > 0, toFloat64(b.accepted_time),
+                    be.tms_accepted IS NOT NULL
+                        AND be.tms_accepted <= toTimeZone(b.created_at, 'America/Bogota')
+                        AND b.accepted_time > 0, toFloat64(b.accepted_time),
+                    be.tms_accepted IS NOT NULL
+                        AND be.tms_accepted >= toTimeZone(b.created_at, 'America/Bogota'),
+                        toFloat64(greatest(0, dateDiff('second',
+                            greatest(
+                                ifNull(toTimeZone(b.scheduled_at, 'America/Bogota'), toTimeZone(b.created_at, 'America/Bogota')),
+                                toTimeZone(b.created_at, 'America/Bogota')
+                            ),
+                            be.tms_accepted
+                        ))),
+                    toFloat64(0)
+                )) AS bkn_tiempo_aceptacion,
+                toFloat64(if(be.tms_accepted IS NOT NULL AND be.tms_arrived IS NOT NULL
+                    AND be.tms_arrived >= be.tms_accepted,
+                    dateDiff('second', be.tms_accepted, be.tms_arrived), 0)) AS bkn_tiempo_llegada,
+                toFloat64(if(be.tms_accepted IS NOT NULL AND be.tms_arrived IS NOT NULL
+                    AND be.tms_picked_up IS NOT NULL AND be.tms_picked_up >= be.tms_arrived,
+                    dateDiff('second', be.tms_arrived, be.tms_picked_up), 0)) AS bkn_tiempo_recogida,
+                toFloat64(if(be.tms_picked_up IS NOT NULL AND be.tms_arrived_to_deliver IS NOT NULL
+                    AND be.tms_arrived_to_deliver >= be.tms_picked_up,
+                    dateDiff('second', be.tms_picked_up, be.tms_arrived_to_deliver), 0)) AS bkn_tiempo_final_llegada_destino,
+                toFloat64(if(be.tms_arrived_to_deliver IS NOT NULL AND be.tms_dropped_off IS NOT NULL
+                    AND be.tms_dropped_off >= be.tms_arrived_to_deliver,
+                    dateDiff('second', be.tms_arrived_to_deliver, be.tms_dropped_off), 0)) AS bkn_tiempo_final_entrega
+            FROM q_filtered_bookings b
+            LEFT JOIN q_filtered_dm_processed_events be ON be.booking_id = b._id
+        ),
+
+        base_final AS (
+            SELECT
+                b._id                                                AS uuid_booking,
+                bs.booking_stop_id                                   AS id_parada,
+                toTimeZone(b.created_at, 'America/Bogota')           AS iniciado,
+                if(be.tms_accepted           >= toDateTime('1971-01-01'), be.tms_accepted,           NULL) AS asignado,
+                if(be.tms_arrived            >= toDateTime('1971-01-01'), be.tms_arrived,            NULL) AS llego_al_origen,
+                if(be.tms_picked_up          >= toDateTime('1971-01-01'), be.tms_picked_up,          NULL) AS salio_de_origen,
+                if(be.tms_arrived_to_deliver >= toDateTime('1971-01-01'), be.tms_arrived_to_deliver, NULL) AS llego_donde_el_cliente,
+                pck.package_id                                       AS id_paquete,
+                if(pck.tms_delivered         >= toDateTime('1971-01-01'), pck.tms_delivered,         NULL) AS fecha_entrega_paquete,
+                multiIf(
+                    (if(b.status_cd IN (4, 107, 108) AND pck.package_status_cd != 2, 'SI', 'NO')) = 'SI',
+                        coalesce(
+                            nullIf(pnr.txt_package_received_status, 'Without Issues'),
+                            concat(pst.txt_package_status, ifNull(concat(': ', pcp.txt_package_pickup_status), ''))
+                        ),
+                    b.status_cd IN (100, 102, 103, 104, 105),
+                        caseWithExpression(b.status_cd,
+                            100, 'Canceled By Driver',
+                            102, 'Canceled By Passenger',
+                            103, 'Canceled By Store',
+                            104, 'Canceled By Ops',
+                            105, 'Canceled By Insufficient Funds',
+                            'Other'),
+                    ''
+                ) AS descripcion,
+                if(pck.tms_returned     >= toDateTime('1971-01-01'), pck.tms_returned,     NULL) AS fecha_devolucion_paquete,
+                if(pck.tms_canceled     >= toDateTime('1971-01-01'), pck.tms_canceled,     NULL) AS fecha_cancelacion_paquete,
+                if(pck.tms_not_received >= toDateTime('1971-01-01'), pck.tms_not_received, NULL) AS fecha_paquete_no_recibido,
+                multiIf(
+                    b.status_cd IN (4, 107, 108),             'Finalizado',
+                    b.status_cd IN (100, 102, 103, 104, 105), 'Cancelado',
+                    b.status_cd = 101,                        'Expirado',
+                    concat('Status [', toString(b.status_cd), '] - Sin clasificar')
+                ) AS estado,
+                'NO' AS programado,
+                multiIf(
+                    toString(b.express_service) = 'true',  'Same Day',
+                    toString(b.express_service) = 'false', 'Next Day',
+                    'Other'
+                ) AS next_day,
+                if(b.status_cd IN (4, 107, 108) AND pck.package_status_cd != 2, 'SI', 'NO') AS finalizado_fallido,
+                if(be.tms_dropped_off >= toDateTime('1971-01-01'), be.tms_dropped_off, NULL) AS finalizo_servicio,
+                replaceRegexpAll(pck.reference,             '[\\n\\r]', ' ') AS num_orden,
+                replaceRegexpAll(b.passenger_name,          '[\\n\\r]', ' ') AS nombre_usuario,
+                JSONExtractString(cty.name, 'es')                            AS ciudad,
+                replaceRegexpAll(b.address,                 '[\\n\\r]', ' ') AS direccion_origen,
+                replaceRegexpAll(trimRight(bs.str_address), '[\\n\\r]', ' ') AS direccion_de_destino,
+                bs.flg_return_stop                                            AS parada_de_regreso,
+                replaceRegexpAll(
+                    ifNull(cus.txt_name,  trim(assumeNotNull(splitByString('-', ifNull(pck.str_indications, '')))[1])),
+                    '[\\n\\r]', ' '
+                ) AS nombre_cliente,
+                replaceRegexpAll(
+                    ifNull(cus.txt_phone, trim(assumeNotNull(splitByString('-', ifNull(pck.str_indications, '')))[2])),
+                    '[\\n\\r]', ' '
+                ) AS telefono_cliente,
+                0 AS duracion_espera,
+                0 AS duracion_servicio_copy,
+                toFloat64(0) / 60 AS min_tiempo_de_relanzamiento_min,
+                (
+                    toFloat64(t.bkn_tiempo_aceptacion) +
+                    toFloat64(t.bkn_tiempo_llegada)    +
+                    toFloat64(t.bkn_tiempo_recogida)   +
+                    toFloat64(t.bkn_tiempo_final_llegada_destino)
+                ) / 60 AS min_tiempo_de_servicio,
+                round(bs.num_latitude,  3) AS latitud,
+                round(bs.num_longitude, 3) AS longitud,
+                1 AS recuento_definido_de_uuid,
+                ifNull(
+                    toFloat64OrZero(JSONExtractString(b.total_company_final_cost, 'cents')) / 100,
+                    ifNull(
+                        toFloat64OrZero(JSONExtractString(b.total_final_cost,     'cents')) / 100,
+                        toFloat64OrZero(JSONExtractString(b.final_cost,           'cents')) / 100
+                    )
+                ) AS costo_servicio,
+                toFloat64OrZero(toString(b.estimated_traveled_distance)) / 1000 AS distancia_km,
+                toFloat64(t.bkn_tiempo_llegada) / 60 AS llegada_a_origen_min,
+                bs.num_sequence AS orden_parada,
+                pck.declared_value_amount AS valor_declarado
+            FROM q_booking_stops bs
+            INNER JOIN q_filtered_bookings b ON b._id = bs.booking_id
+            LEFT JOIN (
+                SELECT id_booking_stop, txt_name, txt_phone
+                FROM picapmongoprod.vw_dim_customers_pibox FINAL
+                WHERE seq_booking_stop = 1
+            ) cus ON bs.booking_stop_id = cus.id_booking_stop
+            LEFT JOIN q_packages pck ON pck.booking_stop_id = bs.booking_stop_id
+            LEFT JOIN (SELECT _id, name FROM picapmongoprod.cities FINAL) cty ON b.city_id = cty._id
+            LEFT JOIN (SELECT cod_package_status, txt_package_status FROM picapmongoprod.vw_dim_st_package FINAL) pst
+                ON pst.cod_package_status = pck.package_status_cd
+            LEFT JOIN (SELECT cod_package_pickup_status, txt_package_pickup_status FROM picapmongoprod.vw_dim_st_package_canceled_pickup FINAL) pcp
+                ON pck.package_status_cd = pcp.cod_package_pickup_status
+            LEFT JOIN (SELECT cod_package_received_status, txt_package_received_status FROM picapmongoprod.vw_dim_st_package_not_received FINAL) pnr
+                ON pck.not_received_reason_cd = pnr.cod_package_received_status
+            LEFT JOIN q_filtered_dm_processed_events be ON be.booking_id = b._id
+            LEFT JOIN q_tiempos t ON t._id = b._id
+        ),
+
+        base_final_ranked AS (
+            SELECT
+                *,
+                row_number() OVER (
+                    PARTITION BY id_paquete
+                    ORDER BY
+                        if(finalizo_servicio IS NULL, 1, 0) ASC,
+                        finalizo_servicio DESC,
+                        fecha_entrega_paquete DESC,
+                        iniciado DESC
+                ) AS rn_dedup
+            FROM base_final
+            WHERE id_paquete IS NOT NULL
+        )
+    SELECT
+        uuid_booking, id_parada, iniciado, asignado, llego_al_origen,
+        salio_de_origen, llego_donde_el_cliente, id_paquete,
+        fecha_entrega_paquete, descripcion, fecha_devolucion_paquete,
+        fecha_cancelacion_paquete, fecha_paquete_no_recibido, estado,
+        programado, next_day, finalizado_fallido, finalizo_servicio,
+        num_orden, nombre_usuario, ciudad, direccion_origen,
+        direccion_de_destino, parada_de_regreso, nombre_cliente,
+        telefono_cliente, duracion_espera, duracion_servicio_copy,
+        min_tiempo_de_relanzamiento_min, min_tiempo_de_servicio,
+        latitud, longitud, recuento_definido_de_uuid, costo_servicio,
+        distancia_km, llegada_a_origen_min, orden_parada, valor_declarado
+    FROM base_final_ranked
+    WHERE rn_dedup = 1
+    ORDER BY iniciado, uuid_booking
+    SETTINGS join_algorithm = 'hash'
+  SQL
+
   Q_DISPERSIONES = <<~'SQL'
     WITH filtered_wat AS (
         SELECT *

@@ -43,6 +43,10 @@ Rails.application.routes.draw do
     get  "dispersiones",                 to: "dispersiones#index"
     post "dispersiones/enviar_email",    to: "dispersiones#enviar_email"
 
+    # Reporte OPS CV — bookings Pibox Cruz Verde (acceso restringido)
+    get  "reporte_ops_cv",                to: "reporte_ops_cv#index"
+    post "reporte_ops_cv/enviar_email",   to: "reporte_ops_cv#enviar_email"
+
     # Auditoría Pibox
     namespace :auditoria do
       get    "comisiones",  to: "/api/auditoria#comisiones"
@@ -75,6 +79,7 @@ Rails.application.routes.draw do
       get  "recaudos",      to: "/api/exportar#recaudos"
       get  "moviired",      to: "/api/exportar#moviired"
       get  "dispersiones",  to: "/api/exportar#dispersiones"
+      get  "reporte_ops_cv",to: "/api/exportar#reporte_ops_cv"
     end
 
     # Autenticación
