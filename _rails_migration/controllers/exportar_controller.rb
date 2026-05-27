@@ -819,15 +819,21 @@ module Api
     # Builder centralizado del xlsx de Reporte OPS CV. 1 hoja "Data" con
     # las 37 columnas exactas que pidió el cliente (espejo del Excel original).
     # Reusado desde ReporteOpsCvController#enviar_email.
-    def self.build_reporte_ops_cv_xlsx(desde, hasta, ch, estado: "", next_day: "", ciudad: "")
-      rows = ch.query(QueriesService.format(QueriesService::Q_REPORTE_OPS_CV,
-                                             fecha_desde: desde, fecha_hasta: hasta), timeout: 600)
-      # Filtros opcionales en memoria
-      rows = rows.select { |r| r["estado"].to_s == estado }     unless estado.empty?
-      rows = rows.select { |r| r["next_day"].to_s == next_day } unless next_day.empty?
-      unless ciudad.empty?
-        c_low = ciudad.downcase
-        rows = rows.select { |r| r["ciudad"].to_s.downcase.include?(c_low) }
+    def self.build_reporte_ops_cv_xlsx(desde, hasta, ch, estado: "", next_day: "", ciudad: "", preloaded_rows: nil)
+      # v3.3.12: si el caller ya cargó las filas (p.ej. enviar_email), las
+      # reusamos para evitar doble ejecución de la query (que tarda ~2m).
+      if preloaded_rows
+        rows = preloaded_rows
+      else
+        rows = ch.query(QueriesService.format(QueriesService::Q_REPORTE_OPS_CV,
+                                               fecha_desde: desde, fecha_hasta: hasta), timeout: 600)
+        # Filtros opcionales en memoria
+        rows = rows.select { |r| r["estado"].to_s == estado }     unless estado.empty?
+        rows = rows.select { |r| r["next_day"].to_s == next_day } unless next_day.empty?
+        unless ciudad.empty?
+          c_low = ciudad.downcase
+          rows = rows.select { |r| r["ciudad"].to_s.downcase.include?(c_low) }
+        end
       end
 
       headers = %w[

@@ -12926,7 +12926,7 @@ async function ejecutarEnviarRcvEmail() {
 
   const btn = document.getElementById('rcv-email-enviar-btn');
   const txtOrig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '⏳ Enviando...';
+  btn.disabled = true; btn.innerHTML = '⏳ Programando...';
   try {
     const body = { email: to.join(','), desde, hasta, mensaje };
     if (cc.length)   body.cc       = cc.join(',');
@@ -12942,10 +12942,12 @@ async function ejecutarEnviarRcvEmail() {
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    // v3.3.12: el backend ahora responde 202 inmediato (queued). El reporte
+    // se construye en background porque la query CH tarda ~2m + xlsx + Resend.
     const destL = (d.destinatarios || []).join(', ');
     const ccL   = (d.cc  || []).length ? `\nCC: ${d.cc.join(', ')}`   : '';
     const bccL  = (d.bcc || []).length ? `\nCCO: ${d.bcc.join(', ')}` : '';
-    alert(`✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}\n${d.total} servicios · adjunto: ${d.filename}`);
+    alert(`📨 Reporte programado\nPara: ${destL}${ccL}${bccL}\n\nEl email con el adjunto Excel llegará en 2-4 minutos.\nPuedes cerrar esta ventana.`);
     cerrarModalRcvEmail();
   } catch(err) {
     alert('Error al enviar email: ' + (err.message || err));

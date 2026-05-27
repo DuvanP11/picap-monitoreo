@@ -39,6 +39,11 @@ module Api
     end
 
     # POST /api/reporte_ops_cv/enviar_email
+    # v3.3.12: respuesta inmediata + envío en background thread.
+    # La query CH tarda ~2m + build xlsx + Resend = ~3m total. El proxy
+    # frontend cierra la conexión a los ~60s (502 Bad Gateway), aunque
+    # internamente el envío sí completaba. Ahora respondemos 202 al
+    # toque y el thread sigue solo.
     def enviar_email
       to_list  = parse_email_list(params[:email] || params[:to])
       cc_list  = parse_email_list(params[:cc])
@@ -50,6 +55,7 @@ module Api
       estado   = params[:estado].to_s.strip
       next_day = params[:next_day].to_s.strip
       ciudad   = params[:ciudad].to_s.strip
+      usuario  = current_usuario.to_s
 
       if to_list.empty?
         return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request)
@@ -59,45 +65,49 @@ module Api
         return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
-      xlsx = Api::ExportarController.build_reporte_ops_cv_xlsx(
-        desde, hasta, ch,
-        estado: estado, next_day: next_day, ciudad: ciudad,
-      )
-      filename = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+      # Disparar background job — responde 202 inmediato.
+      # Capturamos los valores como locals antes del Thread.new para que no
+      # dependan del request original (que ya terminó cuando el thread corre).
+      Thread.new do
+        begin
+          rows = cargar_filas(desde: desde, hasta: hasta,
+                              estado: estado, next_day: next_day, ciudad: ciudad)
 
-      rows = cargar_filas(desde: desde, hasta: hasta,
-                          estado: estado, next_day: next_day, ciudad: ciudad)
-      subject_default = "Reporte OPS CV · #{desde} → #{hasta} (#{rows.size} servicios)"
-      html = construir_html_email(desde, hasta, rows, mensaje, current_usuario)
+          # Pasamos rows precargadas al builder para evitar doble ejecución de la query
+          xlsx = Api::ExportarController.build_reporte_ops_cv_xlsx(
+            desde, hasta, ch,
+            estado: estado, next_day: next_day, ciudad: ciudad,
+            preloaded_rows: rows,
+          )
+          filename = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
 
-      result = ResendMailerService.send_email(
-        to:                  to_list,
-        cc:                  cc_list,
-        bcc:                 bcc_list,
-        subject:             asunto.empty? ? subject_default : asunto,
-        html:                html,
-        attachment_bytes:    xlsx[:data],
-        attachment_filename: filename,
-      )
+          subject_default = "Reporte OPS CV · #{desde} → #{hasta} (#{rows.size} servicios)"
+          html = construir_html_email(desde, hasta, rows, mensaje, usuario)
+
+          ResendMailerService.send_email(
+            to:                  to_list,
+            cc:                  cc_list,
+            bcc:                 bcc_list,
+            subject:             asunto.empty? ? subject_default : asunto,
+            html:                html,
+            attachment_bytes:    xlsx[:data],
+            attachment_filename: filename,
+          )
+          Rails.logger.info("[ReporteOpsCvController#enviar_email] OK to=#{to_list.join(',')} filas=#{rows.size}")
+        rescue => e
+          Rails.logger.error("[ReporteOpsCvController#enviar_email/background] #{e.class}: #{e.message}")
+          Rails.logger.error(e.backtrace.first(8).join("\n"))
+        end
+      end
 
       render json: {
         ok: true,
+        queued: true,
         destinatarios: to_list,
         cc: cc_list,
         bcc: bcc_list,
-        filename: filename,
-        total: rows.size,
-        resend_id: result[:id],
-      }
-    rescue ResendMailerService::ConfigError, ResendMailerService::AuthError => e
-      Rails.logger.error("[ReporteOpsCvController#enviar_email] Resend: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :internal_server_error
-    rescue ResendMailerService::ValidationError => e
-      Rails.logger.error("[ReporteOpsCvController#enviar_email] Validation: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_request
-    rescue ResendMailerService::NetworkError => e
-      Rails.logger.error("[ReporteOpsCvController#enviar_email] Network: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_gateway
+        mensaje: "Reporte en proceso. El email con el adjunto Excel llegará en 2-4 minutos.",
+      }, status: :accepted
     rescue => e
       Rails.logger.error("[ReporteOpsCvController#enviar_email] #{e.class}: #{e.message}")
       Rails.logger.error(e.backtrace.first(8).join("\n"))
