@@ -1861,98 +1861,152 @@ module QueriesService
             )
         ),
 
-        -- v2 (optimized): reemplazo FINAL por ROW_NUMBER dedup. FINAL hace
-        -- merge-on-read costoso; dedup vía window function es mucho más rápido
-        -- en tablas grandes.
-        raw_bookings_ranked AS (
-            SELECT
-                _id, requested_service_type_id, country_id, passenger_id, city_id,
-                relaunched_to_id, scheduled_at, created_at, status_cd, express_service,
-                address, events, accepted_time, total_company_final_cost, total_final_cost,
-                final_cost, estimated_traveled_distance,
-                ROW_NUMBER() OVER (PARTITION BY _id ORDER BY ifNull(_sdc_batched_at, created_at) DESC NULLS LAST) AS rn
-            FROM picapmongoprod.bookings
-            WHERE toDate(toTimeZone(ifNull(scheduled_at, created_at), 'America/Bogota'))
-                BETWEEN dat_inicio AND dat_fin
-                AND nullIf(trim(toString(relaunched_to_id)), '') IS NULL
+        -- v3.3.10: filter early - solo pasajeros Cruz Verde (~decenas de IDs)
+        -- Esto reduce el universo de bookings de millones a miles ANTES del FINAL
+        cv_passengers AS (
+            SELECT _id AS _id, name AS name, company_id AS company_id
+            FROM picapmongoprod.passengers FINAL
+            WHERE company_id IN ('60bfe7d575970c0108014b12', '624dd6cdac8991004cafc881')
         ),
+
+        cv_passenger_ids AS (
+            SELECT _id FROM cv_passengers
+        ),
+
+        pibox_service_type_ids AS (
+            SELECT _id FROM q_service_types
+        ),
+
+        -- bookings con filter early via INNER JOIN ANTES del FINAL pesado
         raw_bookings_filtered AS (
-            SELECT _id, requested_service_type_id, country_id, passenger_id, city_id,
-                   relaunched_to_id, scheduled_at, created_at, status_cd, express_service,
-                   address, events, accepted_time, total_company_final_cost, total_final_cost,
-                   final_cost, estimated_traveled_distance
-            FROM raw_bookings_ranked WHERE rn = 1
+            SELECT
+                b._id                          AS _id,
+                b.requested_service_type_id    AS requested_service_type_id,
+                b.country_id                   AS country_id,
+                b.passenger_id                 AS passenger_id,
+                b.city_id                      AS city_id,
+                b.relaunched_to_id             AS relaunched_to_id,
+                b.scheduled_at                 AS scheduled_at,
+                b.created_at                   AS created_at,
+                b.status_cd                    AS status_cd,
+                b.express_service              AS express_service,
+                b.address                      AS address,
+                b.events                       AS events,
+                b.accepted_time                AS accepted_time,
+                b.total_company_final_cost     AS total_company_final_cost,
+                b.total_final_cost             AS total_final_cost,
+                b.final_cost                   AS final_cost,
+                b.estimated_traveled_distance  AS estimated_traveled_distance
+            FROM picapmongoprod.bookings AS b FINAL
+            INNER JOIN cv_passenger_ids        AS cvp ON cvp._id = b.passenger_id
+            INNER JOIN pibox_service_type_ids  AS pst ON pst._id = b.requested_service_type_id
+            WHERE toDate(toTimeZone(ifNull(b.scheduled_at, b.created_at), 'America/Bogota'))
+                BETWEEN dat_inicio AND dat_fin
+                AND nullIf(trim(toString(b.relaunched_to_id)), '') IS NULL
         ),
 
         raw_countries  AS (SELECT _id, name FROM picapmongoprod.countries FINAL),
-        raw_passengers AS (SELECT _id, name, company_id FROM picapmongoprod.passengers FINAL),
         raw_companies  AS (SELECT _id, name FROM picapmongoprod.companies FINAL),
 
-        q_filtered_bookings AS (
+        q_filtered_bookings_full AS (
             SELECT
-                b._id, b.requested_service_type_id, b.country_id, b.passenger_id,
-                b.city_id, b.relaunched_to_id, b.scheduled_at, b.created_at,
-                b.status_cd, b.express_service, b.address, b.events, b.accepted_time,
-                b.total_company_final_cost, b.total_final_cost, b.final_cost,
-                b.estimated_traveled_distance,
-                st.type      AS service_type,
-                c.name       AS country_name,
-                p.name       AS passenger_name,
-                p.company_id AS passenger_company_id,
-                compp.name   AS company_name
+                b._id                          AS _id,
+                b.requested_service_type_id    AS requested_service_type_id,
+                b.country_id                   AS country_id,
+                b.passenger_id                 AS passenger_id,
+                b.city_id                      AS city_id,
+                b.relaunched_to_id             AS relaunched_to_id,
+                b.scheduled_at                 AS scheduled_at,
+                b.created_at                   AS created_at,
+                b.status_cd                    AS status_cd,
+                b.express_service              AS express_service,
+                b.address                      AS address,
+                b.events                       AS events,
+                b.accepted_time                AS accepted_time,
+                b.total_company_final_cost     AS total_company_final_cost,
+                b.total_final_cost             AS total_final_cost,
+                b.final_cost                   AS final_cost,
+                b.estimated_traveled_distance  AS estimated_traveled_distance,
+                st.type                        AS service_type,
+                c.name                         AS country_name,
+                p.name                         AS passenger_name,
+                p.company_id                   AS passenger_company_id,
+                compp.name                     AS company_name
             FROM raw_bookings_filtered b
             INNER JOIN q_service_types st   ON st._id    = b.requested_service_type_id
             INNER JOIN raw_countries c      ON c._id     = b.country_id
-            INNER JOIN raw_passengers p     ON p._id     = b.passenger_id
+            INNER JOIN cv_passengers p      ON p._id     = b.passenger_id
             INNER JOIN raw_companies compp  ON compp._id = p.company_id
-            WHERE compp._id IN ('60bfe7d575970c0108014b12', '624dd6cdac8991004cafc881')
-                AND st.type = 'Pibox'
+            WHERE st.type = 'Pibox'
         ),
 
-        -- v2: booking_stops filtrado por booking_id IN ANTES de leer + dedup
-        q_filtered_booking_stops_ranked AS (
-            SELECT
-                _id, booking_id, created_at, updated_at, address, address_geojson,
-                rend_geojson, is_return_stop, finished, rend_at, started_at,
-                g_country, g_adm_area_lv_1, g_adm_area_lv_2, g_locality,
-                g_neighborhood, g_sublocality_lv_1,
-                ROW_NUMBER() OVER (PARTITION BY _id ORDER BY ifNull(updated_at, created_at) DESC NULLS LAST) AS rn
-            FROM picapmongoprod.booking_stops
-            WHERE booking_id IN (SELECT _id FROM q_filtered_bookings)
+        -- v3.3.6: vista delgada para los JOINs intermedios (solo _id)
+        -- Esto reduce la hash table de 22 columnas → 1 columna, evitando OOM
+        -- y permitiendo usar parallel_hash en lugar de grace_hash.
+        q_filtered_bookings AS (
+            SELECT _id FROM q_filtered_bookings_full
         ),
+
+        -- v3.3.8: FINAL + INNER JOIN filter. FINAL hace merge streaming (low RAM),
+        -- INNER JOIN limita scan a solo booking_ids relevantes.
         q_filtered_booking_stops AS (
-            SELECT _id, booking_id, created_at, updated_at, address, address_geojson,
-                   rend_geojson, is_return_stop, finished, rend_at, started_at,
-                   g_country, g_adm_area_lv_1, g_adm_area_lv_2, g_locality,
-                   g_neighborhood, g_sublocality_lv_1
-            FROM q_filtered_booking_stops_ranked WHERE rn = 1
+            SELECT
+                bs._id                AS _id,
+                bs.booking_id         AS booking_id,
+                bs.created_at         AS created_at,
+                bs.updated_at         AS updated_at,
+                bs.address            AS address,
+                bs.address_geojson    AS address_geojson,
+                bs.rend_geojson       AS rend_geojson,
+                bs.is_return_stop     AS is_return_stop,
+                bs.finished           AS finished,
+                bs.rend_at            AS rend_at,
+                bs.started_at         AS started_at,
+                bs.g_country          AS g_country,
+                bs.g_adm_area_lv_1    AS g_adm_area_lv_1,
+                bs.g_adm_area_lv_2    AS g_adm_area_lv_2,
+                bs.g_locality         AS g_locality,
+                bs.g_neighborhood     AS g_neighborhood,
+                bs.g_sublocality_lv_1 AS g_sublocality_lv_1
+            FROM picapmongoprod.booking_stops AS bs FINAL
+            INNER JOIN q_filtered_bookings AS qfb ON qfb._id = bs.booking_id
         ),
 
-        -- v2: packages filtrado por booking_id IN ANTES de leer + dedup
-        q_filtered_packages_ranked AS (
-            SELECT
-                _id, booking_id, booking_stop_id, passenger_id, company_id,
-                counter_delivery, created_at, updated_at, indications, reference,
-                status_cd, size_cd, not_received_reason_cd, canceled_pickup_reason_cd,
-                picked_up, rating_by_customer, stop_before_return_id, declared_value, events,
-                ROW_NUMBER() OVER (PARTITION BY _id ORDER BY ifNull(updated_at, created_at) DESC NULLS LAST) AS rn
-            FROM picapmongoprod.packages
-            WHERE booking_id IN (SELECT _id FROM q_filtered_bookings)
-        ),
         q_filtered_packages AS (
-            SELECT _id, booking_id, booking_stop_id, passenger_id, company_id,
-                   counter_delivery, created_at, updated_at, indications, reference,
-                   status_cd, size_cd, not_received_reason_cd, canceled_pickup_reason_cd,
-                   picked_up, rating_by_customer, stop_before_return_id, declared_value, events
-            FROM q_filtered_packages_ranked WHERE rn = 1
+            SELECT
+                pk._id                       AS _id,
+                pk.booking_id                AS booking_id,
+                pk.booking_stop_id           AS booking_stop_id,
+                pk.passenger_id              AS passenger_id,
+                pk.company_id                AS company_id,
+                pk.counter_delivery          AS counter_delivery,
+                pk.created_at                AS created_at,
+                pk.updated_at                AS updated_at,
+                pk.indications               AS indications,
+                pk.reference                 AS reference,
+                pk.status_cd                 AS status_cd,
+                pk.size_cd                   AS size_cd,
+                pk.not_received_reason_cd    AS not_received_reason_cd,
+                pk.canceled_pickup_reason_cd AS canceled_pickup_reason_cd,
+                pk.picked_up                 AS picked_up,
+                pk.rating_by_customer        AS rating_by_customer,
+                pk.stop_before_return_id     AS stop_before_return_id,
+                pk.declared_value            AS declared_value,
+                pk.events                    AS events
+            FROM picapmongoprod.packages AS pk FINAL
+            INNER JOIN q_filtered_bookings AS qfb ON qfb._id = pk.booking_id
         ),
 
         q_filtered_dm_processed_events AS (
             SELECT
-                booking_id, tms_accepted, tms_arrived, tms_picked_up,
-                tms_arrived_to_deliver, tms_dropped_off
-            FROM picapmongoprod.dm_processed_events FINAL
-            WHERE booking_id IN (SELECT _id FROM q_filtered_bookings)
+                dpe.booking_id             AS booking_id,
+                dpe.tms_accepted           AS tms_accepted,
+                dpe.tms_arrived            AS tms_arrived,
+                dpe.tms_picked_up          AS tms_picked_up,
+                dpe.tms_arrived_to_deliver AS tms_arrived_to_deliver,
+                dpe.tms_dropped_off        AS tms_dropped_off
+            FROM picapmongoprod.dm_processed_events AS dpe FINAL
+            INNER JOIN q_filtered_bookings AS qfb ON qfb._id = dpe.booking_id
         ),
 
         q_booking_stops_precoord AS (
@@ -2019,6 +2073,11 @@ module QueriesService
             LEFT JOIN q_filtered_dm_processed_events be ON be.booking_id = bs.booking_id
         ),
 
+        -- v3.3.7: mini-CTE para filtrar vw_dim_customers_pibox por booking_stop_id
+        q_booking_stop_ids AS (
+            SELECT booking_stop_id FROM q_booking_stops
+        ),
+
         q_packages_with_events AS (
             SELECT _id AS package_id, events
             FROM q_filtered_packages
@@ -2067,33 +2126,25 @@ module QueriesService
             GROUP BY package_id
         ),
 
-        fs_solutions_ranked AS (
-            SELECT
-                _id, booking_id, package_id,
-                ROW_NUMBER() OVER (PARTITION BY _id ORDER BY ifNull(updated_at, created_at) DESC NULLS LAST) AS rn
-            FROM picapmongoprod.service_type_specification_form_solutions
-            WHERE booking_id IN (SELECT _id FROM q_filtered_bookings)
-                AND nullIf(trim(toString(booking_id)), '') IS NOT NULL
-                AND nullIf(trim(toString(package_id)), '') IS NOT NULL
-        ),
         fs_solutions AS (
-            SELECT _id, booking_id, package_id
-            FROM fs_solutions_ranked
-            WHERE rn = 1
-        ),
-        ff_field_solutions_ranked AS (
             SELECT
-                _id, solution_form_id, field_key, photo_url, created_at,
-                ROW_NUMBER() OVER (PARTITION BY _id ORDER BY ifNull(updated_at, created_at) DESC NULLS LAST) AS rn
-            FROM picapmongoprod.service_type_specification_form_field_solutions
-            WHERE field_key IN ('destination_package_image', 'origin_package_image')
-                AND solution_form_id IN (SELECT _id FROM fs_solutions)
-                AND nullIf(trim(toString(photo_url)), '') IS NOT NULL
+                ss._id        AS _id,
+                ss.booking_id AS booking_id,
+                ss.package_id AS package_id
+            FROM picapmongoprod.service_type_specification_form_solutions AS ss FINAL
+            INNER JOIN q_filtered_bookings AS qfb ON qfb._id = ss.booking_id
+            WHERE nullIf(trim(toString(ss.package_id)), '') IS NOT NULL
         ),
         ff_field_solutions AS (
-            SELECT solution_form_id, field_key, photo_url, created_at
-            FROM ff_field_solutions_ranked
-            WHERE rn = 1
+            SELECT
+                fld.solution_form_id AS solution_form_id,
+                fld.field_key        AS field_key,
+                fld.photo_url        AS photo_url,
+                fld.created_at       AS created_at
+            FROM picapmongoprod.service_type_specification_form_field_solutions AS fld FINAL
+            INNER JOIN fs_solutions AS fss ON fss._id = fld.solution_form_id
+            WHERE fld.field_key IN ('destination_package_image', 'origin_package_image')
+                AND nullIf(trim(toString(fld.photo_url)), '') IS NOT NULL
         ),
         qry_package_evidence_ranked AS (
             SELECT
@@ -2186,7 +2237,7 @@ module QueriesService
                 toFloat64(if(be.tms_arrived_to_deliver IS NOT NULL AND be.tms_dropped_off IS NOT NULL
                     AND be.tms_dropped_off >= be.tms_arrived_to_deliver,
                     dateDiff('second', be.tms_arrived_to_deliver, be.tms_dropped_off), 0)) AS bkn_tiempo_final_entrega
-            FROM q_filtered_bookings b
+            FROM q_filtered_bookings_full b
             LEFT JOIN q_filtered_dm_processed_events be ON be.booking_id = b._id
         ),
 
@@ -2272,12 +2323,15 @@ module QueriesService
                 bs.num_sequence AS orden_parada,
                 pck.declared_value_amount AS valor_declarado
             FROM q_booking_stops bs
-            INNER JOIN q_filtered_bookings b ON b._id = bs.booking_id
+            INNER JOIN q_filtered_bookings_full b ON b._id = bs.booking_id
             LEFT JOIN (
-                SELECT id_booking_stop, txt_name, txt_phone
-                FROM picapmongoprod.vw_dim_customers_pibox FINAL
-                WHERE seq_booking_stop = 1
-                    AND id_booking_stop IN (SELECT booking_stop_id FROM q_booking_stops)
+                SELECT cus_v.id_booking_stop AS id_booking_stop,
+                       cus_v.txt_name        AS txt_name,
+                       cus_v.txt_phone       AS txt_phone
+                FROM picapmongoprod.vw_dim_customers_pibox AS cus_v FINAL
+                INNER JOIN q_booking_stop_ids AS bsids
+                    ON bsids.booking_stop_id = cus_v.id_booking_stop
+                WHERE cus_v.seq_booking_stop = 1
             ) cus ON bs.booking_stop_id = cus.id_booking_stop
             LEFT JOIN q_packages pck ON pck.booking_stop_id = bs.booking_stop_id
             LEFT JOIN (SELECT _id, name FROM picapmongoprod.cities FINAL) cty ON b.city_id = cty._id
@@ -2320,7 +2374,7 @@ module QueriesService
     FROM base_final_ranked
     WHERE rn_dedup = 1
     ORDER BY iniciado, uuid_booking
-    SETTINGS join_algorithm = 'parallel_hash', max_threads = 8, max_memory_usage = 12000000000
+    SETTINGS join_algorithm = 'parallel_hash', max_threads = 8, max_bytes_before_external_sort = 4000000000, max_bytes_before_external_group_by = 4000000000
   SQL
 
   Q_DISPERSIONES = <<~'SQL'
