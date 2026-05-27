@@ -372,41 +372,57 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   max-width:820px;
   background:linear-gradient(135deg,#6b21a8 0%,#7c3aed 50%,#9333ea 100%);
   border-radius:22px;
-  /* v3.0: padding-left aumentado de 170px → 260px para acomodar la animación
-     Pibox horizontal (240px wide) en el lado izquierdo. */
-  padding:24px 28px 24px 260px;
+  /* v3.0.2: padding-left=270px deja espacio para la animación pibox integrada
+     que ocupa los primeros 280px y se difumina suavemente hacia el texto. */
+  padding:24px 28px 24px 270px;
   color:#fff;
   box-shadow:0 14px 38px rgba(108,33,168,.28),0 4px 12px rgba(124,58,237,.18);
-  overflow:visible;
+  overflow:hidden;
   min-height:180px;
   display:flex;
   align-items:center;
   text-align:left;
 }
-/* v3.0: nueva mascota — animación Pibox (moto + portal). Reemplaza al
-   welcome-mascot-stage circular del avatar animal. */
+/* v3.0.2: mascota Pibox INTEGRADA al banner. Antes era un card oscuro
+   flotante; ahora se funde con el gradient morado vía mask radial. */
 .welcome-moto-stage{
   position:absolute;
-  left:14px;
-  top:50%;
-  transform:translateY(-50%);
-  width:230px;
-  height:160px;
+  left:0;
+  top:0;
+  bottom:0;
+  width:280px;
   z-index:2;
-  border-radius:16px;
+  background:transparent;
+  pointer-events:none;
+  border-radius:22px 0 0 22px;
   overflow:hidden;
-  background:linear-gradient(180deg,rgba(15,11,46,.55) 0%,rgba(76,29,149,.35) 60%,rgba(167,139,250,.25) 100%);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.25);
+  /* Fade radial: el borde derecho se difumina hacia el banner para que
+     la animación parezca emerger del gradient morado, no ser un card aparte. */
+  -webkit-mask-image:radial-gradient(ellipse 95% 95% at 35% 50%, #000 55%, transparent 92%);
+          mask-image:radial-gradient(ellipse 95% 95% at 35% 50%, #000 55%, transparent 92%);
+  filter:drop-shadow(0 0 18px rgba(167,139,250,.35));
 }
-.welcome-moto-stage .moto-anim-wrap{width:230px;height:160px;}
+.welcome-moto-stage .moto-anim-wrap{
+  width:240px;height:170px;
+  position:absolute;
+  top:50%;left:14px;transform:translateY(-50%);
+  background:transparent;
+  border-radius:0;
+}
+/* Líneas y partículas con tono claro para destacar sobre el gradient
+   morado (antes contaban con fondo oscuro del card). */
+.welcome-moto-stage .moto-road-lines span{background:rgba(255,255,255,.4);}
+.welcome-moto-stage .moto-spark{box-shadow:0 0 12px rgba(251,191,36,.85);}
 @media (max-width:720px){
   .welcome-banner{padding:170px 22px 22px 22px;text-align:center;}
   .welcome-banner h1{justify-content:center;}
   .welcome-moto-stage{
-    left:50%;top:14px;transform:translateX(-50%);
-    width:210px;height:140px;
+    left:50%;top:0;bottom:auto;transform:translateX(-50%);
+    width:240px;height:150px;border-radius:22px 22px 0 0;
+    -webkit-mask-image:radial-gradient(ellipse 100% 100% at 50% 40%, #000 55%, transparent 92%);
+            mask-image:radial-gradient(ellipse 100% 100% at 50% 40%, #000 55%, transparent 92%);
   }
-  .welcome-moto-stage .moto-anim-wrap{width:210px;height:140px;}
+  .welcome-moto-stage .moto-anim-wrap{width:230px;height:150px;left:5px;top:0;transform:none;}
 }
 .welcome-banner::before{
   /* halo decorativo */
@@ -985,7 +1001,23 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   /* Entra al portal: se encoge y desaparece */
   76%           { opacity:0; transform:translate(125px,-10px) rotate(420deg) scale(.1); }
 }
-.perfil-hero-info{display:flex;flex-direction:column;gap:2px;color:#fff;}
+.perfil-hero-info{display:flex;flex-direction:column;gap:2px;color:#fff;flex:1;min-width:0;}
+/* v3.0.2: foto del usuario a la derecha del perfil-header. Si no hay foto
+   subida, se muestra la silueta genérica (getGenericPersonIcon). */
+.perfil-hero-foto{
+  flex-shrink:0;
+  width:110px;height:110px;border-radius:50%;
+  overflow:hidden;
+  border:3px solid rgba(255,255,255,.35);
+  box-shadow:0 8px 22px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.15);
+  background:rgba(255,255,255,.05);
+  position:relative;z-index:2;
+}
+.perfil-hero-foto img,
+.perfil-hero-foto svg{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;}
+@media (max-width:720px){
+  .perfil-hero-foto{width:80px;height:80px;}
+}
 .perfil-header .perfil-name{color:#fff!important;font-size:20px;font-weight:700;}
 .perfil-header .perfil-email{color:rgba(255,255,255,.75)!important;font-size:12px;}
 .perfil-header .perfil-role-badge{background:rgba(255,255,255,.15);color:#fff!important;border:1px solid rgba(255,255,255,.3);padding:3px 14px;border-radius:20px;font-size:11px;font-weight:600;display:inline-block;width:fit-content;}
@@ -2728,6 +2760,8 @@ window.fetch = function(url, opts) {
           <div class="perfil-email" id="perfil-email" style="opacity:.8;font-size:13px;margin-top:2px">—</div>
           <div class="perfil-role-badge" id="perfil-rol" style="margin-top:8px">—</div>
         </div>
+        <!-- v3.0.2: foto de perfil del usuario a la derecha del header -->
+        <div class="perfil-hero-foto" id="perfil-hero-foto" title="Tu foto de perfil"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px;">
         <div class="perfil-section">
@@ -6412,6 +6446,11 @@ function actualizarAvatarUI() {
     ddAv.style.padding = '0';
     ddAv.style.borderRadius = '50%';
     ddAv.style.overflow = 'hidden';
+  }
+  // v3.0.2: foto en el banner del perfil (a la derecha del nombre)
+  const pfAv = document.getElementById('perfil-hero-foto');
+  if (pfAv) {
+    pfAv.innerHTML = tieneFoto ? img(110) : getGenericPersonIcon(110);
   }
   // Banner de bienvenida (home) — ya NO se toca aquí. Lo maneja initWelcomePiboxAnim().
 }
