@@ -1617,14 +1617,18 @@ module QueriesService
         s.permanent_flag                                 AS permanent_flag,
         s.rule_id                                        AS rule_id,
         s.service_types_raw                              AS service_types,
-        -- tipo_cuenta basado en quien_suspende (enrollment-based) + service_types:
+        -- tipo_cuenta basado en quien_suspende (enrollment-based) + service_types.
+        -- v2.7: el campo suspended_service_types contiene 'picap' (no 'rent') para
+        -- pilotos Rent. Buscamos ambos por compatibilidad pero el display es "Piloto Rent".
         multiIf(
             p.driver_enrollment_status_cd != 3,
             'Pasajero',
             positionCaseInsensitive(s.service_types_raw, 'pibox') > 0
-              AND positionCaseInsensitive(s.service_types_raw, 'rent') > 0,
+              AND (positionCaseInsensitive(s.service_types_raw, 'rent') > 0
+                   OR positionCaseInsensitive(s.service_types_raw, 'picap') > 0),
             'Piloto Pibox+Rent',
-            positionCaseInsensitive(s.service_types_raw, 'rent') > 0,
+            positionCaseInsensitive(s.service_types_raw, 'rent') > 0
+              OR positionCaseInsensitive(s.service_types_raw, 'picap') > 0,
             'Piloto Rent',
             positionCaseInsensitive(s.service_types_raw, 'pibox') > 0,
             'Piloto Pibox',

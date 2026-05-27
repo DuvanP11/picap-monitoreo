@@ -8965,7 +8965,9 @@ function renderBlqStatsTipoCuenta(data) {
   const cont = document.getElementById('blq-stats-tipo-cuenta');
   if (!cont) return;
   const breakdowns = ((data.resumen || {}).por_tipo_cuenta) || {};
-  const blq = breakdowns.bloqueados || {};
+  // v2.7: usar `alertas` (todo el período) en vez de `bloqueados` (solo currently
+  // bloqueados) para que esta card cuadre con "A Quién Suspende" y con el Excel.
+  const blq = breakdowns.alertas || breakdowns.bloqueados || {};
   const total = blq.total || 0;
   // v2.2: nuevo breakdown por quien_suspende (alinea con Excel "A QUIEN SE SUSPENDE")
   const porQuien = (data.resumen || {}).por_quien_suspende || {};
@@ -9014,7 +9016,7 @@ function renderBlqStatsTipoCuenta(data) {
   cont.innerHTML = `
     ${cardQuienHtml}
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px">
-      <div style="font-size:13px;font-weight:800;color:#5a2bb8;margin-bottom:10px">🧩 Bloqueos por Tipo de Cuenta</div>
+      <div style="font-size:13px;font-weight:800;color:#5a2bb8;margin-bottom:10px">🧩 Suspensiones por Tipo de Cuenta · Período Completo</div>
       <div class="bloqueos-resumen" style="grid-template-columns:repeat(4,1fr)">
         ${card('Pasajeros', blq.pasajero, blq.pct_pasajero, '#f59e0b', '👤')}
         ${card('Pilotos Pibox', blq.piloto_pibox, blq.pct_piloto_pibox, '#3b82f6', '📦')}

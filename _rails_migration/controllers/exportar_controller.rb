@@ -204,10 +204,13 @@ module Api
                              when :pibox then "Piloto Pibox"
                              when :rent  then "Piloto Rent"
                              else
+                               # v2.7: service_types raw contiene 'picap' para Rent
                                st = r["service_types"].to_s.downcase
-                               if st.include?("pibox") && st.include?("rent")
+                               has_rent  = st.include?("rent") || st.include?("picap")
+                               has_pibox = st.include?("pibox")
+                               if has_pibox && has_rent
                                  "Piloto Pibox+Rent"
-                               elsif st.include?("rent")
+                               elsif has_rent
                                  "Piloto Rent"
                                else
                                  "Piloto Pibox"

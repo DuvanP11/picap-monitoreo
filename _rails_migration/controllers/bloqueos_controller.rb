@@ -64,11 +64,13 @@ module Api
                              when :pibox then "Piloto Pibox"
                              when :rent  then "Piloto Rent"
                              else
-                               # General: usar service_types_raw si está; sino Pibox default
+                               # v2.7: service_types raw contiene 'picap' para Rent (no 'rent')
                                st = r["service_types"].to_s.downcase
-                               if st.include?("pibox") && st.include?("rent")
+                               has_rent  = st.include?("rent") || st.include?("picap")
+                               has_pibox = st.include?("pibox")
+                               if has_pibox && has_rent
                                  "Piloto Pibox+Rent"
-                               elsif st.include?("rent")
+                               elsif has_rent
                                  "Piloto Rent"
                                else
                                  "Piloto Pibox"
@@ -123,8 +125,10 @@ module Api
         reactivados: breakdown_por_tipo_cuenta(reactivados),
       }
 
-      # v2.1: top 10 motivos segmentados por tipo_cuenta (sobre bloqueados)
-      motivos_por_tc = motivos_por_tipo_cuenta(bloqueados)
+      # v2.1: top 10 motivos segmentados por tipo_cuenta.
+      # v2.7: usamos `alertas` (todo el período) en vez de `bloqueados` (solo
+      # currently bloqueados) para que matchee con las cards y con el Excel.
+      motivos_por_tc = motivos_por_tipo_cuenta(alertas)
 
       # v2.2: breakdown por quien_suspende (alinea con columna "A QUIEN SE SUSPENDERÁ"
       # del Excel del cliente). Cuenta SUSPENSIONES (no usuarios) — un usuario
