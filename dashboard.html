@@ -369,17 +369,44 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .welcome-banner{
   position:relative;
   margin:24px auto 4px;
-  max-width:760px;
+  max-width:820px;
   background:linear-gradient(135deg,#6b21a8 0%,#7c3aed 50%,#9333ea 100%);
   border-radius:22px;
-  padding:26px 28px 26px 170px;
+  /* v3.0: padding-left aumentado de 170px → 260px para acomodar la animación
+     Pibox horizontal (240px wide) en el lado izquierdo. */
+  padding:24px 28px 24px 260px;
   color:#fff;
   box-shadow:0 14px 38px rgba(108,33,168,.28),0 4px 12px rgba(124,58,237,.18);
   overflow:visible;
-  min-height:160px;
+  min-height:180px;
   display:flex;
   align-items:center;
   text-align:left;
+}
+/* v3.0: nueva mascota — animación Pibox (moto + portal). Reemplaza al
+   welcome-mascot-stage circular del avatar animal. */
+.welcome-moto-stage{
+  position:absolute;
+  left:14px;
+  top:50%;
+  transform:translateY(-50%);
+  width:230px;
+  height:160px;
+  z-index:2;
+  border-radius:16px;
+  overflow:hidden;
+  background:linear-gradient(180deg,rgba(15,11,46,.55) 0%,rgba(76,29,149,.35) 60%,rgba(167,139,250,.25) 100%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.25);
+}
+.welcome-moto-stage .moto-anim-wrap{width:230px;height:160px;}
+@media (max-width:720px){
+  .welcome-banner{padding:170px 22px 22px 22px;text-align:center;}
+  .welcome-banner h1{justify-content:center;}
+  .welcome-moto-stage{
+    left:50%;top:14px;transform:translateX(-50%);
+    width:210px;height:140px;
+  }
+  .welcome-moto-stage .moto-anim-wrap{width:210px;height:140px;}
 }
 .welcome-banner::before{
   /* halo decorativo */
@@ -1257,6 +1284,27 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .animal-opt.selected{border-color:#a78bfa;box-shadow:0 0 0 3px rgba(167,139,250,.4);}
 .animal-opt svg{width:54px;height:54px;border-radius:50%;}
 .animal-picker-btn-wrap{display:flex;justify-content:flex-end;}
+/* v3.0: card de foto de perfil (reemplaza al animal-picker) */
+.foto-perfil-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:14px;}
+.foto-perfil-title{font-size:14px;font-weight:800;color:var(--text2);margin-bottom:14px;display:flex;align-items:center;gap:6px;}
+.foto-perfil-body{display:flex;gap:18px;align-items:center;flex-wrap:wrap;}
+.foto-perfil-preview{
+  flex-shrink:0;width:140px;height:140px;border-radius:50%;
+  background:#f3f0ff;border:3px dashed #a78bfa;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  cursor:pointer;transition:.2s;position:relative;
+}
+.foto-perfil-preview:hover{border-color:#7c3aed;background:#ede9fe;transform:scale(1.02);}
+.foto-perfil-preview img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+.foto-perfil-preview::after{
+  content:'📷 Cambiar';position:absolute;bottom:0;left:0;right:0;
+  background:rgba(124,58,237,.92);color:#fff;font-size:11px;font-weight:700;
+  padding:6px 0;text-align:center;opacity:0;transition:opacity .2s;
+}
+.foto-perfil-preview:hover::after{opacity:1;}
+.foto-perfil-controls{flex:1;min-width:240px;}
+.foto-perfil-help{font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:12px;}
+.foto-perfil-btns{display:flex;gap:8px;flex-wrap:wrap;}
 .user-dd-avatar-img{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.3);}
 .dd-animal-wrap{width:44px;height:44px;display:flex;align-items:center;justify-content:center;}
 </style>
@@ -2342,9 +2390,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
     <div class="wrap">
       <div class="welcome-banner" role="banner" aria-label="Bienvenida al portal">
         <div class="welcome-bubble">¡Bienvenido!</div>
-        <div class="welcome-mascot-stage" aria-hidden="true">
-          <div class="welcome-mascot" id="welcome-mascot"></div>
-        </div>
+        <!-- v3.0 (May 2026): mascota animal reemplazada por animación Pibox
+             (mensajero + paquete + portal mágico). Contenido se inyecta en
+             initWelcomePiboxAnim() para no duplicar SVG entre views. -->
+        <div class="welcome-moto-stage" id="welcome-moto-stage" aria-hidden="true"></div>
         <div>
           <h1>¡Bienvenido, <span id="home-nombre">—</span>! <span class="wave" aria-hidden="true">👋</span></h1>
           <p>Administra el monitoreo y consulta los módulos disponibles para tu rol.</p>
@@ -2698,17 +2747,33 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
         </div>
       </div>
     </div>
-    <!-- ── Selector de avatar animal ── -->
-<div class="animal-picker" id="animal-picker">
-  <div class="animal-picker-title">🎭 Elige tu avatar</div>
-  <div style="font-size:11px;color:var(--text3);font-weight:600;margin-bottom:6px;letter-spacing:.5px">🐾 ANIMALES</div>
-  <div class="animal-grid" id="animal-grid-animales"></div>
-  <div style="font-size:11px;color:var(--text3);font-weight:600;margin:16px 0 6px;letter-spacing:.5px">✨ PERSONAJES FICTICIOS</div>
-  <div class="animal-grid" id="animal-grid-ficticios"></div>
-  <div class="animal-picker-btn-wrap" style="margin-top:14px">
-    <button onclick="guardarAvatar()" class="apply-btn" style="background:var(--purple);color:#fff;font-weight:700;padding:8px 22px">✓ Guardar avatar</button>
-  </div>
-</div>
+    <!-- ── v3.0: Foto de perfil (reemplaza al selector de avatar animal) ── -->
+    <div class="foto-perfil-card" id="foto-perfil-card">
+      <div class="foto-perfil-title">📷 Foto de perfil</div>
+      <div class="foto-perfil-body">
+        <div class="foto-perfil-preview" id="foto-perfil-preview" onclick="abrirSelectorFotoPerfil()" title="Click para cambiar tu foto"></div>
+        <div class="foto-perfil-controls">
+          <div class="foto-perfil-help">
+            Tu foto aparece en el sidebar inferior izquierdo y en la barra superior derecha. Se sincroniza entre dispositivos.
+            <br><span style="font-size:11px;color:var(--text3)">Acepta JPG/PNG/WEBP. Se redimensiona automáticamente a 256×256.</span>
+          </div>
+          <input type="file" id="foto-perfil-file" accept="image/jpeg,image/png,image/webp" style="display:none"
+                 onchange="if(this.files[0]){subirFotoPerfil(this.files[0]); this.value='';}">
+          <div class="foto-perfil-btns">
+            <button id="foto-perfil-btn" class="apply-btn" onclick="abrirSelectorFotoPerfil()" style="background:var(--purple);color:#fff;font-weight:700">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" style="vertical-align:-2px;margin-right:4px">
+                <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              Subir foto
+            </button>
+            <button class="apply-btn" onclick="eliminarFotoPerfil()" style="background:#fff;color:#dc2626;border:1.5px solid #fecaca;font-weight:600">
+              Eliminar
+            </button>
+          </div>
+          <div id="foto-perfil-msg" style="font-size:12px;margin-top:8px;min-height:18px"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
 
@@ -5762,7 +5827,8 @@ let _sesionToken  = localStorage.getItem('picap_token')   || '';
 let _sesionRol    = localStorage.getItem('picap_rol')     || '';
 let _sesionNombre = localStorage.getItem('picap_nombre')  || '';
 let _sesionUsuario= localStorage.getItem('picap_usuario') || '';
-let _sesionAcceso= JSON.parse(localStorage.getItem('picap_acceso') || '[]');
+let _sesionAcceso = JSON.parse(localStorage.getItem('picap_acceso') || '[]');
+let _sesionFoto   = localStorage.getItem('picap_foto')    || '';
 
 async function doLogin() {
   const usuario  = document.getElementById('login-user').value.trim();
@@ -5783,11 +5849,13 @@ async function doLogin() {
     _sesionNombre  = d.nombre;
     _sesionAcceso  = d.acceso;
     _sesionUsuario = usuario;
+    _sesionFoto    = d.foto || '';  // v3.0: foto de perfil persistente
     localStorage.setItem('picap_token',    d.token);
     localStorage.setItem('picap_rol',      d.rol);
     localStorage.setItem('picap_nombre',   d.nombre);
     localStorage.setItem('picap_acceso',   JSON.stringify(d.acceso));
     localStorage.setItem('picap_usuario',  usuario);
+    if (d.foto) localStorage.setItem('picap_foto', d.foto); else localStorage.removeItem('picap_foto');
     localStorage.setItem('picap_login_ts', Date.now().toString()); // para expirar a las 24h
     iniciarSesion();
   } catch(e) {
@@ -5821,6 +5889,7 @@ function iniciarSesion() {
   if(topUser) topUser.textContent = '👤 ' + _sesionNombre;
   aplicarRol();
   actualizarAvatarUI();
+  initWelcomePiboxAnim();  // v3.0: animación de Pibox en banner home
   cargarInfoUsuario();   // poblar dropdown y topbar al iniciar sesión
   switchView('home');
   checkAPI();
@@ -6274,22 +6343,255 @@ function guardarAvatar() {
   if(btn) { btn.textContent = '✓ Guardado!'; setTimeout(() => btn.textContent = '✓ Guardar avatar', 1500); }
 }
 
+// v3.0 (May 2026): el sistema de avatares animales fue reemplazado por:
+// (a) Animación Pibox (moto+portal) en el banner de bienvenida — fija para todos.
+// (b) Foto de perfil subida por cada usuario (persistente en CH dashboard_users.foto_perfil).
+//     Si no hay foto, se muestra un ícono genérico 👤.
+//
+// Las funciones ANIMAL_SVGS/getAvatar/setAvatar/renderAnimalPicker/seleccionarAnimal/
+// guardarAvatar siguen presentes para compat con código viejo pero ya no se usan.
+
+// _sesionFoto declarado arriba con los otros _sesion* (después de _sesionAcceso)
+
+// Ícono genérico cuando no hay foto subida (silueta morada).
+function getGenericPersonIcon(size = 36){
+  const s = size;
+  return `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" style="width:${s}px;height:${s}px;display:block">
+    <circle cx="40" cy="40" r="40" fill="#7c3aed"/>
+    <circle cx="40" cy="32" r="14" fill="#fff" opacity=".95"/>
+    <path d="M14 70 Q14 50 40 50 Q66 50 66 70 Z" fill="#fff" opacity=".95"/>
+  </svg>`;
+}
+
 function actualizarAvatarUI() {
-  const key = getAvatar();
-  const svg = ANIMAL_SVGS[key];
-  if(!svg) return;
+  const foto = (_sesionFoto || '').toString();
+  const tieneFoto = foto.startsWith('data:image') || foto.startsWith('http');
+  const img = (size, extraStyle = '') => `<img src="${foto}" alt="Foto de perfil" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;display:block;${extraStyle}">`;
+
   // Sidebar pie
   const sbAv = document.getElementById('sb2-avatar');
-  if(sbAv) { sbAv.innerHTML = `<span style="width:36px;height:36px;display:inline-flex">${svg}</span>`; sbAv.style.background='transparent'; sbAv.style.padding='0'; }
+  if (sbAv) {
+    sbAv.innerHTML = tieneFoto ? img(36) : getGenericPersonIcon(36);
+    sbAv.style.background = 'transparent';
+    sbAv.style.padding = '0';
+    sbAv.style.overflow = 'hidden';
+    sbAv.style.borderRadius = '50%';
+  }
   // Topbar
   const tpAv = document.getElementById('topbar-avatar-initials');
-  if(tpAv) { tpAv.innerHTML = svg; tpAv.style.width='30px'; tpAv.style.height='30px'; tpAv.style.background='transparent'; tpAv.style.padding='0'; }
+  if (tpAv) {
+    tpAv.innerHTML = tieneFoto ? img(30) : getGenericPersonIcon(30);
+    tpAv.style.width = '30px'; tpAv.style.height = '30px';
+    tpAv.style.background = 'transparent';
+    tpAv.style.padding = '0';
+    tpAv.style.overflow = 'hidden';
+    tpAv.style.borderRadius = '50%';
+  }
   // Dropdown header
   const ddAv = document.getElementById('dd-avatar-initials');
-  if(ddAv) { ddAv.innerHTML = svg; ddAv.style.width='44px'; ddAv.style.height='44px'; ddAv.style.background='transparent'; ddAv.style.padding='0'; ddAv.style.borderRadius='50%'; ddAv.style.overflow='hidden'; }
-  // Mascot del banner de bienvenida (home)
-  const wmAv = document.getElementById('welcome-mascot');
-  if(wmAv) { wmAv.innerHTML = svg; }
+  if (ddAv) {
+    ddAv.innerHTML = tieneFoto ? img(44) : getGenericPersonIcon(44);
+    ddAv.style.width = '44px'; ddAv.style.height = '44px';
+    ddAv.style.background = 'transparent';
+    ddAv.style.padding = '0';
+    ddAv.style.borderRadius = '50%';
+    ddAv.style.overflow = 'hidden';
+  }
+  // Banner de bienvenida (home) — ya NO se toca aquí. Lo maneja initWelcomePiboxAnim().
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// PIBOX ANIMATION (banner de bienvenida — reemplaza al avatar animal)
+// ──────────────────────────────────────────────────────────────────────
+function getPiboxAnimationHTML(){
+  return `
+    <div class="moto-anim-wrap" aria-label="Mensajero Picap entregando paquete por portal mágico">
+      <div class="moto-anim-bg"></div>
+      <div class="moto-road-lines">
+        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <svg class="moto-portal" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="welPortalGrad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%"   stop-color="#1e1b4b" stop-opacity=".0"/>
+            <stop offset="55%"  stop-color="#7c3aed" stop-opacity=".55"/>
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity=".95"/>
+          </radialGradient>
+          <linearGradient id="welRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%"   stop-color="#a78bfa"/>
+            <stop offset="50%"  stop-color="#fbbf24"/>
+            <stop offset="100%" stop-color="#a78bfa"/>
+          </linearGradient>
+        </defs>
+        <circle cx="32" cy="32" r="30" fill="url(#welPortalGrad)"/>
+        <g>
+          <circle cx="32" cy="32" r="28" fill="none" stroke="url(#welRingGrad)" stroke-width="3" stroke-dasharray="8 4" opacity=".9"/>
+          <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="4s" repeatCount="indefinite"/>
+        </g>
+        <g>
+          <circle cx="32" cy="32" r="20" fill="none" stroke="#fbbf24" stroke-width="2" stroke-dasharray="4 6" opacity=".75"/>
+          <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="-360 32 32" dur="3s" repeatCount="indefinite"/>
+        </g>
+        <circle cx="32" cy="32" r="12" fill="#0c0a3e" opacity=".7"/>
+        <circle cx="32" cy="32" r="6"  fill="#1e1b4b"/>
+      </svg>
+      <div class="moto-spark s1"></div>
+      <div class="moto-spark s2"></div>
+      <div class="moto-spark s3"></div>
+      <div class="moto-spark s4"></div>
+      <svg class="moto-speed-burst" viewBox="0 0 32 32">
+        <line x1="2"  y1="16" x2="14" y2="16" stroke="#fbbf24" stroke-width="2"   stroke-linecap="round"/>
+        <line x1="6"  y1="8"  x2="14" y2="13" stroke="#fbbf24" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="6"  y1="24" x2="14" y2="19" stroke="#fbbf24" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="0"  y1="10" x2="10" y2="14" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="0"  y1="22" x2="10" y2="18" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <svg class="moto-package" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="6" width="20" height="16" rx="2" fill="#f59e0b" stroke="#92400e" stroke-width="1"/>
+        <rect x="2" y="6" width="20" height="5"  rx="2" fill="#d97706"/>
+        <line x1="12" y1="6" x2="12" y2="22" stroke="#7c2d12" stroke-width="1.2"/>
+        <line x1="2"  y1="13" x2="22" y2="13" stroke="#7c2d12" stroke-width="1.2"/>
+        <rect x="5" y="14" width="14" height="6" rx="1" fill="#fff"/>
+        <text x="12" y="18.5" font-size="4" fill="#7c2d12" text-anchor="middle"
+              font-weight="bold" font-family="Arial,sans-serif">PIBOX</text>
+      </svg>
+      <svg class="moto-svg" viewBox="0 0 140 120" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="70" cy="108" rx="55" ry="5" fill="rgba(0,0,0,.18)"/>
+        <rect x="20" y="68" width="80" height="22" rx="9" fill="#4c1d95"/>
+        <rect x="28" y="62" width="62" height="14" rx="5" fill="#6d28d9"/>
+        <rect x="42" y="56" width="34" height="18" rx="4" fill="#7c3aed"/>
+        <circle cx="33" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
+        <circle cx="33" cy="95" r="7"  fill="#2d2066"/>
+        <g>
+          <line x1="33" y1="83" x2="33" y2="107" stroke="#a78bfa" stroke-width="1.5"/>
+          <line x1="21" y1="95" x2="45" y2="95"  stroke="#a78bfa" stroke-width="1.5"/>
+          <animateTransform attributeName="transform" type="rotate" from="0 33 95" to="360 33 95" dur="0.4s" repeatCount="indefinite"/>
+        </g>
+        <circle cx="33" cy="95" r="2.5" fill="#fbbf24"/>
+        <circle cx="97" cy="95" r="14" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2.5"/>
+        <circle cx="97" cy="95" r="7"  fill="#2d2066"/>
+        <g>
+          <line x1="97" y1="83" x2="97" y2="107" stroke="#a78bfa" stroke-width="1.5"/>
+          <line x1="85" y1="95" x2="109" y2="95" stroke="#a78bfa" stroke-width="1.5"/>
+          <animateTransform attributeName="transform" type="rotate" from="0 97 95" to="360 97 95" dur="0.4s" repeatCount="indefinite" begin="-0.1s"/>
+        </g>
+        <circle cx="97" cy="95" r="2.5" fill="#fbbf24"/>
+        <path d="M88 60 Q98 54 104 64" stroke="#a78bfa" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <rect x="18" y="42" width="28" height="22" rx="3" fill="#f59e0b"/>
+        <rect x="18" y="42" width="28" height="7"  rx="3" fill="#d97706"/>
+        <line x1="32" y1="42" x2="32" y2="64" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="18" y1="52" x2="46" y2="52" stroke="#d97706" stroke-width="1.2"/>
+        <text x="32" y="60" font-size="6" fill="#7c2d12" text-anchor="middle" font-weight="bold" font-family="Arial,sans-serif">PIBOX</text>
+        <rect x="56" y="36" width="26" height="30" rx="6" fill="#7c3aed"/>
+        <path d="M82 46 L100 38" stroke="#7c3aed" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="102" cy="37" r="4" fill="#ddd6fe"/>
+        <ellipse cx="68" cy="32" rx="14" ry="12" fill="#4c1d95"/>
+        <path d="M55 32 Q68 20 82 32" fill="#5b21b6"/>
+        <path d="M58 35 Q68 28 78 35" fill="none" stroke="#a78bfa" stroke-width="2.5" stroke-linecap="round"/>
+        <rect x="62" y="64" width="9" height="18" rx="4" fill="#5b21b6"/>
+      </svg>
+    </div>`;
+}
+
+function initWelcomePiboxAnim(){
+  const stage = document.getElementById('welcome-moto-stage');
+  if (!stage || stage.dataset.initialized === '1') return;
+  stage.innerHTML = getPiboxAnimationHTML();
+  stage.dataset.initialized = '1';
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// SUBIR FOTO DE PERFIL
+// ──────────────────────────────────────────────────────────────────────
+// Lee un File del input, lo redimensiona a max 256x256 manteniendo proporción,
+// lo codifica a JPEG quality 0.85 y devuelve data URL (Promise<string>).
+function resizeImageToDataUrl(file, maxDim = 256, quality = 0.85){
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      return reject(new Error('Por favor selecciona una imagen válida (.jpg, .png, .webp)'));
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    reader.onload = e => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('La imagen está corrupta o no es válida'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height);
+          width  = Math.round(width  * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function subirFotoPerfil(file){
+  const msgEl = document.getElementById('foto-perfil-msg');
+  const btn   = document.getElementById('foto-perfil-btn');
+  const setMsg = (txt, color = 'var(--text3)') => { if (msgEl) { msgEl.textContent = txt; msgEl.style.color = color; } };
+  if (btn) btn.disabled = true;
+  try {
+    setMsg('Procesando imagen...', '#7c3aed');
+    const dataUrl = await resizeImageToDataUrl(file, 256, 0.85);
+    setMsg('Subiendo...', '#7c3aed');
+    const r = await fetch(`${API}/api/me/foto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+      body: JSON.stringify({ foto: dataUrl }),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    _sesionFoto = d.foto || dataUrl;
+    actualizarAvatarUI();
+    // Actualizar también el preview en perfil
+    const prev = document.getElementById('foto-perfil-preview');
+    if (prev) prev.innerHTML = `<img src="${_sesionFoto}" alt="Foto de perfil" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+    setMsg('✓ Foto actualizada', '#22c55e');
+    setTimeout(() => setMsg(''), 3000);
+  } catch(err){
+    setMsg('Error: ' + (err.message || err), '#ef4444');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function eliminarFotoPerfil(){
+  if (!confirm('¿Eliminar tu foto de perfil? Volverás al ícono genérico.')) return;
+  const msgEl = document.getElementById('foto-perfil-msg');
+  const setMsg = (txt, color = 'var(--text3)') => { if (msgEl) { msgEl.textContent = txt; msgEl.style.color = color; } };
+  try {
+    setMsg('Eliminando...', '#7c3aed');
+    const r = await fetch(`${API}/api/me/foto`, {
+      method: 'DELETE',
+      headers: { 'X-Token': _sesionToken },
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    _sesionFoto = '';
+    actualizarAvatarUI();
+    const prev = document.getElementById('foto-perfil-preview');
+    if (prev) prev.innerHTML = getGenericPersonIcon(140);
+    setMsg('✓ Foto eliminada', '#22c55e');
+    setTimeout(() => setMsg(''), 3000);
+  } catch(err){
+    setMsg('Error: ' + (err.message || err), '#ef4444');
+  }
+}
+
+function abrirSelectorFotoPerfil(){
+  document.getElementById('foto-perfil-file')?.click();
 }
 
 
@@ -6585,10 +6887,12 @@ async function verificarSesion(intento) {
     _sesionRol     = d.rol;
     _sesionAcceso  = d.acceso;
     _sesionUsuario = d.usuario || '';
+    _sesionFoto    = d.foto || '';
     localStorage.setItem('picap_nombre',   d.nombre);
     localStorage.setItem('picap_rol',      d.rol);
     localStorage.setItem('picap_acceso',   JSON.stringify(d.acceso));
     localStorage.setItem('picap_usuario',  d.usuario || '');
+    if (d.foto) localStorage.setItem('picap_foto', d.foto); else localStorage.removeItem('picap_foto');
     iniciarSesion();
   } catch(e) {
     // Error de red (cold start de Render) — reintentar hasta 4 veces
@@ -11694,8 +11998,15 @@ async function cargarInfoUsuario() {
 
     // Mostrar cards correctas en el home
     aplicarRolCards(rol);
-    // Restaurar el avatar animal (por encima de cualquier inicial)
+    // v3.0: foto de perfil (en lugar del avatar animal)
     actualizarAvatarUI();
+    // Pintar preview en perfil card (si existe)
+    const prev = document.getElementById('foto-perfil-preview');
+    if (prev) {
+      prev.innerHTML = (_sesionFoto && _sesionFoto.startsWith('data:'))
+        ? `<img src="${_sesionFoto}" alt="Foto" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+        : getGenericPersonIcon(140);
+    }
   } catch(e) {
     console.warn('No se pudo cargar info usuario:', e);
   }
