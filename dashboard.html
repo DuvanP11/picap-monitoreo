@@ -6312,13 +6312,18 @@ async function doLogin() {
     _sesionNombre  = d.nombre;
     _sesionAcceso  = d.acceso;
     _sesionUsuario = usuario;
-    _sesionFoto    = d.foto || '';  // v3.0: foto de perfil persistente
+    // v3.3.13: si el backend trae foto (columna foto_perfil OK), úsala.
+    // Si no, mantén la foto previa en localStorage (mismo usuario en este
+    // navegador). Solo se pierde si haces logout limpiando todo.
+    const _fotoBackendL = (d.foto || '').toString();
+    const _fotoLocalL   = localStorage.getItem('picap_foto') || '';
+    _sesionFoto    = _fotoBackendL || _fotoLocalL;
     localStorage.setItem('picap_token',    d.token);
     localStorage.setItem('picap_rol',      d.rol);
     localStorage.setItem('picap_nombre',   d.nombre);
     localStorage.setItem('picap_acceso',   JSON.stringify(d.acceso));
     localStorage.setItem('picap_usuario',  usuario);
-    if (d.foto) localStorage.setItem('picap_foto', d.foto); else localStorage.removeItem('picap_foto');
+    if (_sesionFoto) localStorage.setItem('picap_foto', _sesionFoto); else localStorage.removeItem('picap_foto');
     localStorage.setItem('picap_login_ts', Date.now().toString()); // para expirar a las 24h
     iniciarSesion();
   } catch(e) {
@@ -7029,6 +7034,11 @@ async function subirFotoPerfil(file){
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
     _sesionFoto = d.foto || dataUrl;
+    // v3.3.13: persistir en localStorage también — si el backend falla en
+    // leer la foto en /api/me (p.ej. columna foto_perfil pendiente), al
+    // menos la foto sigue apareciendo en el mismo navegador hasta que
+    // el backend se ponga al día.
+    try { localStorage.setItem('picap_foto', _sesionFoto); } catch(_){}
     actualizarAvatarUI();
     // Actualizar también el preview en perfil
     const prev = document.getElementById('foto-perfil-preview');
@@ -7055,6 +7065,7 @@ async function eliminarFotoPerfil(){
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
     _sesionFoto = '';
+    try { localStorage.removeItem('picap_foto'); } catch(_){}
     actualizarAvatarUI();
     const prev = document.getElementById('foto-perfil-preview');
     if (prev) prev.innerHTML = getGenericPersonIcon(140);
@@ -7362,12 +7373,18 @@ async function verificarSesion(intento) {
     _sesionRol     = d.rol;
     _sesionAcceso  = d.acceso;
     _sesionUsuario = d.usuario || '';
-    _sesionFoto    = d.foto || '';
+    // v3.3.13: si el backend devuelve foto (columna foto_perfil OK), la usamos.
+    // Si no devuelve foto pero hay una en localStorage (la subimos en otro
+    // momento), la mantenemos. Esto evita que la foto desaparezca si el
+    // backend aún no tiene la columna desplegada.
+    const fotoBackend = (d.foto || '').toString();
+    const fotoLocal   = localStorage.getItem('picap_foto') || '';
+    _sesionFoto = fotoBackend || fotoLocal;
     localStorage.setItem('picap_nombre',   d.nombre);
     localStorage.setItem('picap_rol',      d.rol);
     localStorage.setItem('picap_acceso',   JSON.stringify(d.acceso));
     localStorage.setItem('picap_usuario',  d.usuario || '');
-    if (d.foto) localStorage.setItem('picap_foto', d.foto); else localStorage.removeItem('picap_foto');
+    if (_sesionFoto) localStorage.setItem('picap_foto', _sesionFoto); else localStorage.removeItem('picap_foto');
     iniciarSesion();
   } catch(e) {
     // Error de red (cold start de Render) — reintentar hasta 4 veces

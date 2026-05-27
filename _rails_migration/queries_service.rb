@@ -222,6 +222,16 @@ module QueriesService
     LIMIT 1
   SQL
 
+  # v3.3.13: lectura aislada de foto_perfil. Está separada de Q_USER_BY_USUARIO
+  # para que un fallo (columna inexistente) no rompa el login completo.
+  # AuthController#leer_foto_perfil tiene rescue → devuelve '' si falla.
+  Q_USER_FOTO = <<~'SQL'
+    SELECT foto_perfil
+    FROM picapmongoprod.dashboard_users FINAL
+    WHERE usuario = '%{usuario}' AND activo = 1
+    LIMIT 1
+  SQL
+
   Q_ALL_USERS = <<~'SQL'
     SELECT usuario, nombre, email, rol,
            formatDateTime(creado_en, '%Y-%m-%d %H:%M') AS creado_en
