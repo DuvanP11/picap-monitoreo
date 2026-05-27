@@ -377,7 +377,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   padding:24px 28px 24px 290px;
   color:#fff;
   box-shadow:0 14px 38px rgba(108,33,168,.28),0 4px 12px rgba(124,58,237,.18);
-  overflow:hidden;
+  /* v3.0.5: visible para que la burbuja "¡Bienvenido!" pueda asomarse arriba.
+     El mask de la animación vive en .welcome-moto-stage que tiene su propio
+     overflow:hidden, así que el banner no necesita restringir overflow. */
+  overflow:visible;
   min-height:180px;
   display:flex;
   align-items:center;
