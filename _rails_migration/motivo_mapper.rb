@@ -61,7 +61,83 @@ module MotivoMapper
     [["no entregar del recaudo"],                                                  "No entregar recaudo del paquete"],
     [["servicios corporativos"],                                                   "Malas prácticas en servicios corporativos"],
     [["antecedentes penales"],                                                     "Tener antecedentes penales"],
+    # v2.6: nuevos keywords detectados en data real
+    [["luego de realizar una validacion"],                                         "Validación de cuenta · suspendido"],
   ].freeze
+
+  # v2.6 (May 2026): clasificación oficial de cada motivo en (lado, servicio).
+  # Basado en la tabla de FALTAS de Picap compartida por el cliente.
+  #   lado: :prestador (piloto), :consumidor (pasajero), :ambiguo (cualquiera)
+  #   servicio: :pibox, :rent, :general (cuando aplica a ambos)
+  # Si lado != :ambiguo, override la clasificación enrollment-based.
+  # Si servicio != :general y lado=:prestador, override tipo_cuenta a Piloto X.
+  MOTIVO_CLASIFICACION = {
+    # ── PRESTADOR + Pibox (FALTAS PARTICULARES PIBOX) ──
+    "Entregar paquete en mal estado"                  => { lado: :prestador, servicio: :pibox },
+    "No entregar paquete el mismo día"                => { lado: :prestador, servicio: :pibox },
+    "Entregar paquete incompleto"                     => { lado: :prestador, servicio: :pibox },
+    "Entregar paquete en dirección equivocada"        => { lado: :prestador, servicio: :pibox },
+    "No entregar dinero recaudado a Pibox"            => { lado: :prestador, servicio: :pibox },
+    "No entregar paquete al destinatario"             => { lado: :prestador, servicio: :pibox },
+    "Apropiarse del paquete"                          => { lado: :prestador, servicio: :pibox },
+    "Presentar comparendo D12 fraudulento"            => { lado: :prestador, servicio: :pibox },
+    "No tomar evidencias del servicio"                => { lado: :prestador, servicio: :pibox },
+    "Incumplir acción de mejora propuesta"            => { lado: :prestador, servicio: :pibox },
+    "Incumplir horario establecido"                   => { lado: :prestador, servicio: :pibox },
+    "No asistir al servicio programado"               => { lado: :prestador, servicio: :pibox },
+    "Insultar al cliente"                             => { lado: :prestador, servicio: :pibox },
+    "No entregar paquete"                             => { lado: :prestador, servicio: :pibox },
+    "No entregar recaudo del paquete"                 => { lado: :prestador, servicio: :pibox },
+    "Malas prácticas en servicios corporativos"       => { lado: :prestador, servicio: :pibox },
+    # ── PRESTADOR + Rent (FALTAS PARTICULARES RENT) ──
+    "No finalizar servicio en destino"                => { lado: :prestador, servicio: :rent },
+    "Negarse a presentar SOAT en accidente"           => { lado: :prestador, servicio: :rent },
+    "Malas prácticas en prestación del servicio"      => { lado: :prestador, servicio: :rent },
+    "No cumplir normas de seguridad (casco/chaleco)"  => { lado: :prestador, servicio: :rent },
+    "Conducción peligrosa o sin respetar tránsito"    => { lado: :prestador, servicio: :rent },
+    "No devolver vehículo al arrendatario"            => { lado: :prestador, servicio: :rent },
+    # ── PRESTADOR + General (FALTAS GENERALES) ──
+    "Cobrar dos o más veces el mismo servicio"        => { lado: :prestador, servicio: :general },
+    "Realizar cobros adicionales no acordados"        => { lado: :prestador, servicio: :general },
+    "No cumplir con la totalidad del servicio"        => { lado: :prestador, servicio: :general },
+    "Modificar ubicación de destino (Fake GPS)"       => { lado: :prestador, servicio: :general },
+    "Cobrar en TC/Pica$h y no realizar el servicio"   => { lado: :prestador, servicio: :general },
+    "No prestar servicio por método de pago"          => { lado: :prestador, servicio: :general },
+    "Cobro excesivo en tarifa"                        => { lado: :prestador, servicio: :general },
+    "Servicio con vehículo diferente al registrado"   => { lado: :prestador, servicio: :general },
+    "Preguntar destino y negarse a prestar servicio"  => { lado: :prestador, servicio: :general },
+    "No devolver dinero sobrante al usuario"          => { lado: :prestador, servicio: :general },
+    "Solicitar al usuario cancelar para no prestar"   => { lado: :prestador, servicio: :general },
+    "Cancelar servicios para evadir comisión"         => { lado: :prestador, servicio: :general },
+    "Solicitar cancelación para generar bonificación" => { lado: :prestador, servicio: :general },
+    "Comercializar saldos Pica$h"                     => { lado: :prestador, servicio: :general },
+    "Portar armas al prestar el servicio"             => { lado: :prestador, servicio: :general },
+    # ── CONSUMIDOR (acciones del pasajero contra el prestador o app) ──
+    "No pagar valor del servicio al prestador"        => { lado: :consumidor, servicio: :general },
+    "Insultar al usuario prestador"                   => { lado: :consumidor, servicio: :general },
+    "Hurtar pertenencias del usuario"                 => { lado: :consumidor, servicio: :general },
+    "Solicitar envío de sustancias ilícitas"          => { lado: :consumidor, servicio: :general },
+    # ── AMBIGUO (cualquier lado, dejar enrollment-based) ──
+    "Vocabulario inadecuado con agente SAC"           => { lado: :ambiguo,    servicio: :general },
+    "Cancelar servicios de forma reiterada"           => { lado: :ambiguo,    servicio: :general },
+    "Insultar o amenazar por chat"                    => { lado: :ambiguo,    servicio: :general },
+    "Registrar documento que no corresponde"          => { lado: :ambiguo,    servicio: :general },
+    "Crear cuenta nueva con cuenta cancelada"         => { lado: :ambiguo,    servicio: :general },
+    "Fraude dentro de la APP"                         => { lado: :ambiguo,    servicio: :general },
+    "Estafa dentro de la APP"                         => { lado: :ambiguo,    servicio: :general },
+    "Alterar documentos o datos en la APP"            => { lado: :ambiguo,    servicio: :general },
+    "Prestar o alquilar cuenta personal"              => { lado: :ambiguo,    servicio: :general },
+    "Amenazar contra la vida del usuario"             => { lado: :ambiguo,    servicio: :general },
+    "Hostigar/molestar con comportamiento vulgar"     => { lado: :ambiguo,    servicio: :general },
+    "Tener antecedentes penales"                      => { lado: :ambiguo,    servicio: :general },
+    "Validación de cuenta · suspendido"               => { lado: :ambiguo,    servicio: :general },
+  }.freeze
+
+  # Devuelve {lado:, servicio:} para un motivo oficial. Si el motivo no está
+  # mapeado (texto crudo nunca antes visto), retorna ambiguo/general.
+  def self.inferir_lado_y_servicio(motivo_oficial)
+    MOTIVO_CLASIFICACION[motivo_oficial.to_s] || { lado: :ambiguo, servicio: :general }
+  end
 
   PAISES_MAP = {
     "CO" => "Colombia", "MX" => "México", "NI" => "Nicaragua",

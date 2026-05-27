@@ -51,6 +51,36 @@ module Api
           )
         end
 
+        # v2.6: override quien_suspende y tipo_cuenta si el motivo es inequívoco.
+        # Ej: motivo='No entregar paquete' es 100% Pibox piloto. Si el SQL lo
+        # clasificó por enrollment como CONSUMIDOR (porque user.driver_enrollment
+        # != 3), forzamos a PRESTADOR + Piloto Pibox basado en el motivo.
+        cfg = MotivoMapper.inferir_lado_y_servicio(r["motivo_mapeado"])
+        case cfg[:lado]
+        when :prestador
+          r["quien_suspende"] = "USUARIO PRESTADOR"
+          # Refinar tipo_cuenta por servicio del motivo
+          r["tipo_cuenta"] = case cfg[:servicio]
+                             when :pibox then "Piloto Pibox"
+                             when :rent  then "Piloto Rent"
+                             else
+                               # General: usar service_types_raw si está; sino Pibox default
+                               st = r["service_types"].to_s.downcase
+                               if st.include?("pibox") && st.include?("rent")
+                                 "Piloto Pibox+Rent"
+                               elsif st.include?("rent")
+                                 "Piloto Rent"
+                               else
+                                 "Piloto Pibox"
+                               end
+                             end
+        when :consumidor
+          r["quien_suspende"] = "USUARIO CONSUMIDOR"
+          r["tipo_cuenta"]    = "Pasajero"
+        when :ambiguo
+          # Mantener clasificación enrollment-based de la query (sin cambios)
+        end
+
         # Veredicto: EXPULSADO es permanente, SUSPENDIDO se evalúa con regla 30 días
         dias       = r["dias_bloqueado_total"].to_i
         tipo_blq   = r["tipo_bloqueo"].to_s

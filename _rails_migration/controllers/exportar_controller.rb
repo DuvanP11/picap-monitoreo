@@ -195,6 +195,28 @@ module Api
             comentario_expulsion_user: r["comentario_expulsion_user"],
           )
         end
+        # v2.6: override quien_suspende y tipo_cuenta si el motivo es inequívoco
+        cfg = MotivoMapper.inferir_lado_y_servicio(r["motivo_mapeado"])
+        case cfg[:lado]
+        when :prestador
+          r["quien_suspende"] = "USUARIO PRESTADOR"
+          r["tipo_cuenta"] = case cfg[:servicio]
+                             when :pibox then "Piloto Pibox"
+                             when :rent  then "Piloto Rent"
+                             else
+                               st = r["service_types"].to_s.downcase
+                               if st.include?("pibox") && st.include?("rent")
+                                 "Piloto Pibox+Rent"
+                               elsif st.include?("rent")
+                                 "Piloto Rent"
+                               else
+                                 "Piloto Pibox"
+                               end
+                             end
+        when :consumidor
+          r["quien_suspende"] = "USUARIO CONSUMIDOR"
+          r["tipo_cuenta"]    = "Pasajero"
+        end
         dias = r["dias_bloqueado_total"].to_i
         tipo_blq = r["tipo_bloqueo"].to_s
         if tipo_blq == "EXPULSADO"
