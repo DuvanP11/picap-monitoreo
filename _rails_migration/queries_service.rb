@@ -1524,6 +1524,9 @@ module QueriesService
   # Filtro temporal: created_at de la SUSPENSIÓN dentro del rango (no del user).
   Q_BLOQUEOS = <<~'SQL'
     WITH
+    -- v2.5: incluye `message` (motivo de ESTA suspension), `permanent` (true=expulsion),
+    -- `rule_id` (FK a regla). Antes usabamos comentarios del passengers table (user-level)
+    -- y p.expelled global → ahora la clasificacion es per-suspension.
     ps_susp AS (
         SELECT
             toString(_id)                                    AS suspension_id,
@@ -1533,7 +1536,13 @@ module QueriesService
             ends_at                                          AS ends_block,
             updated_at                                       AS reactivado_en,
             ''                                               AS service_types_raw,
-            'USUARIO CONSUMIDOR'                             AS quien_suspende
+            'USUARIO CONSUMIDOR'                             AS quien_suspende_origen,
+            ifNull(message, '')                              AS message,
+            multiIf(
+                lower(ifNull(permanent, '')) IN ('true', '1'), 1,
+                0
+            )                                                AS permanent_flag,
+            ifNull(rule_id, '')                              AS rule_id
         FROM picapmongoprod.passenger_suspensions
         WHERE created_at BETWEEN toDateTime('%{fecha_desde} 00:00:00')
                              AND toDateTime('%{fecha_hasta} 23:59:59')
@@ -1547,7 +1556,13 @@ module QueriesService
             ends_at                                          AS ends_block,
             updated_at                                       AS reactivado_en,
             ifNull(toString(suspended_service_types), '')    AS service_types_raw,
-            'USUARIO PRESTADOR'                              AS quien_suspende
+            'USUARIO PRESTADOR'                              AS quien_suspende_origen,
+            ifNull(message, '')                              AS message,
+            multiIf(
+                ifNull(permanent, false) = true, 1,
+                0
+            )                                                AS permanent_flag,
+            ifNull(rule_id, '')                              AS rule_id
         FROM picapmongoprod.driver_suspensions
         WHERE created_at BETWEEN toDateTime('%{fecha_desde} 00:00:00')
                              AND toDateTime('%{fecha_hasta} 23:59:59')
@@ -1575,13 +1590,14 @@ module QueriesService
         ifNull(p.driver_suspension_comment, '')          AS comentario_driver,
         dateDiff('day', toDate(s.fecha_suspension_dt), today()) AS dias_suspension_driver,
         ifNull(toString(p.expelled), '')                 AS expulsado,
-        -- tipo_bloqueo a nivel de SUSPENSION:
-        --   EXPULSADO si user.expelled=true (la expulsión es a nivel user, no suspensión).
-        --   Si no, SUSPENDIDO (esta suspensión es un evento de suspensión).
-        --   ACTIVO solo si el user ya está totalmente activo Y la suspensión es vieja.
+        -- v2.5: tipo_bloqueo ahora a nivel de SUSPENSION (no de USER):
+        --   permanent=true → EXPULSADO (la suspensión específica es permanente)
+        --   permanent=false → SUSPENDIDO (temporal)
+        -- Antes (v2.4) usábamos p.expelled global, que marcaba como EXPULSADO
+        -- TODAS las suspensiones de un user actualmente expulsado, incluso
+        -- las suspensiones temporales históricas.
         multiIf(
-            lower(ifNull(toString(p.expelled),'')) = 'true',
-            'EXPULSADO',
+            s.permanent_flag = 1, 'EXPULSADO',
             'SUSPENDIDO'
         ) AS tipo_bloqueo,
         CASE
@@ -1589,21 +1605,17 @@ module QueriesService
             ELSE 'USUARIO'
         END AS tipo_usuario,
         -- v2.4: quien_suspende deriva del ENROLLMENT del user, no de la tabla
-        -- origen de la suspensión (data dirty en Mongo: un piloto puede tener
-        -- record en passenger_suspensions y viceversa, por bugs de migración).
-        -- El comentario en api.py linea 968-971 lo deja explícito:
-        --   "la tabla donde está el registro NO siempre coincide con el tipo
-        --    de cuenta — un USUARIO puede tener record en driver_suspensions"
-        -- Tu Excel reporta 339 PRESTADOR : 35 CONSUMIDOR (10:1 piloto), pero
-        -- las tablas en CH tienen 234 ds + 227 ps (1:1). Por eso clasificamos
-        -- por enrollment, no por tabla.
+        -- origen de la suspensión (data dirty en Mongo).
         CASE
             WHEN p.driver_enrollment_status_cd = 3 THEN 'USUARIO PRESTADOR'
             ELSE 'USUARIO CONSUMIDOR'
         END AS quien_suspende,
-        -- quien_suspende_tabla: indicador "raw" de la tabla de origen, para
-        -- debugging y para que el Excel exportado tenga visibilidad.
-        s.quien_suspende                                 AS quien_suspende_tabla,
+        -- quien_suspende_origen: indicador "raw" de la tabla de origen (ps/ds).
+        s.quien_suspende_origen                          AS quien_suspende_tabla,
+        -- v2.5: nuevos campos per-suspensión
+        s.message                                        AS message_suspension,
+        s.permanent_flag                                 AS permanent_flag,
+        s.rule_id                                        AS rule_id,
         s.service_types_raw                              AS service_types,
         -- tipo_cuenta basado en quien_suspende (enrollment-based) + service_types:
         multiIf(

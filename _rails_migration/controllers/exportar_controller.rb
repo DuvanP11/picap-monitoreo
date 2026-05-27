@@ -183,13 +183,18 @@ module Api
         r["pais_nombre"] = MotivoMapper::PAISES_MAP[r["pais_codigo"]] || r["pais_codigo"]
         # v2.1: normalizar ciudad (Bogotá variants → "Bogotá")
         r["ciudad"] = MotivoMapper.normalizar_ciudad(r["ciudad"])
-        # v2.3: motivo ESTRICTO (sin fallback cruzado opposite-side)
-        r["motivo_mapeado"] = MotivoMapper.mapear_estricto(
-          r["quien_suspende"],
-          comentario_driver: r["comentario_driver"],
-          comentario_user:   r["comentario_user"],
-          comentario_expulsion_user: r["comentario_expulsion_user"],
-        )
+        # v2.5: motivo desde `message` per-suspensión, fallback estricto a user-level
+        raw_message = r["message_suspension"].to_s.strip
+        r["motivo_mapeado"] = if !raw_message.empty?
+          MotivoMapper.mapear(raw_message)
+        else
+          MotivoMapper.mapear_estricto(
+            r["quien_suspende"],
+            comentario_driver: r["comentario_driver"],
+            comentario_user:   r["comentario_user"],
+            comentario_expulsion_user: r["comentario_expulsion_user"],
+          )
+        end
         dias = r["dias_bloqueado_total"].to_i
         tipo_blq = r["tipo_bloqueo"].to_s
         if tipo_blq == "EXPULSADO"
@@ -205,13 +210,13 @@ module Api
       bloqueados  = rows.select { |r| r["esta_activo"] == "bloqueado" }
       reactivados = rows.select { |r| r["esta_activo"] == "activo" }
 
-      # v2.2: nuevas columnas Suspension ID y A QUIEN SE SUSPENDE
+      # v2.5: incluye Permanente (per-suspension) y Mensaje (raw from suspension table)
       headers_detalle = [
         "Suspensión ID", "Fecha", "ID Usuario", "Nombre",
         "A Quien Suspende", "Tipo Usuario", "Tipo de Cuenta",
-        "Service Types", "País", "Ciudad", "Tipo Bloqueo", "Veredicto",
-        "Días bloqueado", "Motivo", "Comentario driver", "Comentario user",
-        "Expulsado", "Activo",
+        "Service Types", "País", "Ciudad", "Tipo Bloqueo", "Permanente", "Veredicto",
+        "Días bloqueado", "Motivo", "Mensaje (raw)", "Comentario driver", "Comentario user",
+        "Expulsado (user)", "Activo",
       ].freeze
 
       build_data_row = ->(r) {
@@ -227,9 +232,11 @@ module Api
           r["pais_nombre"].to_s,
           r["ciudad"].to_s,
           r["tipo_bloqueo"].to_s,
+          r["permanent_flag"].to_i == 1 ? "Sí" : "No",
           r["veredicto"].to_s,
           r["dias_bloqueado_total"].to_i,
           r["motivo_mapeado"].to_s,
+          r["message_suspension"].to_s[0, 300],
           r["comentario_driver"].to_s[0, 300],
           r["comentario_user"].to_s[0, 300],
           r["expulsado"].to_s,
@@ -243,7 +250,7 @@ module Api
           s.banner("Alertas de Bloqueo",
                    "Período: #{desde} → #{hasta}  ·  Registros: #{alertas.size}", 16)
           s.headers(headers_detalle)
-          alertas.each { |r| s.data_row(build_data_row.(r), right_align: [13]) }
+          alertas.each { |r| s.data_row(build_data_row.(r), right_align: [14]) }
           s.finalize(freeze_row: 4)
         end
 
@@ -252,7 +259,7 @@ module Api
           s.banner("Cuentas Actualmente Bloqueadas",
                    "Período: #{desde} → #{hasta}  ·  Registros: #{bloqueados.size}", 16)
           s.headers(headers_detalle)
-          bloqueados.each { |r| s.data_row(build_data_row.(r), right_align: [13]) }
+          bloqueados.each { |r| s.data_row(build_data_row.(r), right_align: [14]) }
           s.finalize(freeze_row: 4)
         end
 
@@ -261,7 +268,7 @@ module Api
           s.banner("Cuentas Reactivadas",
                    "Período: #{desde} → #{hasta}  ·  Registros: #{reactivados.size}", 16)
           s.headers(headers_detalle)
-          reactivados.each { |r| s.data_row(build_data_row.(r), right_align: [13]) }
+          reactivados.each { |r| s.data_row(build_data_row.(r), right_align: [14]) }
           s.finalize(freeze_row: 4)
         end
 
