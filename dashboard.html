@@ -6526,6 +6526,14 @@ function aplicarRol() {
     const el = document.getElementById(id);
     if(el) el.style.display = roles.includes(rol) ? '' : 'none';
   });
+  // v3.3.19: tabs sensibles del Panel Admin (Usuarios, Consola, Auditoría/Logs)
+  // SOLO visibles para admin. Forzamos la visibilidad cada vez que se aplica rol
+  // para no perder los tabs si irMiCronograma() o algo los ocultó antes.
+  const TABS_ADMIN_ONLY = ['admin-tab-users','admin-tab-console','admin-tab-audit'];
+  TABS_ADMIN_ONLY.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (rol === 'admin') ? '' : 'none';
+  });
   // v3.3.16: ajustes finos en home Productividad — ocultar items según permisos.
   ajustarHomeProductividad(rol);
 }
@@ -13404,20 +13412,15 @@ function aplicarRolCards(rol) {
   });
 }
 
-// v3.3.15: lleva al cronograma del Panel Admin sin requerir rol admin.
-// Para no-admin, ocultamos tabs sensibles (Usuarios, Consola, Auditoría)
-// dejando solo Cronograma + Calendario + Recursos.
+// v3.3.15/19: lleva al cronograma del Panel Admin sin requerir rol admin.
+// La visibilidad de los tabs sensibles (Usuarios/Consola/Auditoría/Logs) la
+// maneja aplicarRol() centralmente — admin SIEMPRE los ve, no-admin no.
+// Acá solo navegamos y activamos el tab Cronograma.
 function irMiCronograma() {
   switchView('admin');
+  // Re-aplicar rol para garantizar la visibilidad correcta de los tabs.
+  aplicarRol();
   setTimeout(() => {
-    // Esconder tabs sensibles si no es admin (defensa adicional)
-    if (_sesionRol !== 'admin') {
-      ['admin-tab-users','admin-tab-console','admin-tab-audit'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
-      });
-    }
-    // Activar el tab "Cronograma"
     if (typeof switchAdminTab === 'function') {
       switchAdminTab('cron');
     } else {
