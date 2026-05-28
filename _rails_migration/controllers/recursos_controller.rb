@@ -208,6 +208,10 @@ module Api
       }
       ahora_iso = Time.now.utc.strftime("%Y-%m-%d %H:%M:%S")
       ch.query(insert_sql(rid, data, r["creado_en"], ahora_iso, r["creado_por"], r["activo"].to_i))
+      # v3.3.17: notificación por email a los NUEVOS destinatarios
+      emails_previos = (r["compartido_con"] || "").to_s.split(",").map(&:strip).map(&:downcase).reject(&:empty?)
+      nuevos = emails_validos - emails_previos
+      notificar_compartido(r["titulo"], r["tipo"], r["categoria"], r["url"], nuevos) if nuevos.any?
       render json: { ok: true, visibilidad: vis, compartido_con: emails_validos }
     rescue => e
       render json: { ok: false, error: e.message }, status: :internal_server_error
@@ -229,6 +233,7 @@ module Api
 
       forzar_privado = !!params[:forzar_privado]
       afectados = 0
+      recursos_nuevos = []  # v3.3.17: lista de recursos donde ESTE email es nuevo destinatario
       ahora_iso = Time.now.utc.strftime("%Y-%m-%d %H:%M:%S")
       rids.each do |rid|
         next unless rid.match?(/\A[0-9a-f-]+\z/i)
@@ -240,7 +245,8 @@ module Api
         SQL
         next unless r
         actuales = (r["compartido_con"] || "").to_s.split(",").map(&:strip).map(&:downcase).reject(&:empty?)
-        actuales << email unless actuales.include?(email)
+        es_nuevo = !actuales.include?(email)
+        actuales << email if es_nuevo
         vis = forzar_privado ? "privado" : (r["visibilidad"] || "publico")
         data = {
           titulo: r["titulo"], descripcion: r["descripcion"],
@@ -250,7 +256,10 @@ module Api
         }
         ch.query(insert_sql(rid, data, r["creado_en"], ahora_iso, r["creado_por"], r["activo"].to_i))
         afectados += 1
+        recursos_nuevos << r if es_nuevo
       end
+      # v3.3.17: una sola notificación con los N recursos nuevos compartidos
+      notificar_compartido_bulk(email, u["nombre"], recursos_nuevos) if recursos_nuevos.any?
       render json: { ok: true, afectados: afectados,
                      destinatario: { email: email, usuario: u["usuario"], nombre: u["nombre"] } }
     rescue => e
@@ -316,6 +325,129 @@ module Api
       return true if recurso["creado_por"] == current_usuario
       emails = (recurso["compartido_con"] || "").to_s.split(",").map(&:strip).map(&:downcase)
       email_actual.present? && emails.include?(email_actual)
+    end
+
+    # v3.3.17: notifica vía email a los nuevos destinatarios de UN recurso.
+    # Cada email es independiente — usa Thread para no bloquear el response.
+    def notificar_compartido(titulo, tipo, categoria, url, emails)
+      compartido_por = current_usuario.to_s
+      Thread.new do
+        begin
+          html = construir_html_share_uno(titulo, tipo, categoria, url, compartido_por)
+          subject = "📚 Picap Monitoreo · Te compartieron un recurso: #{titulo}"
+          emails.each do |to|
+            begin
+              ResendMailerService.send_email(to: to, subject: subject, html: html)
+            rescue => e
+              Rails.logger.warn("[RecursosController] no se pudo enviar a #{to}: #{e.message}")
+            end
+          end
+        rescue => e
+          Rails.logger.error("[RecursosController#notificar_compartido] #{e.class}: #{e.message}")
+        end
+      end
+    end
+
+    # v3.3.17: notifica una sola vez con la lista de N recursos compartidos.
+    def notificar_compartido_bulk(email, nombre, recursos)
+      compartido_por = current_usuario.to_s
+      Thread.new do
+        begin
+          html = construir_html_share_bulk(nombre, recursos, compartido_por)
+          subject = recursos.size == 1 \
+            ? "📚 Picap Monitoreo · Te compartieron un recurso: #{recursos.first['titulo']}" \
+            : "📚 Picap Monitoreo · Te compartieron #{recursos.size} recursos"
+          ResendMailerService.send_email(to: email, subject: subject, html: html)
+        rescue => e
+          Rails.logger.warn("[RecursosController#notificar_compartido_bulk] #{e.class}: #{e.message}")
+        end
+      end
+    end
+
+    def construir_html_share_uno(titulo, tipo, categoria, url, compartido_por)
+      tipo_emoji = { "query" => "🔍", "enlace" => "🔗", "excel" => "📊", "nota" => "📝" }[tipo.to_s] || "📄"
+      url_html = (url.to_s.empty? || tipo.to_s == "nota") ? "" :
+        %Q(<a href="#{ERB::Util.h(url)}" style="display:inline-block;background:#7c3aed;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:14px">🔗 Abrir recurso</a>)
+      portal_url = "https://monitoring.picap.io"
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#F5F3FF;color:#1F2937;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:20px 0">
+            <tr><td align="center">
+              <table cellpadding="0" cellspacing="0" border="0" width="600" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+                <tr><td style="background:linear-gradient(90deg,#7c3aed,#5b21b6);padding:24px 28px;color:#fff">
+                  <div style="font-size:20px;font-weight:700">📚 Te compartieron un recurso</div>
+                  <div style="font-size:12px;opacity:0.92;margin-top:4px">Biblioteca de Recursos · Picap Monitoreo</div>
+                </td></tr>
+                <tr><td style="padding:28px">
+                  <p style="margin:0 0 16px;font-size:14px">Hola,</p>
+                  <p style="margin:0 0 16px;font-size:14px;line-height:1.5"><strong>#{ERB::Util.h(compartido_por)}</strong> te compartió un nuevo recurso en la Biblioteca de Recursos del portal de monitoreo:</p>
+                  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;border-left:4px solid #7c3aed;padding:16px;border-radius:4px;margin:12px 0">
+                    <tr><td>
+                      <div style="font-size:16px;font-weight:700;color:#1F2937">#{tipo_emoji} #{ERB::Util.h(titulo)}</div>
+                      #{categoria.to_s.empty? ? "" : %Q(<div style="font-size:12px;color:#6B7280;margin-top:4px">Categoría: <strong>#{ERB::Util.h(categoria)}</strong></div>)}
+                    </td></tr>
+                  </table>
+                  #{url_html}
+                  <p style="margin:24px 0 0;color:#6B7280;font-size:12px;line-height:1.5">También podés verlo entrando al portal en <a href="#{portal_url}" style="color:#7c3aed">monitoring.picap.io</a> → Biblioteca de Recursos.</p>
+                </td></tr>
+                <tr><td style="background:#F9FAFB;padding:12px 28px;text-align:center;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">
+                  Notificación automática · <strong style="color:#7c3aed">Picap Monitoreo</strong>
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </body></html>
+      HTML
+    end
+
+    def construir_html_share_bulk(nombre, recursos, compartido_por)
+      portal_url = "https://monitoring.picap.io"
+      filas = recursos.map { |r|
+        tipo = r["tipo"].to_s
+        tipo_emoji = { "query" => "🔍", "enlace" => "🔗", "excel" => "📊", "nota" => "📝" }[tipo] || "📄"
+        url_link = (r["url"].to_s.empty? || tipo == "nota") ? "" :
+          %Q(<a href="#{ERB::Util.h(r['url'])}" style="color:#7c3aed;text-decoration:none">↗ Abrir</a>)
+        <<~ROW
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #E5E7EB">
+              <div style="font-size:14px;font-weight:700;color:#1F2937">#{tipo_emoji} #{ERB::Util.h(r['titulo'])}</div>
+              <div style="font-size:11px;color:#6B7280;margin-top:2px">#{ERB::Util.h(r['categoria'].to_s)} · #{tipo}</div>
+            </td>
+            <td style="padding:10px 12px;border-bottom:1px solid #E5E7EB;text-align:right;font-size:12px">#{url_link}</td>
+          </tr>
+        ROW
+      }.join
+
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#F5F3FF;color:#1F2937;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:20px 0">
+            <tr><td align="center">
+              <table cellpadding="0" cellspacing="0" border="0" width="640" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+                <tr><td style="background:linear-gradient(90deg,#7c3aed,#5b21b6);padding:24px 28px;color:#fff">
+                  <div style="font-size:20px;font-weight:700">📚 Te compartieron #{recursos.size} recurso#{recursos.size == 1 ? '' : 's'}</div>
+                  <div style="font-size:12px;opacity:0.92;margin-top:4px">Biblioteca de Recursos · Picap Monitoreo</div>
+                </td></tr>
+                <tr><td style="padding:28px">
+                  <p style="margin:0 0 12px;font-size:14px">Hola #{ERB::Util.h(nombre || '')},</p>
+                  <p style="margin:0 0 16px;font-size:14px;line-height:1.5"><strong>#{ERB::Util.h(compartido_por)}</strong> te compartió #{recursos.size} recurso#{recursos.size == 1 ? '' : 's'} en la Biblioteca del portal de monitoreo:</p>
+                  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #E5E7EB;border-radius:6px;border-collapse:separate;border-spacing:0;margin:12px 0">
+                    #{filas}
+                  </table>
+                  <a href="#{portal_url}" style="display:inline-block;background:#7c3aed;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:14px">📚 Ver en el portal</a>
+                  <p style="margin:24px 0 0;color:#6B7280;font-size:12px;line-height:1.5">Tip: en el portal podés filtrar la biblioteca por tipo, categoría o buscar por nombre.</p>
+                </td></tr>
+                <tr><td style="background:#F9FAFB;padding:12px 28px;text-align:center;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">
+                  Notificación automática · <strong style="color:#7c3aed">Picap Monitoreo</strong>
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </body></html>
+      HTML
     end
   end
 end

@@ -93,10 +93,11 @@ Rails.application.routes.draw do
 
     # Admin
     namespace :admin do
-      get    "usuarios",        to: "/api/admin#usuarios"
-      post   "editar_usuario",  to: "/api/admin#editar_usuario"
-      post   "eliminar_usuario",to: "/api/admin#eliminar_usuario"
-      post   "asignar_rol",     to: "/api/admin#asignar_rol"
+      get    "usuarios",                 to: "/api/admin#usuarios"
+      get    "usuario/:usuario/perfil",  to: "/api/admin#usuario_perfil"
+      post   "editar_usuario",           to: "/api/admin#editar_usuario"
+      post   "eliminar_usuario",         to: "/api/admin#eliminar_usuario"
+      post   "asignar_rol",              to: "/api/admin#asignar_rol"
     end
 
     # Calendario (GET para listar, POST para notificar)

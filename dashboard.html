@@ -4200,6 +4200,25 @@ window.fetch = function(url, opts) {
     </div>
   </div>
 
+  <!-- v3.3.17: Modal Ver perfil (Panel Admin → Usuarios) -->
+  <div id="modal-ver-perfil" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+    <div style="background:#fff;width:90%;max-width:480px;max-height:90vh;overflow-y:auto;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.3)">
+      <div style="background:linear-gradient(90deg,#7c3aed 0%,#5b21b6 100%);color:#fff;padding:18px 22px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:16px;font-weight:700">👤 Perfil del usuario</div>
+          <div style="font-size:11px;opacity:0.9;margin-top:2px">Vista exclusiva del administrador</div>
+        </div>
+        <button onclick="cerrarModalVerPerfil()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer">✕</button>
+      </div>
+      <div id="ver-perfil-content" style="padding:22px">
+        <div style="text-align:center;padding:36px;color:var(--text3)">Cargando...</div>
+      </div>
+      <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
+        <button onclick="cerrarModalVerPerfil()" style="padding:8px 16px;background:#fff;border:1.5px solid var(--border);border-radius:8px;color:var(--text1);font-weight:600;cursor:pointer;font-size:13px">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ VISTA: MOVIIRED (admin / monitoreo / financiero) ══ -->
   <div class="view" id="view-moviired">
     <div class="wrap">
@@ -9215,13 +9234,17 @@ async function cargarUsuarios() {
     const d = await r.json();
     if(!d.ok) throw new Error(d.error||'Error');
     const roles = ['admin','monitoreo','financiero','sac','pibox','pendiente'];
+    // v3.3.17: mostrar foto de perfil si la subió, sino las iniciales.
     const cards = d.usuarios.map(u => {
       const initials = (u.nombre||u.usuario||'U').slice(0,2).toUpperCase();
       const rolColor = {'admin':'#6b21a8','monitoreo':'#1d4ed8','financiero':'#047857',
                         'sac':'#b45309','pibox':'#0e7490','pendiente':'#6b7280'}[u.rol] || '#6b7280';
+      const avatarHtml = u.tiene_foto
+        ? `<img src="${u.foto_perfil}" alt="Foto" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+        : initials;
       return `
       <div class="admin-user-card">
-        <div class="admin-user-avatar" style="background:${rolColor}">${initials}</div>
+        <div class="admin-user-avatar" style="background:${rolColor};overflow:hidden;cursor:pointer" onclick="verPerfilUsuario('${u.usuario}')" title="Ver perfil completo">${avatarHtml}</div>
         <div class="admin-user-info">
           <div class="admin-user-name">${u.nombre||'—'}</div>
           <div class="admin-user-email">👤 ${u.usuario} · ✉️ ${u.email||'Sin email'}</div>
@@ -9233,6 +9256,7 @@ async function cargarUsuarios() {
                    font-size:10px;background:var(--surface);margin-right:4px;">
             ${roles.map(ro => `<option value="${ro}" ${u.rol===ro?'selected':''}>${ro}</option>`).join('')}
           </select>
+          <button class="admin-btn-edit" onclick="verPerfilUsuario('${u.usuario}')" style="background:#0e7490" title="Ver perfil completo">👁 Ver perfil</button>
           <button class="admin-btn-edit" onclick="editarUsuario('${u.usuario}','${u.nombre||''}','${u.email||''}')">✏️ Editar</button>
           <button class="admin-btn-delete" onclick="eliminarUsuario('${u.usuario}')">🗑️ Eliminar</button>
         </div>
@@ -9244,6 +9268,68 @@ async function cargarUsuarios() {
     document.getElementById('admin-users-content').innerHTML =
       `<div style="color:#ef4444;padding:16px">Error: ${e.message}</div>`;
   }
+}
+
+// v3.3.17: Ver perfil completo de un usuario (solo admin).
+async function verPerfilUsuario(usuario) {
+  if (_sesionRol !== 'admin') { alert('Solo el rol admin puede ver perfiles.'); return; }
+  const modal   = document.getElementById('modal-ver-perfil');
+  const content = document.getElementById('ver-perfil-content');
+  if (!modal || !content) return;
+  content.innerHTML = '<div style="text-align:center;padding:36px;color:var(--text3)">Cargando...</div>';
+  modal.style.display = 'flex';
+  try {
+    const r = await fetch(`${API}/api/admin/usuario/${encodeURIComponent(usuario)}/perfil`, {
+      headers: {'X-Token': _sesionToken},
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'No se pudo cargar el perfil');
+    const p = d.perfil;
+    const s = d.stats || {};
+    const initials = (p.nombre||p.usuario||'U').slice(0,2).toUpperCase();
+    const rolColor = {'admin':'#6b21a8','monitoreo':'#1d4ed8','financiero':'#047857',
+                      'sac':'#b45309','pibox':'#0e7490','pendiente':'#6b7280'}[p.rol] || '#6b7280';
+    const avatarHtml = p.tiene_foto
+      ? `<img src="${p.foto_perfil}" alt="Foto" style="width:120px;height:120px;border-radius:50%;object-fit:cover;display:block">`
+      : `<div style="width:120px;height:120px;border-radius:50%;background:${rolColor};color:#fff;display:flex;align-items:center;justify-content:center;font-size:42px;font-weight:700">${initials}</div>`;
+    content.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:18px">
+        ${avatarHtml}
+        <div style="font-size:20px;font-weight:700;color:var(--text1);margin-top:14px">${p.nombre||'—'}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${p.email||'(sin email)'}</div>
+        <div style="margin-top:8px"><span style="background:${rolColor}20;color:${rolColor};padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase">${p.rol}</span></div>
+      </div>
+      <div style="background:#F5F3FF;border:1px solid #d8c4ff;border-radius:8px;padding:14px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:700;color:#5a2bb8;margin-bottom:8px;letter-spacing:0.5px">📋 INFORMACIÓN DE CUENTA</div>
+        <div style="font-size:13px;line-height:1.7">
+          <div><strong>Usuario:</strong> <code style="background:#fff;padding:2px 6px;border-radius:3px;font-size:11px">${p.usuario}</code></div>
+          <div><strong>Estado:</strong> ${p.activo ? '<span style="color:#16a34a;font-weight:600">● Activo</span>' : '<span style="color:#dc2626;font-weight:600">○ Inactivo</span>'}</div>
+          <div><strong>Foto de perfil:</strong> ${p.tiene_foto ? '<span style="color:#16a34a">✓ Subida</span>' : '<span style="color:var(--text3)">No subió foto</span>'}</div>
+          <div><strong>Registrado:</strong> ${p.creado_en || '—'}</div>
+        </div>
+      </div>
+      <div style="background:#fff7e6;border:1px solid #f3eaff;border-radius:8px;padding:14px">
+        <div style="font-size:11px;font-weight:700;color:#b45309;margin-bottom:8px;letter-spacing:0.5px">📊 ACTIVIDAD EN EL PORTAL</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:110px;text-align:center;background:#fff;padding:10px;border-radius:6px">
+            <div style="font-size:22px;font-weight:700;color:#7c3aed">${s.tareas_cronograma || 0}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">Tareas en cronograma</div>
+          </div>
+          <div style="flex:1;min-width:110px;text-align:center;background:#fff;padding:10px;border-radius:6px">
+            <div style="font-size:22px;font-weight:700;color:#0e7490">${s.recursos_creados || 0}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">Recursos creados</div>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    content.innerHTML = `<div style="color:#dc2626;text-align:center;padding:24px">❌ ${err.message}</div>`;
+  }
+}
+
+function cerrarModalVerPerfil() {
+  const m = document.getElementById('modal-ver-perfil');
+  if (m) m.style.display = 'none';
 }
 
 function editarUsuario(usuario, nombre, email) {
