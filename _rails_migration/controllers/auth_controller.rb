@@ -128,21 +128,29 @@ module Api
     public
 
     # POST /api/register
+    # v3.3.18: registro PÚBLICO (sin autenticación previa). Cualquier
+    # persona puede registrarse y queda con rol 'pendiente' hasta que
+    # un admin le asigne un rol real desde el Panel de Administración.
+    # Antes exigía sesión admin lo cual hacía imposible registrarse
+    # desde la pantalla de login → 'Sesión expirada o inválida'.
     def register
-      return unless authenticate_user!
-      return unless require_admin!
-
       usuario  = params[:usuario].to_s.strip.downcase
       password = params[:password].to_s.strip
       nombre   = params[:nombre].to_s.strip
-      email    = params[:email].to_s.strip
-      rol      = params[:rol].to_s.strip
+      email    = params[:email].to_s.strip.downcase
 
-      return render json: { ok: false, error: "Todos los campos son requeridos" } if [usuario, password, nombre, rol].any?(&:blank?)
+      # v3.3.18: ya no aceptamos rol del body. El registro siempre crea
+      # con rol 'pendiente'. Solo admin puede cambiarlo desde el panel.
+      rol = "pendiente"
+
+      return render json: { ok: false, error: "Todos los campos son requeridos" } if [usuario, password, nombre].any?(&:blank?)
+      return render json: { ok: false, error: "La contraseña debe tener al menos 6 caracteres" } if password.length < 6
+      return render json: { ok: false, error: "Email inválido" } unless email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
+      return render json: { ok: false, error: "El usuario solo puede contener letras, números, puntos y guiones bajos" } unless usuario.match?(/\A[a-z0-9._]+\z/)
 
       # Verificar que no existe
       existente = ch.query(QueriesService.format(QueriesService::Q_USER_BY_USUARIO, usuario: usuario))
-      return render json: { ok: false, error: "El usuario ya existe" } if existente.any?
+      return render json: { ok: false, error: "Ese usuario ya está en uso. Probá otro." } if existente.any?
 
       hash = AuthService.hash_password(password)
       ch.query(<<~SQL)
@@ -152,11 +160,18 @@ module Api
           ('#{usuario}', '#{hash}', '#{nombre}', '#{email}', '#{rol}', now(), 1)
       SQL
 
-      # v3.3.17: notificar nuevo registro a equipo de verificaciones
-      notificar_nuevo_registro(usuario: usuario, nombre: nombre, email: email, rol: rol, registrado_por: current_usuario)
+      # v3.3.17/18: notificar nuevo registro a equipo de verificaciones.
+      notificar_nuevo_registro(
+        usuario: usuario, nombre: nombre, email: email, rol: rol,
+        registrado_por: "(registro público desde portal)",
+      )
 
-      render json: { ok: true, mensaje: "Usuario #{usuario} creado correctamente" }
+      render json: {
+        ok: true,
+        mensaje: "Cuenta creada correctamente. Un administrador asignará tu rol en breve. Ya podés iniciar sesión.",
+      }
     rescue => e
+      Rails.logger.error("[AuthController#register] #{e.class}: #{e.message}")
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
