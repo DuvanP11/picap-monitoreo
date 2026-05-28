@@ -1064,6 +1064,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
 .home-module-card-icon.admin{background:linear-gradient(135deg,#0e7490,#0369a1);}
 .home-module-card-icon.financiero{background:linear-gradient(135deg,#059669,#047857);}
 .home-module-card-icon.pivots{background:linear-gradient(135deg,#b45309,#92400e);}
+.home-module-card-icon.informes{background:linear-gradient(135deg,#db2777,#9d174d);}
+.home-module-card-icon.productividad{background:linear-gradient(135deg,#2563eb,#1e40af);}
 .home-module-card-name{font-size:18px;font-weight:800;color:var(--text1);}
 .home-module-card-count{font-size:11px;color:var(--text3);margin-top:2px;}
 .home-module-options{display:flex;flex-direction:column;gap:8px;}
@@ -2650,6 +2652,71 @@ window.fetch = function(url, opts) {
             </div>
           </div>
           <div class="home-module-card-footer">🔹 Rol Pibox — Auditorías y recaudos</div>
+        </div>
+
+        <!-- ── INFORMES ──────────────────────────────────── -->
+        <!-- v3.3.15: agrupa los reportes ejecutivos (OPS CV, Dispersiones, MoviiRed) -->
+        <div class="home-module-card" id="hcard-informes-mod" style="display:none">
+          <div class="home-module-card-top">
+            <div class="home-module-card-icon informes">📑</div>
+            <div>
+              <div class="home-module-card-name">Informes</div>
+              <div class="home-module-card-count">Reportes ejecutivos y envío por email</div>
+            </div>
+          </div>
+          <div class="home-module-options">
+            <div class="home-module-option" onclick="switchView('reporte_ops_cv')">
+              <span class="home-module-option-icon">🚀</span>
+              <span class="home-module-option-label">Reporte OPS CV — Cruz Verde Pibox</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+            <div class="home-module-option" onclick="switchView('dispersiones')">
+              <span class="home-module-option-icon">💸</span>
+              <span class="home-module-option-label">Dispersiones — Daviplata CashOut</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+            <div class="home-module-option" onclick="switchView('moviired')">
+              <span class="home-module-option-icon">💎</span>
+              <span class="home-module-option-label">MoviiRed — Comisiones</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+            <div class="home-module-option" onclick="switchView('informes')">
+              <span class="home-module-option-icon">📂</span>
+              <span class="home-module-option-label">Ver todos los informes →</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+          </div>
+          <div class="home-module-card-footer">🔹 Excel y email para terceros · admin/monitoreo/financiero</div>
+        </div>
+
+        <!-- ── PRODUCTIVIDAD ─────────────────────────────── -->
+        <!-- v3.3.15: tu espacio personal — visible para todos los autenticados -->
+        <div class="home-module-card" id="hcard-productividad-mod" style="display:none">
+          <div class="home-module-card-top">
+            <div class="home-module-card-icon productividad">🗓️</div>
+            <div>
+              <div class="home-module-card-name">Productividad</div>
+              <div class="home-module-card-count">Tu agenda, recursos y vista 360</div>
+            </div>
+          </div>
+          <div class="home-module-options">
+            <div class="home-module-option" onclick="irMiCronograma()">
+              <span class="home-module-option-icon">📅</span>
+              <span class="home-module-option-label">Mi Cronograma</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+            <div class="home-module-option" onclick="switchView('recursos')">
+              <span class="home-module-option-icon">📚</span>
+              <span class="home-module-option-label">Biblioteca de Recursos</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+            <div class="home-module-option" onclick="switchView('resumen-general')">
+              <span class="home-module-option-icon">📊</span>
+              <span class="home-module-option-label">Resumen 360</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+          </div>
+          <div class="home-module-card-footer">🔹 Tu espacio personal · disponible para todos</div>
         </div>
 
       </div>
@@ -6385,13 +6452,15 @@ function aplicarRol() {
   const adminNav = document.getElementById('nav-admin');
   if(adminNav) adminNav.style.display = (rol === 'admin') ? 'flex' : 'none';
 
-  // ── 5 módulos del home según rol ──
+  // ── Módulos del home según rol (v3.3.15: + Informes, + Productividad) ──
   const HOME_ROLES = {
-    'hcard-admin-mod':     ['admin'],
-    'hcard-sac':           ['admin','sac'],
-    'hcard-financiero-mod':['admin','financiero'],
-    'hcard-mon-mod':       ['admin','monitoreo'],
-    'hcard-pivots-mod':    ['admin','pibox'],
+    'hcard-admin-mod':         ['admin'],
+    'hcard-sac':               ['admin','monitoreo','sac'],
+    'hcard-financiero-mod':    ['admin','monitoreo','financiero'],
+    'hcard-mon-mod':           ['admin','monitoreo'],
+    'hcard-pivots-mod':        ['admin','monitoreo','pibox','financiero'],
+    'hcard-informes-mod':      ['admin','monitoreo','financiero'],
+    'hcard-productividad-mod': ['admin','monitoreo','financiero','sac','pibox'],
   };
   Object.entries(HOME_ROLES).forEach(([id, roles]) => {
     const el = document.getElementById(id);
@@ -13193,17 +13262,41 @@ async function cargarInfoUsuario() {
 
 // ── Mostrar/ocultar cards en el module-grid según rol ──────────────────────
 function aplicarRolCards(rol) {
-  // Módulos home: SAC, Admin, Financiero, Monitoreo, Pibox
+  // v3.3.15: misma matriz de roles que aplicarRol() — sincronizadas.
   const HOME_ROLES = {
-    'hcard-sac':           ['admin','monitoreo','sac'],
-    'hcard-admin-mod':     ['admin'],
-    'hcard-financiero-mod':['admin','monitoreo','financiero'],
-    'hcard-pivots-mod':    ['admin','monitoreo','pibox','financiero'],
+    'hcard-sac':               ['admin','monitoreo','sac'],
+    'hcard-admin-mod':         ['admin'],
+    'hcard-financiero-mod':    ['admin','monitoreo','financiero'],
+    'hcard-pivots-mod':        ['admin','monitoreo','pibox','financiero'],
+    'hcard-informes-mod':      ['admin','monitoreo','financiero'],
+    'hcard-productividad-mod': ['admin','monitoreo','financiero','sac','pibox'],
   };
   Object.entries(HOME_ROLES).forEach(([id,roles]) => {
     const el = document.getElementById(id);
     if(el) el.style.display = roles.includes(rol) ? '' : 'none';
   });
+}
+
+// v3.3.15: lleva al cronograma del Panel Admin sin requerir rol admin.
+// Para no-admin, ocultamos tabs sensibles (Usuarios, Consola, Auditoría)
+// dejando solo Cronograma + Calendario + Recursos.
+function irMiCronograma() {
+  switchView('admin');
+  setTimeout(() => {
+    // Esconder tabs sensibles si no es admin (defensa adicional)
+    if (_sesionRol !== 'admin') {
+      ['admin-tab-users','admin-tab-console','admin-tab-audit'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+    }
+    // Activar el tab "Cronograma"
+    if (typeof switchAdminTab === 'function') {
+      switchAdminTab('cron');
+    } else {
+      document.getElementById('admin-tab-cron')?.click();
+    }
+  }, 50);
 }
 
 // ── Extensión de switchView para perfil ────────────────────────────────────
