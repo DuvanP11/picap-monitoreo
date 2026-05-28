@@ -74,87 +74,78 @@ module Api
     # El HTML tiene 2 secciones de KPIs (una por sub-tab) usando la lógica
     # nueva (Sin Novedad / Con Diferencia).
     # El parámetro `tipo` legacy se ignora (compat hacia atrás).
+    # v3.3.20: refactor a async + responde 202.
+    # También soporta cc/bcc (antes solo tenía 'to').
     def enviar_email
-      destinatario = params[:email].to_s.strip
-      asunto       = params[:asunto].to_s.strip
-      mensaje      = params[:mensaje].to_s.strip[0, 1000]
-      desde        = desde_param
-      hasta        = hasta_param
-      pais         = params[:pais].to_s.strip
+      to_list  = BackgroundMailerHelper.parse_email_list(params[:email] || params[:to])
+      cc_list  = BackgroundMailerHelper.parse_email_list(params[:cc])
+      bcc_list = BackgroundMailerHelper.parse_email_list(params[:bcc])
+      asunto   = params[:asunto].to_s.strip
+      mensaje  = params[:mensaje].to_s.strip[0, 1000]
+      desde    = desde_param
+      hasta    = hasta_param
+      pais     = params[:pais].to_s.strip
+      usuario  = current_usuario.to_s
 
-      unless destinatario.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
-        return render(json: { ok: false, error: "Email destinatario inválido" }, status: :bad_request)
+      if to_list.empty?
+        return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request)
+      end
+      _vals, invalids = BackgroundMailerHelper.split_validos(to_list + cc_list + bcc_list)
+      if invalids.any?
+        return render(json: { ok: false, error: "Email(s) inválido(s): #{invalids.join(', ')}" }, status: :bad_request)
       end
 
-      # 1) Query + enriquecimiento (mismo flujo que index)
-      esc = ->(v) { v.to_s.gsub("'", "''") }
-      filtro_pais = pais.empty? ? "" : "AND b.g_country = '#{esc.(pais[0,2].upcase)}'"
-      sql = QueriesService.format(
-        QueriesService::Q_RECAUDOS_DETALLE,
-        desde: desde, hasta: hasta,
-        filtro_pais: filtro_pais,
-        limit_filas: 20_000,
-      )
-      rows = ch.query(sql, timeout: 300).map { |r| normalizar(r) }
-      driver_ids = rows.map { |r| r["driver_id"] }.compact.uniq.reject(&:empty?)
-      balances   = cargar_balances_picash(driver_ids, hasta)
-      rows.each do |r|
-        b = balances[r["driver_id"]] || {}
-        r["balance_actual"]  = b[:actual]
-        r["balance_fin_mes"] = b[:fin_mes]
-        # v3.10: usa balance al cierre del período, no actual. Ver index.
-        r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_fin_mes"])
+      BackgroundMailerHelper.run("Recaudos") do
+        esc = ->(v) { v.to_s.gsub("'", "''") }
+        filtro_pais = pais.empty? ? "" : "AND b.g_country = '#{esc.(pais[0,2].upcase)}'"
+        sql = QueriesService.format(
+          QueriesService::Q_RECAUDOS_DETALLE,
+          desde: desde, hasta: hasta,
+          filtro_pais: filtro_pais,
+          limit_filas: 20_000,
+        )
+        rows = ch.query(sql, timeout: 300).map { |r| normalizar(r) }
+        driver_ids = rows.map { |r| r["driver_id"] }.compact.uniq.reject(&:empty?)
+        balances   = cargar_balances_picash(driver_ids, hasta)
+        rows.each do |r|
+          b = balances[r["driver_id"]] || {}
+          r["balance_actual"]  = b[:actual]
+          r["balance_fin_mes"] = b[:fin_mes]
+          r["estado_real"]     = calcular_estado_real(r["debe"], r["balance_fin_mes"])
+        end
+
+        picash_rows     = rows.select { |r| r["tipo_deuda"] == "PICASH" }
+        idayvuelta_rows = rows.select { |r| r["tipo_deuda"] == "IDA Y VUELTA" }
+        stats_picash    = calc_stats(picash_rows)
+        stats_iv        = calc_stats(idayvuelta_rows)
+
+        recuperacion_data = cargar_recuperacion_mes_anterior(desde, hasta, filtro_pais)
+        xlsx = construir_xlsx_recaudos_full(picash_rows, idayvuelta_rows, rows, desde, hasta, recuperacion_data)
+        filename = "Picap_Recaudos_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        subject_default = "Reporte Recaudos · #{desde} → #{hasta}"
+        html = construir_html_email_v3(desde, hasta, stats_picash, stats_iv, mensaje, usuario)
+
+        ResendMailerService.send_email(
+          to:                  to_list,
+          cc:                  cc_list,
+          bcc:                 bcc_list,
+          subject:             asunto.empty? ? subject_default : asunto,
+          html:                html,
+          attachment_bytes:    xlsx[:data],
+          attachment_filename: filename,
+        )
       end
-
-      picash_rows     = rows.select { |r| r["tipo_deuda"] == "PICASH" }
-      idayvuelta_rows = rows.select { |r| r["tipo_deuda"] == "IDA Y VUELTA" }
-      stats_picash    = calc_stats(picash_rows)
-      stats_iv        = calc_stats(idayvuelta_rows)
-
-      # 2) Cargar recuperación del mes anterior (para la hoja Resumen Ejecutivo)
-      recuperacion_data = cargar_recuperacion_mes_anterior(desde, hasta, filtro_pais)
-
-      # 3) Construir xlsx con 3 hojas: Picash + Ida y Vuelta + Resumen Ejecutivo
-      xlsx = construir_xlsx_recaudos_full(picash_rows, idayvuelta_rows, rows, desde, hasta, recuperacion_data)
-      filename = "Picap_Recaudos_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-      # 4) Build HTML body + send
-      subject_default = "Reporte Recaudos · #{desde} → #{hasta}"
-      asunto_final    = asunto.empty? ? subject_default : asunto
-      html            = construir_html_email_v3(desde, hasta, stats_picash, stats_iv, mensaje, current_usuario)
-
-      result = ResendMailerService.send_email(
-        to:                  destinatario,
-        subject:             asunto_final,
-        html:                html,
-        attachment_bytes:    xlsx[:data],
-        attachment_filename: filename,
-      )
 
       render json: {
         ok: true,
-        destinatario: destinatario,
-        filename: filename,
-        total: rows.size,
-        total_picash: picash_rows.size,
-        total_iv: idayvuelta_rows.size,
-        resend_id: result[:id],
-      }
-    rescue ResendMailerService::ConfigError => e
-      Rails.logger.error("[RecaudosController#enviar_email] Resend config: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :internal_server_error
-    rescue ResendMailerService::AuthError => e
-      Rails.logger.error("[RecaudosController#enviar_email] Resend auth: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :internal_server_error
-    rescue ResendMailerService::ValidationError => e
-      Rails.logger.error("[RecaudosController#enviar_email] Resend validation: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_request
-    rescue ResendMailerService::NetworkError => e
-      Rails.logger.error("[RecaudosController#enviar_email] Resend network: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_gateway
+        queued: true,
+        destinatarios: to_list,
+        cc: cc_list,
+        bcc: bcc_list,
+        mensaje: "Reporte en proceso. El email con el Excel (3 hojas) llegará en unos minutos.",
+      }, status: :accepted
     rescue => e
       Rails.logger.error("[RecaudosController#enviar_email] #{e.class}: #{e.message}")
-      Rails.logger.error(e.backtrace.first(8).join("\n"))
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 

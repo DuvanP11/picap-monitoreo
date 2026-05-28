@@ -65,39 +65,27 @@ module Api
         return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
-      # Disparar background job — responde 202 inmediato.
-      # Capturamos los valores como locals antes del Thread.new para que no
-      # dependan del request original (que ya terminó cuando el thread corre).
-      Thread.new do
-        begin
-          rows = cargar_filas(desde: desde, hasta: hasta,
-                              estado: estado, next_day: next_day, ciudad: ciudad)
-
-          # Pasamos rows precargadas al builder para evitar doble ejecución de la query
-          xlsx = Api::ExportarController.build_reporte_ops_cv_xlsx(
-            desde, hasta, ch,
-            estado: estado, next_day: next_day, ciudad: ciudad,
-            preloaded_rows: rows,
-          )
-          filename = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-          subject_default = "Reporte OPS CV · #{desde} → #{hasta} (#{rows.size} servicios)"
-          html = construir_html_email(desde, hasta, rows, mensaje, usuario)
-
-          ResendMailerService.send_email(
-            to:                  to_list,
-            cc:                  cc_list,
-            bcc:                 bcc_list,
-            subject:             asunto.empty? ? subject_default : asunto,
-            html:                html,
-            attachment_bytes:    xlsx[:data],
-            attachment_filename: filename,
-          )
-          Rails.logger.info("[ReporteOpsCvController#enviar_email] OK to=#{to_list.join(',')} filas=#{rows.size}")
-        rescue => e
-          Rails.logger.error("[ReporteOpsCvController#enviar_email/background] #{e.class}: #{e.message}")
-          Rails.logger.error(e.backtrace.first(8).join("\n"))
-        end
+      # v3.3.20: usa BackgroundMailerHelper (helper común).
+      BackgroundMailerHelper.run("ReporteOpsCV") do
+        rows = cargar_filas(desde: desde, hasta: hasta,
+                            estado: estado, next_day: next_day, ciudad: ciudad)
+        xlsx = Api::ExportarController.build_reporte_ops_cv_xlsx(
+          desde, hasta, ch,
+          estado: estado, next_day: next_day, ciudad: ciudad,
+          preloaded_rows: rows,
+        )
+        filename = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        subject_default = "Reporte OPS CV · #{desde} → #{hasta} (#{rows.size} servicios)"
+        html = construir_html_email(desde, hasta, rows, mensaje, usuario)
+        ResendMailerService.send_email(
+          to:                  to_list,
+          cc:                  cc_list,
+          bcc:                 bcc_list,
+          subject:             asunto.empty? ? subject_default : asunto,
+          html:                html,
+          attachment_bytes:    xlsx[:data],
+          attachment_filename: filename,
+        )
       end
 
       render json: {

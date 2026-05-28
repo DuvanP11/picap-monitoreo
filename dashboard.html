@@ -3764,7 +3764,10 @@ window.fetch = function(url, opts) {
       </div>
 
       <!-- Tabs Estadística / Alertas -->
-      <div class="export-bar"><button class="btn-export-xl" onclick="exportarEstafa(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Excel</button></div><div class="est-tabs">
+      <div class="export-bar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('estafa')" style="background:#0369a1" title="Enviar el reporte por email con xlsx adjunto"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l7 5 7-5M3 6v8a1 1 0 001 1h12a1 1 0 001-1V6M3 6a1 1 0 011-1h12a1 1 0 011 1" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar por email</button>
+        <button class="btn-export-xl" onclick="exportarEstafa(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Excel</button>
+      </div><div class="est-tabs">
         <div class="est-tab active" id="est-tab-stats"   onclick="switchEstafaTab('stats')">📊 Estadística de Estafas</div>
         <div class="est-tab"       id="est-tab-alertas"  onclick="switchEstafaTab('alertas')">🚨 Alertas de Estafa</div>
       </div>
@@ -4200,6 +4203,40 @@ window.fetch = function(url, opts) {
     </div>
   </div>
 
+  <!-- v3.3.20: Modal genérico Enviar email — reutilizado por Estafa, Cédula, Pagos, etc. -->
+  <div id="modal-email-generico" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+    <div style="background:#fff;width:90%;max-width:540px;max-height:90vh;overflow-y:auto;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.3)">
+      <div id="meg-header" style="color:#fff;padding:18px 22px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#0e7490 0%,#0369a1 100%)">
+        <div>
+          <div id="meg-title" style="font-size:16px;font-weight:700">📨 Enviar reporte por email</div>
+          <div id="meg-subtitle" style="font-size:12px;opacity:0.92;margin-top:4px"></div>
+        </div>
+        <button onclick="cerrarModalEnviarEmailGenerico()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:18px 22px">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Para *</label>
+        <textarea id="meg-to" rows="3" placeholder="email1@dominio.com&#10;email2@dominio.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5"></textarea>
+        <div style="font-size:10px;color:var(--text3);margin:2px 0 10px">Un email por línea (acepta coma o ; también)</div>
+
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CC (con copia)</label>
+        <textarea id="meg-cc" rows="2" placeholder="opcional" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">CCO (con copia oculta)</label>
+        <textarea id="meg-bcc" rows="2" placeholder="opcional" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.5;margin-bottom:12px"></textarea>
+
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Asunto (opcional)</label>
+        <input id="meg-asunto" type="text" placeholder="Default si lo dejás vacío" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;margin-bottom:12px">
+
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Mensaje (opcional)</label>
+        <textarea id="meg-mensaje" placeholder="Texto del cuerpo del email" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;resize:vertical;font-family:inherit"></textarea>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
+        <button onclick="cerrarModalEnviarEmailGenerico()" style="padding:9px 18px;background:#fff;border:1.5px solid var(--border);border-radius:8px;color:var(--text1);font-weight:600;cursor:pointer;font-size:13px">Cancelar</button>
+        <button id="meg-enviar-btn" onclick="ejecutarEnviarEmailGenerico()" style="padding:9px 18px;background:#0369a1;border:1.5px solid #0369a1;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:13px">Enviar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- v3.3.17: Modal Ver perfil (Panel Admin → Usuarios) -->
   <div id="modal-ver-perfil" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
     <div style="background:#fff;width:90%;max-width:480px;max-height:90vh;overflow-y:auto;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.3)">
@@ -4522,6 +4559,11 @@ window.fetch = function(url, opts) {
         <input type="text" class="filter-select" id="ced-q-input"
           placeholder="Pega cédula, ID o nombre..." style="width:200px"
           oninput="renderCedulaResults()">
+
+        <button class="apply-btn" onclick="abrirModalEnviarEmailGenerico('cedula')" style="background:#ca8a04" title="Enviar el reporte por email con xlsx adjunto">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:middle;margin-right:4px"><path d="M3 6l7 5 7-5M3 6v8a1 1 0 001 1h12a1 1 0 001-1V6" stroke-linecap="round"/></svg>
+          Enviar por email
+        </button>
 
         <button class="apply-btn" onclick="exportarCedulaAlertas(this)" style="background:#16a34a">
           <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:middle;margin-right:4px"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round"/></svg>
@@ -9338,6 +9380,140 @@ async function verPerfilUsuario(usuario) {
 function cerrarModalVerPerfil() {
   const m = document.getElementById('modal-ver-perfil');
   if (m) m.style.display = 'none';
+}
+
+// ════════════════════════════════════════════════════════════════
+// v3.3.20: Modal genérico Enviar email — reutilizado por módulos
+// que tengan el endpoint POST /api/<modulo>/enviar_email
+// ════════════════════════════════════════════════════════════════
+const ENVIAR_EMAIL_CONFIGS = {
+  estafa: {
+    titulo: '🚨 Enviar reporte Estafa',
+    color: 'linear-gradient(90deg,#dc2626 0%,#991b1b 100%)',
+    endpoint: '/api/estafa/enviar_email',
+    extraParams: () => {
+      const d = _estafaDesde || daysAgo(30);
+      const h = _estafaHasta || today();
+      const pais = document.getElementById('estafa-pais')?.value || '';
+      return { desde: d, hasta: h, pais };
+    },
+  },
+  cedula: {
+    titulo: '🪪 Enviar reporte Alertas de Cédula',
+    color: 'linear-gradient(90deg,#ca8a04 0%,#854d0e 100%)',
+    endpoint: '/api/cedula-alertas/enviar_email',
+    extraParams: () => {
+      const d = _cedDesde || daysAgo(30);
+      const h = _cedHasta || today();
+      const pais = document.getElementById('ced-pais')?.value || '';
+      return { desde: d, hasta: h, pais };
+    },
+  },
+  pagos: {
+    titulo: '💳 Enviar reporte Pagos',
+    color: 'linear-gradient(90deg,#1d4ed8 0%,#1e3a8a 100%)',
+    endpoint: '/api/pagos/enviar_email',
+    extraParams: () => {
+      const d = _pagosDesde || daysAgo(30);
+      const h = _pagosHasta || today();
+      const pais = document.getElementById('pagos-pais')?.value || '';
+      return { desde: d, hasta: h, pais };
+    },
+  },
+  auditoria: {
+    titulo: '📋 Enviar Auditorías Pibox',
+    color: 'linear-gradient(90deg,#16a34a 0%,#14532d 100%)',
+    endpoint: '/api/auditoria/enviar_email',
+    extraParams: () => {
+      const d = _audDesde || daysAgo(30);
+      const h = _audHasta || today();
+      return { desde: d, hasta: h };
+    },
+  },
+};
+
+let _emailGenericoModulo = null;
+
+function abrirModalEnviarEmailGenerico(modulo) {
+  const cfg = ENVIAR_EMAIL_CONFIGS[modulo];
+  if (!cfg) { alert('Módulo no configurado: ' + modulo); return; }
+  _emailGenericoModulo = modulo;
+
+  document.getElementById('meg-title').textContent = cfg.titulo;
+  document.getElementById('meg-header').style.background = cfg.color;
+
+  // Subtitle = rango de fechas si hay
+  const params = cfg.extraParams();
+  const sub = (params.desde && params.hasta) ? `Período: ${params.desde} → ${params.hasta}` : '';
+  document.getElementById('meg-subtitle').textContent = sub;
+
+  // Limpiar campos
+  ['to','cc','bcc','asunto','mensaje'].forEach(k => {
+    const el = document.getElementById(`meg-${k}`);
+    if (el) el.value = '';
+  });
+
+  document.getElementById('modal-email-generico').style.display = 'flex';
+  setTimeout(() => document.getElementById('meg-to')?.focus(), 50);
+}
+
+function cerrarModalEnviarEmailGenerico() {
+  document.getElementById('modal-email-generico').style.display = 'none';
+  _emailGenericoModulo = null;
+}
+
+async function ejecutarEnviarEmailGenerico() {
+  const modulo = _emailGenericoModulo;
+  if (!modulo) { alert('Módulo perdido'); return; }
+  const cfg = ENVIAR_EMAIL_CONFIGS[modulo];
+  if (!cfg) { alert('Módulo no configurado'); return; }
+
+  const parseEmails = (s) => (s || '').split(/[,;\s\n]+/).map(e => e.trim()).filter(e => e);
+  const to      = parseEmails(document.getElementById('meg-to').value);
+  const cc      = parseEmails(document.getElementById('meg-cc').value);
+  const bcc     = parseEmails(document.getElementById('meg-bcc').value);
+  const asunto  = document.getElementById('meg-asunto').value.trim();
+  const mensaje = document.getElementById('meg-mensaje').value.trim();
+
+  if (to.length === 0) { alert('Tenés que ingresar al menos un email en "Para".'); return; }
+  const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const invalid = [...to, ...cc, ...bcc].filter(e => !reEmail.test(e));
+  if (invalid.length > 0) { alert(`Email(s) inválido(s):\n${invalid.join('\n')}`); return; }
+
+  const btn = document.getElementById('meg-enviar-btn');
+  const txtOrig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '⏳ Programando...';
+  try {
+    const extra = cfg.extraParams() || {};
+    const body = Object.assign({}, extra, {
+      email: to.join(','),
+      mensaje: mensaje || '',
+    });
+    if (cc.length)  body.cc     = cc.join(',');
+    if (bcc.length) body.bcc    = bcc.join(',');
+    if (asunto)     body.asunto = asunto;
+
+    const r = await fetch(`${API}${cfg.endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+
+    const destL = (d.destinatarios || to).join(', ');
+    const ccL   = (d.cc  || cc).length  ? `\nCC: ${(d.cc  || cc).join(', ')}`   : '';
+    const bccL  = (d.bcc || bcc).length ? `\nCCO: ${(d.bcc || bcc).join(', ')}` : '';
+    const msg = d.queued
+      ? `📨 Reporte programado\nPara: ${destL}${ccL}${bccL}\n\n${d.mensaje || 'El email llegará en unos minutos.'}\nPuedes cerrar esta ventana.`
+      : `✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}`;
+    alert(msg);
+    cerrarModalEnviarEmailGenerico();
+  } catch (err) {
+    alert('Error al enviar email: ' + (err.message || err));
+  } finally {
+    btn.disabled = false; btn.innerHTML = txtOrig;
+  }
 }
 
 function editarUsuario(usuario, nombre, email) {

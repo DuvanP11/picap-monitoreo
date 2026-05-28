@@ -141,7 +141,88 @@ module Api
              status: :internal_server_error
     end
 
+    # POST /api/estafa/enviar_email
+    # v3.3.20: envía el xlsx Estafa vía Resend en background (responde 202).
+    def enviar_email
+      to_list  = BackgroundMailerHelper.parse_email_list(params[:email] || params[:to])
+      cc_list  = BackgroundMailerHelper.parse_email_list(params[:cc])
+      bcc_list = BackgroundMailerHelper.parse_email_list(params[:bcc])
+      asunto   = params[:asunto].to_s.strip
+      mensaje  = params[:mensaje].to_s.strip[0, 1000]
+      desde    = desde_param
+      hasta    = hasta_param
+      pais     = pais_param
+      iso      = iso_pais
+      usuario  = current_usuario.to_s
+
+      if to_list.empty?
+        return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request)
+      end
+      _vals, invalids = BackgroundMailerHelper.split_validos(to_list + cc_list + bcc_list)
+      if invalids.any?
+        return render(json: { ok: false, error: "Email(s) inválido(s): #{invalids.join(', ')}" }, status: :bad_request)
+      end
+
+      BackgroundMailerHelper.run("Estafa") do
+        xlsx = Api::ExportarController.build_estafa_xlsx(desde, hasta, pais, iso, ch)
+        filename = "Picap_Estafa_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        subject_default = "Reporte Servicios Estafa · #{desde} → #{hasta}"
+        html = construir_html_email_estafa(desde, hasta, pais, mensaje, usuario)
+        ResendMailerService.send_email(
+          to:                  to_list,
+          cc:                  cc_list,
+          bcc:                 bcc_list,
+          subject:             asunto.empty? ? subject_default : asunto,
+          html:                html,
+          attachment_bytes:    xlsx[:data],
+          attachment_filename: filename,
+        )
+      end
+
+      render json: {
+        ok: true,
+        queued: true,
+        destinatarios: to_list,
+        cc: cc_list,
+        bcc: bcc_list,
+        mensaje: "Reporte en proceso. El email con el Excel adjunto llegará en unos minutos.",
+      }, status: :accepted
+    rescue => e
+      Rails.logger.error("[EstafaController#enviar_email] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
     private
+
+    def construir_html_email_estafa(desde, hasta, pais, mensaje_usuario, usuario)
+      msj_html = mensaje_usuario.to_s.empty? ? "" :
+        %Q(<p style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:12px 16px;margin:16px 0;border-radius:4px;color:#78350F"><strong>Mensaje:</strong> #{ERB::Util.h(mensaje_usuario)}</p>)
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#FEF2F2;color:#1F2937">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;padding:20px 0">
+            <tr><td align="center">
+              <table cellpadding="0" cellspacing="0" border="0" width="620" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+                <tr><td style="background:linear-gradient(90deg,#dc2626 0%,#991b1b 100%);padding:24px 28px;color:#fff">
+                  <div style="font-size:20px;font-weight:700">🚨 Reporte Servicios Estafa</div>
+                  <div style="font-size:12px;opacity:0.92;margin-top:4px">Período: #{desde} → #{hasta} · País: #{pais.to_s.empty? ? 'Todos' : pais}</div>
+                </td></tr>
+                <tr><td style="padding:28px">
+                  <p style="margin:0 0 16px;font-size:14px">Hola,</p>
+                  <p style="margin:0 0 16px;font-size:14px;line-height:1.5">Te compartimos el detalle de servicios clasificados como estafa según el patrón de keywords financieras. El Excel adjunto contiene 2 hojas: <strong>Estadística</strong> + <strong>Detalle</strong>.</p>
+                  #{msj_html}
+                  <p style="margin:24px 0 0;color:#6B7280;font-size:12px;line-height:1.5">📎 Excel adjunto con la clasificación booking-por-booking y las palabras detectadas. Acceso al módulo en <a href="https://monitoring.picap.io" style="color:#dc2626">monitoring.picap.io</a> → Servicios Estafa.</p>
+                </td></tr>
+                <tr><td style="background:#F9FAFB;padding:12px 28px;text-align:center;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">
+                  Generado por <strong style="color:#dc2626">Picap Monitoreo</strong> · #{Time.now.strftime('%d/%m/%Y %H:%M')} · Por: #{ERB::Util.h(usuario)}
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </body></html>
+      HTML
+    end
 
     # Clasifica una fila como ESTAFA u OK según keywords en indications
     def procesar_fila(row)

@@ -29,7 +29,8 @@ Rails.application.routes.draw do
     get  "pagos_stats",     to: "pagos#stats"
 
     # Estafa
-    get  "estafa",          to: "estafa#index"
+    get  "estafa",                to: "estafa#index"
+    post "estafa/enviar_email",   to: "estafa#enviar_email"
 
     # Recaudos
     get  "recaudos",                to: "recaudos#index"
@@ -60,8 +61,9 @@ Rails.application.routes.draw do
     get  "reconocimiento",  to: "reconocimiento#index"
 
     # Alertas de Cédula
-    get  "cedula-alertas",          to: "cedula_alertas#index"
-    get  "cedula-alertas/exportar", to: "cedula_alertas#exportar"
+    get  "cedula-alertas",              to: "cedula_alertas#index"
+    get  "cedula-alertas/exportar",     to: "cedula_alertas#exportar"
+    post "cedula-alertas/enviar_email", to: "cedula_alertas#enviar_email"
 
     # Pibox
     namespace :pibox do

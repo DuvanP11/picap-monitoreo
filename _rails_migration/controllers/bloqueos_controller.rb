@@ -259,6 +259,9 @@ module Api
     #         desde, hasta, tipo_cuenta? }
     # Genera el xlsx de Bloqueos (mismas hojas que el export directo) y lo
     # envía por email vía Resend. Mismo patrón que MoviiRed.
+    # v3.3.20: refactor a async (Thread.new + BackgroundMailerHelper).
+    # Antes era sync — la query CH + build xlsx + Resend tomaban 30-60s
+    # y a veces el proxy daba 502. Ahora responde 202 al toque.
     def enviar_email
       to_list  = parse_email_list(params[:email] || params[:to])
       cc_list  = parse_email_list(params[:cc])
@@ -267,6 +270,7 @@ module Api
       mensaje  = params[:mensaje].to_s.strip[0, 1000]
       desde    = desde_param
       hasta    = hasta_param
+      usuario  = current_usuario.to_s
 
       if to_list.empty?
         return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request)
@@ -276,45 +280,32 @@ module Api
         return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
-      # Reusa el builder centralizado del ExportarController (mismo xlsx que
-      # se descarga manualmente). El método es estático y recibe ch como
-      # parámetro para no depender de instancia.
-      xlsx = Api::ExportarController.build_bloqueos_xlsx(desde, hasta, ch)
-
-      filename = "Picap_Bloqueos_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-      subject_default = "Reporte de Bloqueos · #{desde} → #{hasta}"
-      html = construir_html_email_bloqueos(desde, hasta, mensaje, current_usuario)
-
-      result = ResendMailerService.send_email(
-        to:                  to_list,
-        cc:                  cc_list,
-        bcc:                 bcc_list,
-        subject:             asunto.empty? ? subject_default : asunto,
-        html:                html,
-        attachment_bytes:    xlsx[:data],
-        attachment_filename: filename,
-      )
+      BackgroundMailerHelper.run("Bloqueos") do
+        xlsx = Api::ExportarController.build_bloqueos_xlsx(desde, hasta, ch)
+        filename = "Picap_Bloqueos_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        subject_default = "Reporte de Bloqueos · #{desde} → #{hasta}"
+        html = construir_html_email_bloqueos(desde, hasta, mensaje, usuario)
+        ResendMailerService.send_email(
+          to:                  to_list,
+          cc:                  cc_list,
+          bcc:                 bcc_list,
+          subject:             asunto.empty? ? subject_default : asunto,
+          html:                html,
+          attachment_bytes:    xlsx[:data],
+          attachment_filename: filename,
+        )
+      end
 
       render json: {
         ok: true,
+        queued: true,
         destinatarios: to_list,
         cc: cc_list,
         bcc: bcc_list,
-        filename: filename,
-        resend_id: result[:id],
-      }
-    rescue ResendMailerService::ConfigError, ResendMailerService::AuthError => e
-      Rails.logger.error("[BloqueosController#enviar_email] Resend: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :internal_server_error
-    rescue ResendMailerService::ValidationError => e
-      Rails.logger.error("[BloqueosController#enviar_email] Validation: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_request
-    rescue ResendMailerService::NetworkError => e
-      Rails.logger.error("[BloqueosController#enviar_email] Network: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_gateway
+        mensaje: "Reporte en proceso. El email con el adjunto Excel llegará en unos minutos.",
+      }, status: :accepted
     rescue => e
       Rails.logger.error("[BloqueosController#enviar_email] #{e.class}: #{e.message}")
-      Rails.logger.error(e.backtrace.first(8).join("\n"))
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 

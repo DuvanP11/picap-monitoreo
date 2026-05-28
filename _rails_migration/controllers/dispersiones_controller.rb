@@ -38,6 +38,7 @@ module Api
 
     # POST /api/dispersiones/enviar_email
     # Body: { email|to, cc?, bcc?, asunto?, mensaje?, desde, hasta, company?, tipo? }
+    # v3.3.20: refactor a async + responde 202.
     def enviar_email
       to_list  = parse_email_list(params[:email] || params[:to])
       cc_list  = parse_email_list(params[:cc])
@@ -48,6 +49,7 @@ module Api
       hasta    = hasta_param
       company  = params[:company].to_s.strip
       tipo     = params[:tipo].to_s.strip
+      usuario  = current_usuario.to_s
 
       if to_list.empty?
         return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request)
@@ -57,46 +59,34 @@ module Api
         return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
-      # Reusa el builder centralizado del Excel (mismo archivo del export directo)
-      xlsx = Api::ExportarController.build_dispersiones_xlsx(desde, hasta, ch,
-                                                             company: company, tipo: tipo)
-      filename = "Picap_Dispersiones_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-      rows = cargar_filas(desde: desde, hasta: hasta, company: company, tipo: tipo)
-      subject_default = "Reporte Dispersiones · #{desde} → #{hasta} (#{rows.size} tx)"
-      html = construir_html_email(desde, hasta, rows, mensaje, current_usuario)
-
-      result = ResendMailerService.send_email(
-        to:                  to_list,
-        cc:                  cc_list,
-        bcc:                 bcc_list,
-        subject:             asunto.empty? ? subject_default : asunto,
-        html:                html,
-        attachment_bytes:    xlsx[:data],
-        attachment_filename: filename,
-      )
+      BackgroundMailerHelper.run("Dispersiones") do
+        rows = cargar_filas(desde: desde, hasta: hasta, company: company, tipo: tipo)
+        xlsx = Api::ExportarController.build_dispersiones_xlsx(desde, hasta, ch,
+                                                                company: company, tipo: tipo)
+        filename = "Picap_Dispersiones_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        subject_default = "Reporte Dispersiones · #{desde} → #{hasta} (#{rows.size} tx)"
+        html = construir_html_email(desde, hasta, rows, mensaje, usuario)
+        ResendMailerService.send_email(
+          to:                  to_list,
+          cc:                  cc_list,
+          bcc:                 bcc_list,
+          subject:             asunto.empty? ? subject_default : asunto,
+          html:                html,
+          attachment_bytes:    xlsx[:data],
+          attachment_filename: filename,
+        )
+      end
 
       render json: {
         ok: true,
+        queued: true,
         destinatarios: to_list,
         cc: cc_list,
         bcc: bcc_list,
-        filename: filename,
-        total: rows.size,
-        resend_id: result[:id],
-      }
-    rescue ResendMailerService::ConfigError, ResendMailerService::AuthError => e
-      Rails.logger.error("[DispersionesController#enviar_email] Resend: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :internal_server_error
-    rescue ResendMailerService::ValidationError => e
-      Rails.logger.error("[DispersionesController#enviar_email] Validation: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_request
-    rescue ResendMailerService::NetworkError => e
-      Rails.logger.error("[DispersionesController#enviar_email] Network: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :bad_gateway
+        mensaje: "Reporte en proceso. El email con el adjunto Excel llegará en unos minutos.",
+      }, status: :accepted
     rescue => e
       Rails.logger.error("[DispersionesController#enviar_email] #{e.class}: #{e.message}")
-      Rails.logger.error(e.backtrace.first(8).join("\n"))
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 

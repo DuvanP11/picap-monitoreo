@@ -84,9 +84,15 @@ module Api
     # GET /api/exportar/estafa?desde=&hasta=&pais=
     def estafa
       desde, hasta, pais = desde_param, hasta_param, pais_param
-      iso = iso_pais
-      filtro_pais = iso.to_s.empty? ? "" : "AND b.g_country = '#{iso}'"
+      send_xlsx(self.class.build_estafa_xlsx(desde, hasta, pais, iso_pais, ch))
+    rescue => e
+      handle_error(e, "estafa")
+    end
 
+    # v3.3.20: builder centralizado del xlsx de Estafa, reusable desde
+    # EstafaController#enviar_email.
+    def self.build_estafa_xlsx(desde, hasta, pais, iso, ch)
+      filtro_pais = iso.to_s.empty? ? "" : "AND b.g_country = '#{iso}'"
       sql = QueriesService.format(
         QueriesService::Q_ESTAFA_BASE,
         desde: desde, hasta: hasta,
@@ -109,10 +115,10 @@ module Api
       end
       total = enriched.size
 
-      xlsx = ExcelExportService.build("Picap_Estafa") do |x|
+      ExcelExportService.build("Picap_Estafa") do |x|
         x.add_sheet("Estadística") do |s|
           s.banner("Servicios Estafa — Estadística",
-                   "Período: #{desde} → #{hasta}  ·  País: #{pais.empty? ? 'Todos' : pais}", 3)
+                   "Período: #{desde} → #{hasta}  ·  País: #{pais.to_s.empty? ? 'Todos' : pais}", 3)
           s.kpi_section("Resumen de clasificación", [
             ["Total servicios analizados", total],
             ["Estafa confirmada",          n_estafa],
@@ -148,10 +154,6 @@ module Api
           s.finalize(freeze_row: 4)
         end
       end
-
-      send_xlsx(xlsx)
-    rescue => e
-      handle_error(e, "estafa")
     end
 
     # GET /api/exportar/bloqueos?desde=&hasta=
