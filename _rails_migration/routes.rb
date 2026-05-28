@@ -114,6 +114,7 @@ Rails.application.routes.draw do
     post   "recursos",                  to: "recursos#create"
     put    "recursos/:id",              to: "recursos#update"
     delete "recursos/:id",              to: "recursos#destroy"
+    get    "recursos/visibilidad",      to: "recursos#visibilidad"
     get    "recursos/usuarios-portal",  to: "recursos#usuarios_portal"
     post   "recursos/share-bulk",       to: "recursos#share_bulk"
     post   "recursos/:id/share",        to: "recursos#share"

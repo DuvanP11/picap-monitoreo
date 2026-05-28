@@ -6441,6 +6441,7 @@ function iniciarSesion() {
   actualizarAvatarUI();
   initWelcomePiboxAnim();  // v3.0: animación de Pibox en banner home
   cargarInfoUsuario();   // poblar dropdown y topbar al iniciar sesión
+  chequearVisibilidadRecursos();  // v3.3.16: ocultar Recursos si no tiene acceso
   switchView('home');
   checkAPI();
 }
@@ -6494,17 +6495,57 @@ function aplicarRol() {
     'sbg-pibox':     ['admin','monitoreo','pibox'],
     'sbg-cashout':   ['admin','monitoreo'],
     'nav-rf':        ['admin','monitoreo','sac','financiero'],
-    // Recursos: lo ven todos los roles autenticados (cada uno solo ve los
-    // recursos públicos + los privados que le hayan compartido).
+    // v3.3.16: Recursos sigue listado por rol pero ADICIONALMENTE oculto si
+    // el usuario no tiene NADA accesible (chequeo dinámico via endpoint).
+    // chequearVisibilidadRecursos() actualiza _tieneRecursosCompartidos.
     'sbg-recursos':  ['admin','monitoreo','financiero','sac','pibox'],
-    // Resumen 360: KPIs ejecutivos de todos los módulos. Lo ve cualquiera
-    // con sesión válida; el filtro por área permite que cada quien vea
-    // los módulos que le competen.
-    'sbg-resumen':   ['admin','monitoreo','financiero','sac','pibox'],
+    // v3.3.16: Resumen 360 restringido a admin/monitoreo/financiero.
+    // KPIs ejecutivos consolidados — no aplica a roles operativos.
+    'sbg-resumen':   ['admin','monitoreo','financiero'],
   };
   Object.entries(SB_ROLES).forEach(([id, roles]) => {
     const el = document.getElementById(id);
     if(el) el.style.display = roles.includes(rol) ? '' : 'none';
+  });
+  // v3.3.16: ajustes finos en home Productividad — ocultar items según permisos.
+  ajustarHomeProductividad(rol);
+}
+
+// v3.3.16: estado global para visibilidad dinámica de Recursos.
+// Default true para no parpadear; chequearVisibilidadRecursos lo refresca.
+let _tieneRecursosCompartidos = true;
+
+// Llama al endpoint y oculta los puntos de entrada de Recursos si está vacío.
+async function chequearVisibilidadRecursos() {
+  try {
+    const r = await fetch(`${API}/api/recursos/visibilidad`, {
+      headers: {'X-Token': _sesionToken},
+    });
+    const d = await r.json();
+    _tieneRecursosCompartidos = !!d.tiene_acceso;
+  } catch (_e) {
+    _tieneRecursosCompartidos = true;  // fail-open: no romper la UX
+  }
+  // Aplicar al sidebar y al home card
+  const sb = document.getElementById('sbg-recursos');
+  if (sb && !_tieneRecursosCompartidos) sb.style.display = 'none';
+  ajustarHomeProductividad(_sesionRol || 'pendiente');
+}
+
+// Esconde/muestra los items 'Biblioteca de Recursos' y 'Resumen 360' dentro
+// de la card Productividad del home según rol y acceso a recursos.
+function ajustarHomeProductividad(rol) {
+  const card = document.getElementById('hcard-productividad-mod');
+  if (!card) return;
+  const items = card.querySelectorAll('.home-module-option');
+  items.forEach(item => {
+    const label = item.querySelector('.home-module-option-label')?.textContent || '';
+    if (label.includes('Biblioteca de Recursos')) {
+      item.style.display = _tieneRecursosCompartidos ? '' : 'none';
+    } else if (label.includes('Resumen 360')) {
+      const rolesResumen = ['admin','monitoreo','financiero'];
+      item.style.display = rolesResumen.includes(rol) ? '' : 'none';
+    }
   });
 }
 

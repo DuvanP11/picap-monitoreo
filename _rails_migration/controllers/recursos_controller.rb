@@ -70,6 +70,39 @@ module Api
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
+    # GET /api/recursos/visibilidad — ¿el usuario tiene al menos 1 recurso accesible?
+    # v3.3.16: usado por el frontend para decidir si mostrar 'Biblioteca de Recursos'
+    # en el home y sidebar. Si el user no tiene NADA compartido, no aparece el botón.
+    def visibilidad
+      if current_rol == "admin"
+        # Admin ve todo
+        row = ch.query(
+          "SELECT count() AS c FROM picapmongoprod.dashboard_recursos FINAL WHERE activo = 1"
+        ).first
+        total = (row && row["c"]).to_i
+      else
+        email_actual = obtener_email_usuario(current_usuario)
+        e_safe = email_actual.gsub("'", "''")
+        u_safe = current_usuario.to_s.gsub("'", "''")
+        sql = <<~SQL
+          SELECT count() AS c
+          FROM picapmongoprod.dashboard_recursos FINAL
+          WHERE activo = 1
+            AND (visibilidad != 'privado'
+                 OR creado_por = '#{u_safe}'
+                 OR (notEmpty('#{e_safe}') AND positionCaseInsensitive(compartido_con, '#{e_safe}') > 0))
+        SQL
+        row = ch.query(sql).first
+        total = (row && row["c"]).to_i
+      end
+      render json: { ok: true, tiene_acceso: total > 0, total: total }
+    rescue => e
+      Rails.logger.warn("[RecursosController#visibilidad] #{e.class}: #{e.message}")
+      # En caso de error, dejamos visible (fail-open conservador). El usuario
+      # podrá entrar y ver 'no hay recursos' que es claro.
+      render json: { ok: true, tiene_acceso: true, total: 0, error: e.message }
+    end
+
     # GET /api/recursos/usuarios-portal — selector de usuarios para compartir
     def usuarios_portal
       require_admin!
