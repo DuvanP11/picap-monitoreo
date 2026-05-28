@@ -9,21 +9,23 @@ module Api
     # GET /api/exportar/evasion?desde=&hasta=&pais=
     def evasion
       desde, hasta, pais = desde_param, hasta_param, pais_param
-      iso = iso_pais
+      send_xlsx(self.class.build_evasion_xlsx(desde, hasta, pais, iso_pais, ch))
+    rescue => e
+      handle_error(e, "evasion")
+    end
 
+    # v3.3.21: builder reutilizable para ResumenController#enviar_email.
+    def self.build_evasion_xlsx(desde, hasta, pais, iso, ch)
       cte = QueriesService.cte_con_pais(iso)
-      # KPIs
       k = ch.query(QueriesService.format(cte + QueriesService::KPIS_SUFFIX,
                                           fecha_desde: desde, fecha_hasta: hasta)).first || {}
-      # Detalle (hasta 5000 filas)
       sql_det = QueriesService.format(cte + DETALLE_SUFFIX_EVASION,
                                        fecha_desde: desde, fecha_hasta: hasta)
       rows = ch.query(sql_det, timeout: 300)
 
-      xlsx = ExcelExportService.build("Picap_Evasion_Comisiones") do |x|
-        # Hoja 1 — Resumen
+      ExcelExportService.build("Picap_Evasion_Comisiones") do |x|
         x.add_sheet("Resumen Ejecutivo") do |s|
-          s.banner("Evasión de Comisiones — #{pais.empty? ? 'Todos los países' : pais}",
+          s.banner("Evasión de Comisiones — #{pais.to_s.empty? ? 'Todos los países' : pais}",
                    "Período: #{desde} → #{hasta}", 4)
           total = k["total"].to_i; conf = k["confirmadas"].to_i; prob = k["probables"].to_i
           tasa  = total > 0 ? ((conf + prob).to_f / total * 100).round(1) : 0
@@ -40,7 +42,6 @@ module Api
           s.finalize
         end
 
-        # Hoja 2 — Detalle servicio por servicio
         x.add_sheet("Detalle", tab_color: ExcelExportService::COLORS[:purple]) do |s|
           s.banner("Detalle de Servicios — Evasión",
                    "Período: #{desde} → #{hasta}  ·  Registros: #{rows.size}", 16)
@@ -54,20 +55,12 @@ module Api
             nivel = r["nivel"].to_i
             veredicto = nivel == 3 ? "EVASION CONFIRMADA" : nivel == 2 ? "EVASION PROBABLE" : "OK"
             s.data_row([
-              r["creacion_servicio"].to_s[0, 16],
-              r["booking_id"].to_s,
-              r["id_driver"].to_s,
-              r["name_driver"].to_s,
-              r["id_company"].to_s,
-              r["type_service"].to_s,
-              r["moneda"].to_s,
-              r["pais"].to_s,
-              r["ciudad"].to_s,
-              r["costo_estimado"].to_f.round(2),
-              r["minutos_entre_eventos"].to_i,
+              r["creacion_servicio"].to_s[0, 16], r["booking_id"].to_s, r["id_driver"].to_s,
+              r["name_driver"].to_s, r["id_company"].to_s, r["type_service"].to_s,
+              r["moneda"].to_s, r["pais"].to_s, r["ciudad"].to_s,
+              r["costo_estimado"].to_f.round(2), r["minutos_entre_eventos"].to_i,
               r["distancia_cancel_destino"].to_f.round(1),
-              veredicto,
-              nivel,
+              veredicto, nivel,
               r["comision_servicio"].to_f.round(2),
               r["comision_mas_penalizacion"].to_f.round(2),
             ], right_align: [10, 11, 12, 14, 15, 16])
@@ -75,10 +68,6 @@ module Api
           s.finalize(freeze_row: 4)
         end
       end
-
-      send_xlsx(xlsx)
-    rescue => e
-      handle_error(e, "evasion")
     end
 
     # GET /api/exportar/estafa?desde=&hasta=&pais=
@@ -378,25 +367,26 @@ module Api
     # GET /api/exportar/pagos?desde=&hasta=&pais=&tipo=tc|promo
     def pagos
       desde, hasta = desde_param, hasta_param
-      pais_iso = iso_pais
-      ciudad   = params[:ciudad].to_s.strip
-      tipo     = params[:tipo].to_s == "promo" ? :promo : :tc
-      filtro   = QueriesService.pagos_filtro(pais_iso, ciudad)
+      send_xlsx(self.class.build_pagos_xlsx(desde, hasta, iso_pais, params[:ciudad].to_s.strip, params[:tipo].to_s, ch))
+    rescue => e
+      handle_error(e, "pagos")
+    end
 
+    # v3.3.21: builder reutilizable para PagosController#enviar_email.
+    def self.build_pagos_xlsx(desde, hasta, pais_iso, ciudad, tipo_str, ch)
+      tipo   = tipo_str == "promo" ? :promo : :tc
+      filtro = QueriesService.pagos_filtro(pais_iso, ciudad)
       cte = tipo == :promo ? QueriesService::PROMO_BASE_CTE : QueriesService::TC_BASE_CTE
-      # Trae las 4 datasets para el report
       kpis_sql  = QueriesService.format(cte + QueriesService::KPIS_SUFFIX_PAGOS,     desde: desde, hasta: hasta, filtro: filtro)
       trend_sql = QueriesService.format(cte + QueriesService::TREND_SUFFIX_PAGOS,    desde: desde, hasta: hasta, filtro: filtro)
       duo_sql   = QueriesService.format(cte + QueriesService::DUO_SUFFIX_PAGOS,      desde: desde, hasta: hasta, filtro: filtro)
       cd_sql    = QueriesService.format(cte + QueriesService::CIUDADES_SUFFIX_PAGOS, desde: desde, hasta: hasta, filtro: filtro)
-
       k     = ch.query(kpis_sql,  timeout: 300).first || {}
       trend = ch.query(trend_sql, timeout: 300)
       duo   = ch.query(duo_sql,   timeout: 300)
       cd    = ch.query(cd_sql,    timeout: 300)
-
       label = tipo == :promo ? "PromoCode" : "Tarjeta Crédito"
-      xlsx = ExcelExportService.build("Picap_Pagos_#{tipo}") do |x|
+      ExcelExportService.build("Picap_Pagos_#{tipo}") do |x|
         x.add_sheet("Resumen") do |s|
           s.banner("Pagos #{label} — Resumen", "Período: #{desde} → #{hasta}", 4)
           s.kpi_section("KPIs", [
@@ -443,10 +433,6 @@ module Api
           s.finalize(freeze_row: 4)
         end
       end
-
-      send_xlsx(xlsx)
-    rescue => e
-      handle_error(e, "pagos")
     end
 
     # GET /api/exportar/recaudos?desde=&hasta=&pais=&tipo=picash|ida_y_vuelta

@@ -520,5 +520,123 @@ module Api
         tip: "Compara la cédula extraída con OCR de la foto vs la cédula registrada en antecedentes policiales. Una diferencia indica suplantación o cuenta falsa. SAC + Activaciones deben validar las alertas en menos de 24h.",
       }
     end
+
+    public
+
+    # POST /api/resumen-general/enviar_email — v3.3.21
+    # Envía xlsx con el snapshot del Resumen 360 (todos los módulos consolidados).
+    def enviar_email
+      to_list  = BackgroundMailerHelper.parse_email_list(params[:email] || params[:to])
+      cc_list  = BackgroundMailerHelper.parse_email_list(params[:cc])
+      bcc_list = BackgroundMailerHelper.parse_email_list(params[:bcc])
+      asunto   = params[:asunto].to_s.strip
+      mensaje  = params[:mensaje].to_s.strip[0, 1000]
+      desde    = desde_param
+      hasta    = hasta_param
+      pais     = pais_param
+      pais_iso = iso_pais
+      usuario  = current_usuario.to_s
+
+      return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request) if to_list.empty?
+      _v, invalids = BackgroundMailerHelper.split_validos(to_list + cc_list + bcc_list)
+      return render(json: { ok: false, error: "Email(s) inválido(s): #{invalids.join(', ')}" }, status: :bad_request) if invalids.any?
+
+      BackgroundMailerHelper.run("Resumen360") do
+        xlsx = build_resumen_360_xlsx(desde, hasta, pais, pais_iso)
+        filename = "Picap_Resumen360_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        ResendMailerService.send_email(
+          to: to_list, cc: cc_list, bcc: bcc_list,
+          subject: asunto.empty? ? "Resumen 360 · #{desde} → #{hasta}" : asunto,
+          html: html_email_resumen_360(desde, hasta, pais, mensaje, usuario),
+          attachment_bytes: xlsx[:data], attachment_filename: filename,
+        )
+      end
+
+      render json: { ok: true, queued: true, destinatarios: to_list, cc: cc_list, bcc: bcc_list,
+                     mensaje: "Resumen 360 en proceso. El email con el xlsx llegará en unos minutos." }, status: :accepted
+    rescue => e
+      Rails.logger.error("[ResumenGeneralController#enviar_email] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    private
+
+    # Genera 1 hoja por módulo con los KPIs del resumen.
+    def build_resumen_360_xlsx(desde, hasta, pais, pais_iso)
+      modulos = AREAS.keys
+      ExcelExportService.build("Picap_Resumen_360") do |x|
+        x.add_sheet("Portada") do |s|
+          s.banner("Resumen General 360°",
+                   "Período: #{desde} → #{hasta}  ·  País: #{pais.to_s.empty? ? 'Todos' : pais}", 2)
+          s.kpi_section("Información", [
+            ["Período",  "#{desde} → #{hasta}"],
+            ["País",     pais.to_s.empty? ? "Todos los países" : pais],
+            ["Generado", Time.now.strftime("%Y-%m-%d %H:%M")],
+            ["Módulos",  modulos.size.to_s],
+            ["Nota",     "Cada hoja siguiente muestra los KPIs del módulo correspondiente."],
+          ], ncols: 2)
+          s.finalize
+        end
+
+        modulos.each do |mod_id|
+          meta = AREAS[mod_id]
+          bloque = begin
+            datos = case mod_id
+                    when "evasion"       then resumen_evasion(desde, hasta, pais_iso)
+                    when "estafa"        then resumen_estafa(desde, hasta, pais_iso)
+                    when "pagos_tc"      then resumen_pagos_tc(desde, hasta, pais_iso)
+                    when "pagos_promo"   then resumen_pagos_promo(desde, hasta, pais_iso)
+                    when "facial"        then resumen_facial(desde, hasta, pais_iso)
+                    when "bloqueos"      then resumen_bloqueos(desde, hasta, pais_iso)
+                    when "auditoria_com" then resumen_auditoria_com(desde, hasta, pais_iso)
+                    when "pibox"         then resumen_pibox(desde, hasta, pais_iso)
+                    when "recaudos"      then resumen_recaudos(desde, hasta, pais_iso)
+                    when "cedula"        then resumen_cedula(desde, hasta, pais_iso)
+                    end
+            datos || { kpis: [], tip: "" }
+          rescue => e
+            Rails.logger.warn("[Resumen360##{mod_id}] #{e.message}")
+            { kpis: [{ label: "Error", valor: e.message[0, 100] }], tip: "" }
+          end
+
+          x.add_sheet("#{meta['icono']} #{meta['nombre']}"[0, 28]) do |s|
+            s.banner("#{meta['icono']} #{meta['nombre']}", "Período: #{desde} → #{hasta}", 2)
+            s.kpi_section("KPIs", bloque[:kpis].map { |k| [k[:label], k[:valor]] }, ncols: 2)
+            if bloque[:tip].to_s.strip.length > 0
+              s.kpi_section("Tip", [["", bloque[:tip][0, 800]]], ncols: 2)
+            end
+            s.finalize
+          end
+        end
+      end
+    end
+
+    def html_email_resumen_360(desde, hasta, pais, mensaje_usuario, usuario)
+      msj_html = mensaje_usuario.to_s.empty? ? "" :
+        %Q(<p style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:12px 16px;margin:16px 0;border-radius:4px;color:#78350F"><strong>Mensaje:</strong> #{ERB::Util.h(mensaje_usuario)}</p>)
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#F5F3FF;color:#1F2937">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:20px 0"><tr><td align="center">
+            <table cellpadding="0" cellspacing="0" border="0" width="640" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+              <tr><td style="background:linear-gradient(90deg,#1d4ed8,#5b21b6);padding:24px 28px;color:#fff">
+                <div style="font-size:22px;font-weight:700">📊 Resumen 360°</div>
+                <div style="font-size:13px;opacity:0.92;margin-top:4px">Período: #{desde} → #{hasta} · País: #{pais.to_s.empty? ? 'Todos' : pais}</div>
+              </td></tr>
+              <tr><td style="padding:28px">
+                <p style="margin:0 0 12px;font-size:14px">Hola,</p>
+                <p style="margin:0 0 16px;font-size:14px;line-height:1.5">Te compartimos el reporte consolidado de los <strong>10 módulos</strong> del portal de monitoreo: Evasión, Estafa, Pagos TC, Pagos Promo, Facial, Bloqueos, Auditorías Comerciales, Pibox B2B, Recaudos y Cédula.</p>
+                #{msj_html}
+                <p style="margin:24px 0 0;color:#6B7280;font-size:12px;line-height:1.5">📎 Excel adjunto con 1 hoja por módulo. Detalle interactivo y filtros en <a href="https://monitoring.picap.io" style="color:#5b21b6">monitoring.picap.io</a> → Resumen 360°.</p>
+              </td></tr>
+              <tr><td style="background:#F9FAFB;padding:12px 28px;text-align:center;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">
+                <strong style="color:#5b21b6">Picap Monitoreo</strong> · #{Time.now.strftime('%d/%m/%Y %H:%M')} · Por: #{ERB::Util.h(usuario)}
+              </td></tr>
+            </table>
+          </td></tr></table>
+        </body></html>
+      HTML
+    end
   end
 end

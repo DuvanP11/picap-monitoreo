@@ -1851,7 +1851,10 @@ window.fetch = function(url, opts) {
         </select>
         <button class="clear-btn" onclick="limpiarFiltros()">✕ Limpiar filtros</button>
         <div class="sep"></div>
-      <div class="export-bar"><button class="btn-export-xl" onclick="exportarEvasion(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Evasión Excel</button></div>
+      <div class="export-bar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('evasion')" style="background:#1d4ed8" title="Enviar el reporte por email con xlsx adjunto"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l7 5 7-5M3 6v8a1 1 0 001 1h12a1 1 0 001-1V6M3 6a1 1 0 011-1h12a1 1 0 011 1" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar por email</button>
+        <button class="btn-export-xl" onclick="exportarEvasion(this)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Evasión Excel</button>
+      </div>
         <button class="search-btn" onclick="abrirModal('modal-booking')">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           Buscar Booking ID
@@ -2221,6 +2224,7 @@ window.fetch = function(url, opts) {
           <button class="apply-btn" onclick="rfApplyCustom()">Aplicar</button>
         </div>
         <button class="apply-btn" onclick="rfCargar()" style="margin-left:8px">↻ Actualizar</button>
+        <button class="apply-btn" onclick="abrirModalEnviarEmailGenerico('rf')" style="background:#7c3aed;margin-left:8px" title="Enviar el reporte por email con xlsx adjunto">📨 Enviar por email</button>
       </div>
 
       <!-- Configuración de detección "misma persona" -->
@@ -2347,6 +2351,13 @@ window.fetch = function(url, opts) {
             <path d="M13 13l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
           Buscar
+        </button>
+
+        <button class="search-btn" onclick="abrirModalEnviarEmailGenerico('pibox')" style="background:#ea580c" title="Enviar por email">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+            <path d="M3 6l7 5 7-5M3 6v8a1 1 0 001 1h12a1 1 0 001-1V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Enviar por email
         </button>
 
         <button class="search-btn" onclick="exportarPiboxExcel(this)">
@@ -3378,6 +3389,7 @@ window.fetch = function(url, opts) {
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <span id="rg-updated" style="font-size:11px;color:var(--text3)"></span>
+          <button class="apply-btn" onclick="abrirModalEnviarEmailGenerico('resumen')" style="background:#5b21b6" title="Enviar el Resumen 360° por email con xlsx adjunto (1 hoja por módulo)">📨 Enviar por email</button>
           <button class="apply-btn" onclick="rgCargar()">↻ Actualizar</button>
         </div>
       </div>
@@ -3629,7 +3641,11 @@ window.fetch = function(url, opts) {
   <!-- ══ VISTA: PAGOS — Tarjeta de Crédito + PromoCode ══ -->
   <div class="view" id="view-pagos">
     <div class="wrap">
-      <div class="export-bar"><button class="btn-export-xl" onclick="exportarPagos(this,'tc')"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar TC Excel</button><button class="btn-export-xl" onclick="exportarPagos(this,'promo')" style="background:linear-gradient(135deg,#7c3aed,#6b21a8)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Promo Excel</button></div>
+      <div class="export-bar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('pagos')" style="background:#1d4ed8" title="Enviar el reporte por email con xlsx adjunto"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l7 5 7-5M3 6v8a1 1 0 001 1h12a1 1 0 001-1V6M3 6a1 1 0 011-1h12a1 1 0 011 1" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar por email</button>
+        <button class="btn-export-xl" onclick="exportarPagos(this,'tc')"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar TC Excel</button>
+        <button class="btn-export-xl" onclick="exportarPagos(this,'promo')" style="background:linear-gradient(135deg,#7c3aed,#6b21a8)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg> Exportar Promo Excel</button>
+      </div>
 
       <!-- Filtros globales -->
       <div class="filters-bar" style="margin-bottom:14px;">
@@ -4422,7 +4438,13 @@ window.fetch = function(url, opts) {
             style="max-width:200px">
           <button class="apply-btn" onclick="recargarAuditoriaActivo()" title="Recarga datos del backend con los filtros actuales (los rangos de fecha y filtros de servidor).">↻ Actualizar</button>
           <span class="aud-anti-test-chip" title="Los datos de prueba (companies con nombres tipo 'test', 'qa', 'demo') siempre quedan excluidos automáticamente.">🛡 Anti-test activo</span>
-          <button class="aud-export-btn" onclick="exportarAuditoriaExcel()" style="margin-left:auto">
+          <button class="aud-export-btn" onclick="abrirModalEnviarEmailGenerico('auditoria')" style="margin-left:auto;background:#16a34a" title="Enviar el reporte por email con xlsx adjunto">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 6l7 5 7-5M3 6v8a1 1 0 001 1h12a1 1 0 001-1V6M3 6a1 1 0 011-1h12a1 1 0 011 1" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Enviar por email
+          </button>
+          <button class="aud-export-btn" onclick="exportarAuditoriaExcel()">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M3 14v3h14v-3M10 3v9m-4-4l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -9414,20 +9436,64 @@ const ENVIAR_EMAIL_CONFIGS = {
     color: 'linear-gradient(90deg,#1d4ed8 0%,#1e3a8a 100%)',
     endpoint: '/api/pagos/enviar_email',
     extraParams: () => {
-      const d = _pagosDesde || daysAgo(30);
-      const h = _pagosHasta || today();
+      const d = (typeof _pagosDesde !== 'undefined' ? _pagosDesde : null) || daysAgo(30);
+      const h = (typeof _pagosHasta !== 'undefined' ? _pagosHasta : null) || today();
       const pais = document.getElementById('pagos-pais')?.value || '';
-      return { desde: d, hasta: h, pais };
+      const tipo = (typeof _pagosTipo !== 'undefined' ? _pagosTipo : '') || 'tc';
+      return { desde: d, hasta: h, pais, tipo };
     },
   },
   auditoria: {
-    titulo: '📋 Enviar Auditorías Pibox',
+    titulo: '📋 Enviar Auditorías Comerciales',
     color: 'linear-gradient(90deg,#16a34a 0%,#14532d 100%)',
     endpoint: '/api/auditoria/enviar_email',
     extraParams: () => {
-      const d = _audDesde || daysAgo(30);
-      const h = _audHasta || today();
+      const d = (typeof _audDesde !== 'undefined' ? _audDesde : null) || daysAgo(30);
+      const h = (typeof _audHasta !== 'undefined' ? _audHasta : null) || today();
       return { desde: d, hasta: h };
+    },
+  },
+  // v3.3.21: + evasion, pibox B2B, RF, resumen 360
+  evasion: {
+    titulo: '📊 Enviar reporte Evasión',
+    color: 'linear-gradient(90deg,#1d4ed8 0%,#1e3a8a 100%)',
+    endpoint: '/api/resumen/enviar_email',
+    extraParams: () => {
+      const d = (typeof _monDesde !== 'undefined' ? _monDesde : null) || daysAgo(30);
+      const h = (typeof _monHasta !== 'undefined' ? _monHasta : null) || today();
+      const pais = document.getElementById('mon-pais')?.value || '';
+      return { desde: d, hasta: h, pais };
+    },
+  },
+  pibox: {
+    titulo: '📦 Enviar Auditorías Servicios Pibox',
+    color: 'linear-gradient(90deg,#ea580c 0%,#9a3412 100%)',
+    endpoint: '/api/pibox/enviar_email',
+    extraParams: () => {
+      const d = (typeof _piboxDesde !== 'undefined' ? _piboxDesde : null) || daysAgo(30);
+      const h = (typeof _piboxHasta !== 'undefined' ? _piboxHasta : null) || today();
+      return { desde: d, hasta: h };
+    },
+  },
+  rf: {
+    titulo: '👤 Enviar reporte Reconocimiento Facial',
+    color: 'linear-gradient(90deg,#7c3aed 0%,#5b21b6 100%)',
+    endpoint: '/api/reconocimiento/enviar_email',
+    extraParams: () => {
+      const d = (typeof _rfDesde !== 'undefined' ? _rfDesde : null) || daysAgo(30);
+      const h = (typeof _rfHasta !== 'undefined' ? _rfHasta : null) || today();
+      return { desde: d, hasta: h };
+    },
+  },
+  resumen: {
+    titulo: '📊 Enviar Resumen 360°',
+    color: 'linear-gradient(90deg,#1d4ed8 0%,#5b21b6 100%)',
+    endpoint: '/api/resumen-general/enviar_email',
+    extraParams: () => {
+      const d = (typeof _rgDesde !== 'undefined' ? _rgDesde : null) || daysAgo(30);
+      const h = (typeof _rgHasta !== 'undefined' ? _rgHasta : null) || today();
+      const pais = document.getElementById('rg-pais')?.value || '';
+      return { desde: d, hasta: h, pais };
     },
   },
 };

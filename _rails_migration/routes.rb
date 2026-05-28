@@ -12,9 +12,10 @@ Rails.application.routes.draw do
     get  "buscar",          to: "buscar#index"
 
     # Resumen principal (evasión de comisiones)
-    get  "resumen",         to: "resumen#index"
-    get  "recuperacion",    to: "recuperacion#index"
-    get  "wallet",          to: "wallet#index"
+    get  "resumen",                to: "resumen#index"
+    post "resumen/enviar_email",   to: "resumen#enviar_email"
+    get  "recuperacion",           to: "recuperacion#index"
+    get  "wallet",                 to: "wallet#index"
 
     # Bloqueos
     get  "bloqueos",             to: "bloqueos#index"
@@ -26,7 +27,8 @@ Rails.application.routes.draw do
       get "tc",             to: "/api/pagos#tc"
       get "promo",          to: "/api/pagos#promo"
     end
-    get  "pagos_stats",     to: "pagos#stats"
+    get  "pagos_stats",          to: "pagos#stats"
+    post "pagos/enviar_email",   to: "pagos#enviar_email"
 
     # Estafa
     get  "estafa",                to: "estafa#index"
@@ -56,9 +58,11 @@ Rails.application.routes.draw do
       post   "resolver",    to: "/api/auditoria#resolver"
       delete "resolver",    to: "/api/auditoria#desresolver"
     end
+    post "auditoria/enviar_email", to: "auditoria#enviar_email"
 
     # Reconocimiento facial
-    get  "reconocimiento",  to: "reconocimiento#index"
+    get  "reconocimiento",                to: "reconocimiento#index"
+    post "reconocimiento/enviar_email",   to: "reconocimiento#enviar_email"
 
     # Alertas de Cédula
     get  "cedula-alertas",              to: "cedula_alertas#index"
@@ -71,6 +75,7 @@ Rails.application.routes.draw do
       get  "alertas",       to: "/api/pibox#alertas"
       get  "export",        to: "/api/pibox#export"
     end
+    post "pibox/enviar_email", to: "pibox#enviar_email"
 
     # Exportaciones Excel
     namespace :exportar do
@@ -136,7 +141,8 @@ Rails.application.routes.draw do
     get    "audit/export",              to: "audit#export"
 
     # Resumen General (Vista 360)
-    get    "resumen-general",           to: "resumen_general#index"
+    get    "resumen-general",                to: "resumen_general#index"
+    post   "resumen-general/enviar_email",   to: "resumen_general#enviar_email"
   end
 
   # ── Manejo de errores ──

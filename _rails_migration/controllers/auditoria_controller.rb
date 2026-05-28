@@ -388,5 +388,87 @@ module Api
       campo = { "booking" => :id_company, "company" => :id_company, "tarifa" => :tarifa_id }[q_tipo]
       rows.select! { |r| r[campo].to_s.downcase.include?(q_low) }
     end
+
+    public
+
+    # POST /api/auditoria/enviar_email — v3.3.21
+    def enviar_email
+      to_list  = BackgroundMailerHelper.parse_email_list(params[:email] || params[:to])
+      cc_list  = BackgroundMailerHelper.parse_email_list(params[:cc])
+      bcc_list = BackgroundMailerHelper.parse_email_list(params[:bcc])
+      asunto   = params[:asunto].to_s.strip
+      mensaje  = params[:mensaje].to_s.strip[0, 1000]
+      desde    = desde_param
+      hasta    = hasta_param
+      usuario  = current_usuario.to_s
+
+      return render(json: { ok: false, error: "Tenés que ingresar al menos un destinatario en 'Para'." }, status: :bad_request) if to_list.empty?
+      _v, invalids = BackgroundMailerHelper.split_validos(to_list + cc_list + bcc_list)
+      return render(json: { ok: false, error: "Email(s) inválido(s): #{invalids.join(', ')}" }, status: :bad_request) if invalids.any?
+
+      BackgroundMailerHelper.run("AuditoriaComercial") do
+        xlsx = build_auditoria_snapshot_xlsx(desde, hasta)
+        filename = "Picap_Auditoria_Comercial_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        ResendMailerService.send_email(
+          to: to_list, cc: cc_list, bcc: bcc_list,
+          subject: asunto.empty? ? "Reporte Auditorías Comerciales · #{desde} → #{hasta}" : asunto,
+          html: html_email_v321("📋 Auditorías Comerciales", "linear-gradient(90deg,#16a34a,#14532d)", "#16a34a", "#F0FDF4",
+                                desde, hasta, mensaje, usuario,
+                                "Te compartimos el resumen de auditorías comerciales del período. El detalle interactivo (comisiones + créditos) está en el portal."),
+          attachment_bytes: xlsx[:data], attachment_filename: filename,
+        )
+      end
+
+      render json: { ok: true, queued: true, destinatarios: to_list, cc: cc_list, bcc: bcc_list,
+                     mensaje: "Reporte en proceso. El email llegará en unos minutos." }, status: :accepted
+    rescue => e
+      Rails.logger.error("[AuditoriaController#enviar_email] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    private
+
+    def build_auditoria_snapshot_xlsx(desde, hasta)
+      ExcelExportService.build("Picap_Auditoria_Comercial") do |x|
+        x.add_sheet("Resumen") do |s|
+          s.banner("Auditorías Pibox Comerciales", "Período: #{desde} → #{hasta}", 2)
+          s.kpi_section("Datos del período", [
+            ["Período", "#{desde} → #{hasta}"],
+            ["Generado", Time.now.strftime("%Y-%m-%d %H:%M")],
+            ["Nota", "Detalle interactivo en monitoring.picap.io → Auditorías"],
+          ], ncols: 2)
+          s.finalize
+        end
+      end
+    end
+
+    # v3.3.21: template HTML genérico para módulos sin maquetación propia.
+    def html_email_v321(titulo, gradient, color_main, bg_color, desde, hasta, mensaje_usuario, usuario, descripcion)
+      msj_html = mensaje_usuario.to_s.empty? ? "" :
+        %Q(<p style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:12px 16px;margin:16px 0;border-radius:4px;color:#78350F"><strong>Mensaje:</strong> #{ERB::Util.h(mensaje_usuario)}</p>)
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#{bg_color};color:#1F2937">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#{bg_color};padding:20px 0"><tr><td align="center">
+            <table cellpadding="0" cellspacing="0" border="0" width="620" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+              <tr><td style="background:#{gradient};padding:24px 28px;color:#fff">
+                <div style="font-size:20px;font-weight:700">#{titulo}</div>
+                <div style="font-size:12px;opacity:0.92;margin-top:4px">Período: #{desde} → #{hasta}</div>
+              </td></tr>
+              <tr><td style="padding:28px">
+                <p style="margin:0 0 16px;font-size:14px">Hola,</p>
+                <p style="margin:0 0 16px;font-size:14px;line-height:1.5">#{descripcion}</p>
+                #{msj_html}
+                <p style="margin:24px 0 0;color:#6B7280;font-size:12px;line-height:1.5">📎 Excel adjunto. Detalle interactivo en <a href="https://monitoring.picap.io" style="color:#{color_main}">monitoring.picap.io</a>.</p>
+              </td></tr>
+              <tr><td style="background:#F9FAFB;padding:12px 28px;text-align:center;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">
+                <strong style="color:#{color_main}">Picap Monitoreo</strong> · #{Time.now.strftime('%d/%m/%Y %H:%M')} · Por: #{ERB::Util.h(usuario)}
+              </td></tr>
+            </table>
+          </td></tr></table>
+        </body></html>
+      HTML
+    end
   end
 end
