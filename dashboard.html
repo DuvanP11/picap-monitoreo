@@ -6456,7 +6456,28 @@ let _sesionRol    = localStorage.getItem('picap_rol')     || '';
 let _sesionNombre = localStorage.getItem('picap_nombre')  || '';
 let _sesionUsuario= localStorage.getItem('picap_usuario') || '';
 let _sesionAcceso = JSON.parse(localStorage.getItem('picap_acceso') || '[]');
-let _sesionFoto   = localStorage.getItem('picap_foto')    || '';
+
+// v3.3.22: foto en localStorage AISLADA POR USUARIO.
+// Antes: una sola clave 'picap_foto' compartida → si admin guardaba foto y
+// luego entraba otro user, veía la foto de admin. Ahora cada usuario tiene
+// su propia clave 'picap_foto_<usuario>'. Funciones helper:
+function leerFotoLocal(usuario) {
+  if (!usuario) return '';
+  try { return localStorage.getItem('picap_foto_' + usuario) || ''; }
+  catch(_) { return ''; }
+}
+function guardarFotoLocal(usuario, foto) {
+  if (!usuario) return;
+  try {
+    if (foto) localStorage.setItem('picap_foto_' + usuario, foto);
+    else      localStorage.removeItem('picap_foto_' + usuario);
+  } catch(_) {}
+}
+// Migración: si quedó la clave vieja 'picap_foto' del esquema anterior,
+// la borramos al cargar para que no se aplique a TODOS los usuarios.
+try { localStorage.removeItem('picap_foto'); } catch(_) {}
+
+let _sesionFoto = leerFotoLocal(_sesionUsuario);
 
 async function doLogin() {
   const usuario  = document.getElementById('login-user').value.trim();
@@ -6477,18 +6498,19 @@ async function doLogin() {
     _sesionNombre  = d.nombre;
     _sesionAcceso  = d.acceso;
     _sesionUsuario = usuario;
-    // v3.3.13: si el backend trae foto (columna foto_perfil OK), úsala.
-    // Si no, mantén la foto previa en localStorage (mismo usuario en este
-    // navegador). Solo se pierde si haces logout limpiando todo.
+    // v3.3.13/22: si el backend trae foto (columna foto_perfil OK), úsala.
+    // Si no, mantén la foto previa en localStorage PERO solo si pertenece
+    // al MISMO usuario (clave por-usuario picap_foto_<usuario>). Antes era
+    // una sola clave global, por eso otros usuarios veían la foto de admin.
     const _fotoBackendL = (d.foto || '').toString();
-    const _fotoLocalL   = localStorage.getItem('picap_foto') || '';
+    const _fotoLocalL   = leerFotoLocal(usuario);
     _sesionFoto    = _fotoBackendL || _fotoLocalL;
     localStorage.setItem('picap_token',    d.token);
     localStorage.setItem('picap_rol',      d.rol);
     localStorage.setItem('picap_nombre',   d.nombre);
     localStorage.setItem('picap_acceso',   JSON.stringify(d.acceso));
     localStorage.setItem('picap_usuario',  usuario);
-    if (_sesionFoto) localStorage.setItem('picap_foto', _sesionFoto); else localStorage.removeItem('picap_foto');
+    guardarFotoLocal(usuario, _sesionFoto);
     localStorage.setItem('picap_login_ts', Date.now().toString()); // para expirar a las 24h
     iniciarSesion();
   } catch(e) {
@@ -7250,11 +7272,10 @@ async function subirFotoPerfil(file){
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
     _sesionFoto = d.foto || dataUrl;
-    // v3.3.13: persistir en localStorage también — si el backend falla en
-    // leer la foto en /api/me (p.ej. columna foto_perfil pendiente), al
-    // menos la foto sigue apareciendo en el mismo navegador hasta que
-    // el backend se ponga al día.
-    try { localStorage.setItem('picap_foto', _sesionFoto); } catch(_){}
+    // v3.3.13/22: persistir en localStorage AISLADA POR USUARIO. Si el
+    // backend falla en leer la foto en /api/me, la foto sigue apareciendo
+    // SOLO para este usuario en este navegador.
+    guardarFotoLocal(_sesionUsuario, _sesionFoto);
     actualizarAvatarUI();
     // Actualizar también el preview en perfil
     const prev = document.getElementById('foto-perfil-preview');
@@ -7281,7 +7302,7 @@ async function eliminarFotoPerfil(){
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
     _sesionFoto = '';
-    try { localStorage.removeItem('picap_foto'); } catch(_){}
+    guardarFotoLocal(_sesionUsuario, '');
     actualizarAvatarUI();
     const prev = document.getElementById('foto-perfil-preview');
     if (prev) prev.innerHTML = getGenericPersonIcon(140);
@@ -7589,18 +7610,17 @@ async function verificarSesion(intento) {
     _sesionRol     = d.rol;
     _sesionAcceso  = d.acceso;
     _sesionUsuario = d.usuario || '';
-    // v3.3.13: si el backend devuelve foto (columna foto_perfil OK), la usamos.
-    // Si no devuelve foto pero hay una en localStorage (la subimos en otro
-    // momento), la mantenemos. Esto evita que la foto desaparezca si el
-    // backend aún no tiene la columna desplegada.
+    // v3.3.13/22: si el backend devuelve foto, la usamos. Si NO devuelve foto
+    // pero hay una en localStorage PARA ESTE MISMO USUARIO, la mantenemos.
+    // Antes era una clave global compartida → un user veía la foto de otro.
     const fotoBackend = (d.foto || '').toString();
-    const fotoLocal   = localStorage.getItem('picap_foto') || '';
+    const fotoLocal   = leerFotoLocal(_sesionUsuario);
     _sesionFoto = fotoBackend || fotoLocal;
     localStorage.setItem('picap_nombre',   d.nombre);
     localStorage.setItem('picap_rol',      d.rol);
     localStorage.setItem('picap_acceso',   JSON.stringify(d.acceso));
     localStorage.setItem('picap_usuario',  d.usuario || '');
-    if (_sesionFoto) localStorage.setItem('picap_foto', _sesionFoto); else localStorage.removeItem('picap_foto');
+    guardarFotoLocal(_sesionUsuario, _sesionFoto);
     iniciarSesion();
   } catch(e) {
     // Error de red (cold start de Render) — reintentar hasta 4 veces
