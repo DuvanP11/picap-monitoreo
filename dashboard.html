@@ -1660,6 +1660,7 @@ window.fetch = function(url, opts) {
       <div class="fly-link" id="nav-moviired" onclick="switchView('moviired')"><span>📊</span> MoviiRed</div>
       <div class="fly-link" id="nav-dispersiones" onclick="switchView('dispersiones')"><span>💸</span> Dispersiones</div>
       <div class="fly-link" id="nav-reporte_ops_cv" onclick="switchView('reporte_ops_cv')"><span>🚀</span> Reporte OPS CV</div>
+      <div class="fly-link" id="nav-bonos_ayuda" onclick="switchView('bonos_ayuda')"><span>🤝</span> Bonos de Ayuda Voluntaria</div>
     </div>
   </div>
   <div class="sb2-item sb2-disabled" id="sbg-retencion">
@@ -3937,6 +3938,14 @@ window.fetch = function(url, opts) {
           <div class="inf-card-badge inf-badge-ok">Activo</div>
         </div>
 
+        <!-- v3.3.23: Bonos de Ayuda Voluntaria -->
+        <div class="inf-card inf-card-leaf" onclick="switchView('bonos_ayuda')" title="Bonos de Ayuda Voluntaria">
+          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#059669,#047857)">🤝</div>
+          <div class="inf-card-name">Bonos de Ayuda Voluntaria</div>
+          <div class="inf-card-desc">Transacciones de ayuda entre pasajeros</div>
+          <div class="inf-card-badge inf-badge-ok">Activo</div>
+        </div>
+
         <div class="inf-card inf-card-leaf" onclick="informesProximamente('Mintic')" title="Mintic">
           <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#b45309,#92400e)">📡</div>
           <div class="inf-card-name">Mintic</div>
@@ -4216,6 +4225,76 @@ window.fetch = function(url, opts) {
           <button id="rcv-email-enviar-btn" onclick="ejecutarEnviarRcvEmail()" style="padding:9px 18px;background:#0369a1;border:1.5px solid #0369a1;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:13px">Enviar</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ══ VISTA: BONOS DE AYUDA VOLUNTARIA (v3.3.23 · admin/monitoreo/financiero) ══ -->
+  <div class="view" id="view-bonos_ayuda">
+    <div class="wrap">
+
+      <!-- Filtros: período rápido + fechas -->
+      <div class="rec-search-bar">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Período:</label>
+        <button class="pbtn" onclick="setBonosPeriod(7,this)">7 días</button>
+        <button class="pbtn active" onclick="setBonosPeriod(15,this)">15 días</button>
+        <button class="pbtn" onclick="setBonosPeriod(30,this)">30 días</button>
+        <div class="dateinputs">
+          <input type="date" id="bonos-desde">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="bonos-hasta">
+          <button class="search-btn" onclick="cargarBonosAyuda()">Aplicar</button>
+        </div>
+        <select id="bonos-mes" onchange="setBonosMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Mes</option>
+          <option value="1">Enero</option><option value="2">Febrero</option>
+          <option value="3">Marzo</option><option value="4">Abril</option>
+          <option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option>
+          <option value="9">Septiembre</option><option value="10">Octubre</option>
+          <option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select id="bonos-anio" onchange="setBonosMes()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Año</option>
+        </select>
+      </div>
+
+      <!-- Filtros adicionales + botones -->
+      <div class="rec-search-bar" style="margin-top:8px">
+        <select id="bonos-wallet-type" onchange="cargarBonosAyuda()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Todos los wallet_type</option>
+          <option value="masivo pibox">masivo pibox</option>
+          <option value="masivo picap">masivo picap</option>
+          <option value="corporativo pibox">corporativo pibox</option>
+        </select>
+        <select id="bonos-pais" onchange="cargarBonosAyuda()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Todos los países</option>
+          <option value="CO">CO — Colombia</option>
+          <option value="MX">MX — México</option>
+          <option value="PE">PE — Perú</option>
+          <option value="EC">EC — Ecuador</option>
+          <option value="CL">CL — Chile</option>
+        </select>
+        <input type="text" id="bonos-q" placeholder="🔍 Buscar passenger_id / company_id / tx_id…" class="rec-search-input" onkeydown="if(event.key==='Enter')cargarBonosAyuda()">
+        <button class="search-btn" onclick="cargarBonosAyuda()">↻ Actualizar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('bonos_ayuda')" style="background:#059669" title="Enviar el reporte por email con xlsx adjunto">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarBonosAyuda(this)" style="background:#047857" title="Descargar Excel con 2 hojas (Masivo + Corporativo)">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+
+      <!-- KPIs -->
+      <div id="bonos-kpis" style="margin-top:16px"></div>
+
+      <!-- Top empresas + Top países -->
+      <div id="bonos-analysis" style="margin-top:8px"></div>
+
+      <!-- 2 Tablas: Masivo + Corporativo -->
+      <div id="bonos-tablas" style="margin-top:16px"></div>
     </div>
   </div>
 
@@ -4715,6 +4794,7 @@ function switchView(view){
     'moviired':       'MoviiRed — Transacciones',
     'dispersiones':   'Dispersiones — Daviplata CashOut',
     'reporte_ops_cv': 'Reporte OPS CV — Cruz Verde Pibox',
+    'bonos_ayuda':    'Bonos de Ayuda Voluntaria',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -4766,6 +4846,10 @@ function switchView(view){
   if(view === 'reporte_ops_cv'){
     if(!_rcvDesde){ setRcvPeriod(15, document.querySelector('#view-reporte_ops_cv .pbtn.active')); }
     else { cargarReporteOpsCv(); }
+  }
+  if(view === 'bonos_ayuda'){
+    if(!_bonosDesde){ setBonosPeriod(15, document.querySelector('#view-bonos_ayuda .pbtn.active')); }
+    else { cargarBonosAyuda(); }
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -9516,6 +9600,20 @@ const ENVIAR_EMAIL_CONFIGS = {
       return { desde: d, hasta: h, pais };
     },
   },
+  // v3.3.23: Bonos de Ayuda Voluntaria
+  bonos_ayuda: {
+    titulo: '🤝 Enviar Bonos de Ayuda Voluntaria',
+    color: 'linear-gradient(90deg,#059669 0%,#047857 100%)',
+    endpoint: '/api/bonos_ayuda/enviar_email',
+    extraParams: () => {
+      const d = (typeof _bonosDesde !== 'undefined' ? _bonosDesde : null) || daysAgo(30);
+      const h = (typeof _bonosHasta !== 'undefined' ? _bonosHasta : null) || today();
+      const wallet_type = document.getElementById('bonos-wallet-type')?.value || '';
+      const pais        = document.getElementById('bonos-pais')?.value || '';
+      const q           = document.getElementById('bonos-q')?.value.trim() || '';
+      return { desde: d, hasta: h, wallet_type, pais, q };
+    },
+  },
 };
 
 let _emailGenericoModulo = null;
@@ -13560,6 +13658,304 @@ async function ejecutarEnviarRcvEmail() {
 }
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// BONOS DE AYUDA VOLUNTARIA — admin / monitoreo / financiero (v3.3.23)
+// Reporta transacciones WalletAccountTransactionBookingHelpBonus
+// Particiona en 2 tablas: Masivo (sin company_id) y Corporativo (con company_id)
+// + flag de coherencia (alerta si company_id ↔ wallet_type están mal alineados).
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _bonosDesde = null;
+let _bonosHasta = null;
+
+function setBonosPeriod(dias, btn) {
+  if (btn) {
+    document.querySelectorAll('#view-bonos_ayuda .pbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  _bonosDesde = daysAgo(dias);
+  _bonosHasta = today();
+  document.getElementById('bonos-desde').value = _bonosDesde;
+  document.getElementById('bonos-hasta').value = _bonosHasta;
+  document.getElementById('bonos-mes').value = '';
+  document.getElementById('bonos-anio').value = '';
+  cargarBonosAyuda();
+}
+
+function setBonosMes() {
+  const mes  = parseInt(document.getElementById('bonos-mes').value, 10);
+  const anio = parseInt(document.getElementById('bonos-anio').value, 10);
+  if (!mes || !anio) return;
+  const desde = new Date(anio, mes - 1, 1);
+  const hasta = new Date(anio, mes, 0);
+  _bonosDesde = desde.toISOString().slice(0, 10);
+  _bonosHasta = hasta.toISOString().slice(0, 10);
+  document.getElementById('bonos-desde').value = _bonosDesde;
+  document.getElementById('bonos-hasta').value = _bonosHasta;
+  document.querySelectorAll('#view-bonos_ayuda .pbtn').forEach(b => b.classList.remove('active'));
+  cargarBonosAyuda();
+}
+
+function initBonosAnioSelect() {
+  const sel = document.getElementById('bonos-anio');
+  if (!sel || sel.options.length > 1) return;
+  const y = new Date().getFullYear();
+  for (let i = y; i >= y - 4; i--) sel.innerHTML += `<option value="${i}">${i}</option>`;
+}
+
+async function cargarBonosAyuda() {
+  initBonosAnioSelect();
+  if (!_bonosDesde) { _bonosDesde = daysAgo(15); document.getElementById('bonos-desde').value = _bonosDesde; }
+  if (!_bonosHasta) { _bonosHasta = today();     document.getElementById('bonos-hasta').value = _bonosHasta; }
+  const di = document.getElementById('bonos-desde').value;
+  const hi = document.getElementById('bonos-hasta').value;
+  if (di) _bonosDesde = di;
+  if (hi) _bonosHasta = hi;
+
+  const walletType = document.getElementById('bonos-wallet-type')?.value || '';
+  const pais       = document.getElementById('bonos-pais')?.value || '';
+  const q          = document.getElementById('bonos-q')?.value.trim() || '';
+
+  document.getElementById('bonos-kpis').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando…</div>';
+  document.getElementById('bonos-analysis').innerHTML = '';
+  document.getElementById('bonos-tablas').innerHTML = '';
+
+  try {
+    const params = new URLSearchParams({ desde: _bonosDesde, hasta: _bonosHasta });
+    if (walletType) params.set('wallet_type', walletType);
+    if (pais)       params.set('pais', pais);
+    if (q)          params.set('q', q);
+    const r = await fetch(`${API}/api/bonos_ayuda?${params}`, { headers: { 'X-Token': _sesionToken } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    renderBonosAyuda(d);
+  } catch(err) {
+    document.getElementById('bonos-kpis').innerHTML =
+      `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}</div>`;
+  }
+}
+
+function renderBonosAyuda(data) {
+  const s = data.stats || {};
+  const masivo      = data.filas_masivo || [];
+  const corporativo = data.filas_corporativo || [];
+
+  // KPIs (2 filas de 4)
+  const porWt = s.por_wallet_type || [];
+  const cantWt = (key) => {
+    const x = porWt.find(p => p.wallet_type === key);
+    return x ? x.cant : 0;
+  };
+  const montoWt = (key) => {
+    const x = porWt.find(p => p.wallet_type === key);
+    return x ? x.monto : 0;
+  };
+  const incBg = (s.inconsistentes || 0) > 0 ? '#fee2e2' : '#dcfce7';
+  const incCol = (s.inconsistentes || 0) > 0 ? '#dc2626' : '#16a34a';
+  const incLbl = (s.inconsistentes || 0) > 0 ? '⚠️ Inconsistentes' : '✓ Todas coherentes';
+
+  const kpisHtml = `
+    <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr);">
+      <div class="rec-kpi" style="border-top:3px solid #059669">
+        <div class="rec-kpi-val" style="color:#059669">${fmtNum(s.total||0)}</div>
+        <div class="rec-kpi-sub">Transacciones totales</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #047857">
+        <div class="rec-kpi-val" style="color:#047857;font-size:18px">${fmtMoney(s.monto_total||0)}</div>
+        <div class="rec-kpi-sub">Monto total COP</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #10b981">
+        <div class="rec-kpi-val" style="color:#10b981">${fmtNum(data.masivo_count||0)}</div>
+        <div class="rec-kpi-sub">Masivo (total)</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #f59e0b">
+        <div class="rec-kpi-val" style="color:#f59e0b">${fmtNum(data.corporativo_count||0)}</div>
+        <div class="rec-kpi-sub">Corporativo (total)</div>
+      </div>
+    </div>
+    <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+      <div class="rec-kpi" style="border-top:3px solid #22c55e;background:#f0fdf4">
+        <div class="rec-kpi-val" style="color:#15803d">${fmtNum(cantWt('masivo pibox'))}</div>
+        <div class="rec-kpi-sub">🟢 Masivo Pibox · ${fmtMoney(montoWt('masivo pibox'))}</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #a855f7;background:#faf5ff">
+        <div class="rec-kpi-val" style="color:#7c3aed">${fmtNum(cantWt('masivo picap'))}</div>
+        <div class="rec-kpi-sub">🟣 Masivo Picap · ${fmtMoney(montoWt('masivo picap'))}</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid #fb923c;background:#fff7ed">
+        <div class="rec-kpi-val" style="color:#ea580c">${fmtNum(cantWt('corporativo pibox'))}</div>
+        <div class="rec-kpi-sub">🟠 Corporativo · ${fmtMoney(montoWt('corporativo pibox'))}</div>
+      </div>
+      <div class="rec-kpi" style="border-top:3px solid ${incCol};background:${incBg}">
+        <div class="rec-kpi-val" style="color:${incCol}">${fmtNum(s.inconsistentes||0)}</div>
+        <div class="rec-kpi-sub">${incLbl}</div>
+      </div>
+    </div>`;
+  document.getElementById('bonos-kpis').innerHTML = kpisHtml;
+
+  // Top empresas (corporativo) + Top países (masivo)
+  const topEmp = s.top_empresas || [];
+  const empHtml = topEmp.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1;min-width:320px">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">🏢 Top 3 empresas (corporativo)</div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr style="border-bottom:1px solid var(--border);color:var(--text3)">
+          <th style="text-align:left;padding:4px 6px">#</th>
+          <th style="text-align:left;padding:4px 6px">Empresa</th>
+          <th style="text-align:right;padding:4px 6px">Tx</th>
+          <th style="text-align:right;padding:4px 6px">Monto</th>
+        </tr></thead>
+        <tbody>
+        ${topEmp.map((e, i) => `<tr>
+          <td style="padding:4px 6px"><span style="background:#fb923c;color:#fff;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:9px">${i+1}</span></td>
+          <td style="padding:4px 6px;font-weight:600">${e.company}</td>
+          <td style="padding:4px 6px;text-align:right">${fmtNum(e.cant)}</td>
+          <td style="padding:4px 6px;text-align:right;font-family:monospace;color:#ea580c;font-weight:600">${fmtMoney(e.monto)}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  const topPais = s.top_paises || [];
+  const paisHtml = topPais.length ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;flex:1;min-width:320px">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:10px">🌎 Top 3 países (masivo)</div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr style="border-bottom:1px solid var(--border);color:var(--text3)">
+          <th style="text-align:left;padding:4px 6px">#</th>
+          <th style="text-align:left;padding:4px 6px">País</th>
+          <th style="text-align:right;padding:4px 6px">Tx</th>
+          <th style="text-align:right;padding:4px 6px">Monto</th>
+        </tr></thead>
+        <tbody>
+        ${topPais.map((p, i) => `<tr>
+          <td style="padding:4px 6px"><span style="background:#059669;color:#fff;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:9px">${i+1}</span></td>
+          <td style="padding:4px 6px;font-weight:600">${p.pais}</td>
+          <td style="padding:4px 6px;text-align:right">${fmtNum(p.cant)}</td>
+          <td style="padding:4px 6px;text-align:right;font-family:monospace;color:#15803d;font-weight:600">${fmtMoney(p.monto)}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  document.getElementById('bonos-analysis').innerHTML = `<div style="display:flex;gap:14px;flex-wrap:wrap">${empHtml}${paisHtml}</div>`;
+
+  // 2 Tablas: Masivo + Corporativo
+  document.getElementById('bonos-tablas').innerHTML = renderBonosAyudaTablas(masivo, corporativo);
+}
+
+function _bonosBadgeCoh(coherente) {
+  return coherente
+    ? '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px">✓ OK</span>'
+    : '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:700;font-size:10px">⚠️ ALERTA</span>';
+}
+
+function _bonosBadgeWt(wt) {
+  if (wt === 'masivo pibox')    return `<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:4px;font-weight:600;font-size:10px">masivo pibox</span>`;
+  if (wt === 'masivo picap')    return `<span style="background:#f3e8ff;color:#7c3aed;padding:2px 6px;border-radius:4px;font-weight:600;font-size:10px">masivo picap</span>`;
+  if (wt === 'corporativo pibox') return `<span style="background:#fff7ed;color:#ea580c;padding:2px 6px;border-radius:4px;font-weight:600;font-size:10px">corporativo pibox</span>`;
+  return `<span style="background:#e2e8f0;color:#475569;padding:2px 6px;border-radius:4px;font-weight:600;font-size:10px">${wt || '—'}</span>`;
+}
+
+function renderBonosAyudaTablas(masivo, corporativo) {
+  const copyJs = (id) => `navigator.clipboard.writeText('${id||''}');this.style.color='#22c55e';setTimeout(()=>this.style.color='',1200)`;
+  const ellipsis = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+
+  // Tabla 1: MASIVO
+  let tablaMasivo;
+  if (!masivo.length) {
+    tablaMasivo = '<div style="text-align:center;padding:24px;color:var(--text3);background:#f0fdf4;border:1px dashed #86efac;border-radius:8px">Sin bonos masivos en este período.</div>';
+  } else {
+    const rowsHtml = masivo.map(f => `<tr>
+      <td style="${ellipsis}"><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="${(f.id_transaccion||'').replace(/"/g,'&quot;')}" onclick="${copyJs(f.id_transaccion)}">${(f.id_transaccion||'').slice(0,12)}…</span></td>
+      <td style="${ellipsis}"><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="${(f.id_passenger||'').replace(/"/g,'&quot;')}" onclick="${copyJs(f.id_passenger)}">${(f.id_passenger||'').slice(0,12)}…</span></td>
+      <td style="font-size:11px;font-family:monospace;${ellipsis}">${(f.fecha||'').slice(0,16)}</td>
+      <td style="font-size:11px;${ellipsis}">${f.type_cd||'—'}</td>
+      <td style="font-size:11px;${ellipsis}">${f.tipo_tx||'—'}</td>
+      <td class="right" style="font-weight:700;color:#15803d;white-space:nowrap;font-family:monospace">${fmtMoney(f.monto_cop)}</td>
+      <td style="font-size:11px;${ellipsis}">${_bonosBadgeWt(f.wallet_type)}</td>
+      <td style="font-size:11px;text-align:center;${ellipsis}">${f.pais||'—'}</td>
+      <td style="${ellipsis}">${_bonosBadgeCoh(f.coherente)}</td>
+      <td style="font-size:10px;color:var(--text3);${ellipsis}" title="${(f.descripcion||'').replace(/"/g,'&quot;')}">${f.descripcion||'—'}</td>
+    </tr>`).join('');
+    tablaMasivo = `
+      <div style="overflow-x:auto;">
+        <table class="aud-table rec-detail-table" style="min-width:1300px;table-layout:fixed">
+          <colgroup>
+            <col style="width:120px"><col style="width:120px"><col style="width:130px"><col style="width:90px"><col style="width:120px">
+            <col style="width:110px"><col style="width:130px"><col style="width:80px"><col style="width:110px"><col style="width:240px">
+          </colgroup>
+          <thead><tr>
+            <th>Tx ID</th><th>Passenger ID</th><th>Fecha</th><th>Type CD</th><th>Tipo Tx</th>
+            <th class="right">Monto COP</th><th>Wallet Type</th><th>País</th><th>Coherencia</th><th>Descripción</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // Tabla 2: CORPORATIVO
+  let tablaCorp;
+  if (!corporativo.length) {
+    tablaCorp = '<div style="text-align:center;padding:24px;color:var(--text3);background:#fff7ed;border:1px dashed #fdba74;border-radius:8px">Sin bonos corporativos en este período.</div>';
+  } else {
+    const rowsHtml = corporativo.map(f => `<tr>
+      <td style="${ellipsis}"><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="${(f.id_transaccion||'').replace(/"/g,'&quot;')}" onclick="${copyJs(f.id_transaccion)}">${(f.id_transaccion||'').slice(0,12)}…</span></td>
+      <td style="${ellipsis}"><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="${(f.id_passenger||'').replace(/"/g,'&quot;')}" onclick="${copyJs(f.id_passenger)}">${(f.id_passenger||'').slice(0,12)}…</span></td>
+      <td style="font-size:11px;font-family:monospace;${ellipsis}">${(f.fecha||'').slice(0,16)}</td>
+      <td style="${ellipsis}"><span style="font-family:monospace;font-size:10px;color:var(--text2);cursor:pointer" title="${(f.company_id||'').replace(/"/g,'&quot;')}" onclick="${copyJs(f.company_id)}">${(f.company_id||'').slice(0,12)}…</span></td>
+      <td style="font-size:12px;font-weight:600;${ellipsis}" title="${(f.company_name||'').replace(/"/g,'&quot;')}">${f.company_name||'—'}</td>
+      <td style="font-size:11px;${ellipsis}">${f.type_cd||'—'}</td>
+      <td class="right" style="font-weight:700;color:#ea580c;white-space:nowrap;font-family:monospace">${fmtMoney(f.monto_cop)}</td>
+      <td style="font-size:11px;${ellipsis}">${_bonosBadgeWt(f.wallet_type)}</td>
+      <td style="${ellipsis}">${_bonosBadgeCoh(f.coherente)}</td>
+      <td style="font-size:10px;color:var(--text3);${ellipsis}" title="${(f.descripcion||'').replace(/"/g,'&quot;')}">${f.descripcion||'—'}</td>
+    </tr>`).join('');
+    tablaCorp = `
+      <div style="overflow-x:auto;">
+        <table class="aud-table rec-detail-table" style="min-width:1400px;table-layout:fixed">
+          <colgroup>
+            <col style="width:120px"><col style="width:120px"><col style="width:130px"><col style="width:110px"><col style="width:180px">
+            <col style="width:90px"><col style="width:120px"><col style="width:130px"><col style="width:110px"><col style="width:240px">
+          </colgroup>
+          <thead><tr>
+            <th>Tx ID</th><th>Passenger ID</th><th>Fecha</th><th>Company ID</th><th>Company</th>
+            <th>Type CD</th><th class="right">Monto COP</th><th>Wallet Type</th><th>Coherencia</th><th>Descripción</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+  }
+
+  return `
+    <div style="margin-bottom:8px;font-size:13px;font-weight:700;color:#15803d;background:#f0fdf4;border-left:3px solid #22c55e;padding:8px 12px;border-radius:4px">
+      🟢 Bonos MASIVO (${fmtNum(masivo.length)}) <span style="font-weight:400;color:var(--text3);font-size:11px">— company_id vacío · wallet_type = masivo pibox/picap</span>
+    </div>
+    ${tablaMasivo}
+    <div style="margin:18px 0 8px;font-size:13px;font-weight:700;color:#ea580c;background:#fff7ed;border-left:3px solid #fb923c;padding:8px 12px;border-radius:4px">
+      🟠 Bonos CORPORATIVO (${fmtNum(corporativo.length)}) <span style="font-weight:400;color:var(--text3);font-size:11px">— con company_id · wallet_type = corporativo pibox</span>
+    </div>
+    ${tablaCorp}
+    <div style="margin-top:10px;font-size:11px;color:var(--text3)">
+      Las primeras ${LIMIT_UI_BONOS} filas por tabla · Export Excel sin límite · ⚠️ ALERTA = company_id ↔ wallet_type incoherentes
+    </div>`;
+}
+const LIMIT_UI_BONOS = 5000;
+
+function exportarBonosAyuda(btn) {
+  const desde = _bonosDesde || daysAgo(15);
+  const hasta = _bonosHasta || today();
+  const walletType = document.getElementById('bonos-wallet-type')?.value || '';
+  const pais       = document.getElementById('bonos-pais')?.value || '';
+  const q          = document.getElementById('bonos-q')?.value.trim() || '';
+  const params = new URLSearchParams({ desde, hasta });
+  if (walletType) params.set('wallet_type', walletType);
+  if (pais)       params.set('pais', pais);
+  if (q)          params.set('q', q);
+  window.open(`${API}/api/exportar/bonos_ayuda?${params}`, '_blank');
+}
+
+
 // ── Panel de usuario dropdown ─────────────────────────────────────────────
 function toggleUserMenu(e) {
   e.stopPropagation();
@@ -13793,6 +14189,7 @@ function sb2SetActive(view) {
     moviired:       'sbg-informes',
     dispersiones:   'sbg-informes',
     reporte_ops_cv: 'sbg-informes',
+    bonos_ayuda:    'sbg-informes',
     auditoria:      'sbg-auditoria',
   };
   const grpId = MAP[view];

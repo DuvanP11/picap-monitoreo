@@ -2415,4 +2415,91 @@ module QueriesService
     ORDER BY fecha_tx DESC, id_tx
     LIMIT 50000
   SQL
+
+  # v3.3.23: Bonos de Ayuda Voluntaria
+  # WalletAccountTransactionBookingHelpBonus = "bono de ayuda" entre passenger.
+  # UNION ALL de 2 sub-queries: masivo (wallet_accounts.company_id vacío) y
+  # corporativo (con company_id). Devuelve 1 fila por transacción con campos
+  # para clasificarla y detectar incoherencias.
+  Q_BONOS_AYUDA_VOLUNTARIA = <<~'SQL'
+    WITH
+        q_wat_base AS (
+            SELECT
+                _id, booking_id, account_id, _type, created_at,
+                description, daviplata_response, from_trump, reverted_to_id,
+                custom_message, amount
+            FROM picapmongoprod.wallet_account_transactions FINAL
+            WHERE toDate(toTimeZone(created_at, 'America/Bogota'))
+                  BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+              AND _type IN ('WalletAccountTransactionBookingHelpBonus')
+              AND JSONExtractString(amount, 'currency_iso') = 'COP'
+        ),
+        q_account_ids AS (
+            SELECT DISTINCT account_id FROM q_wat_base
+        ),
+        q_wallet_accounts AS (
+            SELECT _id, type_cd, passenger_id, company_id
+            FROM picapmongoprod.wallet_accounts FINAL
+            WHERE _id IN (SELECT account_id FROM q_account_ids)
+        ),
+        q_passengers AS (
+            SELECT _id, g_country FROM picapmongoprod.passengers_w_data FINAL
+        ),
+        q_companies AS (
+            SELECT _id, name FROM picapmongoprod.companies FINAL
+        )
+    SELECT
+        wat._id                                                              AS id_transaccion,
+        p._id                                                                AS id_passenger,
+        toDate(toTimeZone(wat.created_at, 'America/Bogota'))                 AS fecha,
+        ''                                                                   AS company_id,
+        ''                                                                   AS company_name,
+        wa.type_cd                                                           AS type_cd,
+        wat._type                                                            AS tipo_tx,
+        CAST(JSONExtractString(wat.amount, 'cents') AS Float64) / 100        AS monto_cop,
+        wat.description                                                      AS descripcion,
+        multiIf(
+            wat.description IN (
+                'Has recibido una ayuda por mensajería!',
+                'Reverso de Has recibido una ayuda por mensajería!'
+            ),
+            'masivo pibox',
+            'masivo picap'
+        )                                                                    AS wallet_type,
+        wat.daviplata_response                                               AS daviplata_response,
+        ifNull(p.g_country, '')                                              AS pais,
+        ifNull(toString(wat.from_trump), '')                                 AS from_trump,
+        ifNull(toString(wat.reverted_to_id), '')                             AS reverted_to_id,
+        ifNull(wat.custom_message, '')                                       AS custom_message
+    FROM q_wat_base AS wat
+    INNER JOIN q_wallet_accounts AS wa ON wa._id = wat.account_id
+    INNER JOIN q_passengers      AS p  ON p._id  = wa.passenger_id
+    WHERE wa.company_id = ''
+
+    UNION ALL
+
+    SELECT
+        wat._id                                                              AS id_transaccion,
+        wa.passenger_id                                                      AS id_passenger,
+        toDate(toTimeZone(wat.created_at, 'America/Bogota'))                 AS fecha,
+        comp._id                                                             AS company_id,
+        comp.name                                                            AS company_name,
+        wa.type_cd                                                           AS type_cd,
+        wat._type                                                            AS tipo_tx,
+        CAST(JSONExtractString(wat.amount, 'cents') AS Float64) / 100        AS monto_cop,
+        wat.description                                                      AS descripcion,
+        'corporativo pibox'                                                  AS wallet_type,
+        wat.daviplata_response                                               AS daviplata_response,
+        ''                                                                   AS pais,
+        ''                                                                   AS from_trump,
+        ''                                                                   AS reverted_to_id,
+        ''                                                                   AS custom_message
+    FROM q_wat_base AS wat
+    INNER JOIN q_wallet_accounts AS wa  ON wa._id    = wat.account_id
+    INNER JOIN q_companies       AS comp ON comp._id = wa.company_id
+    WHERE wa.company_id != ''
+
+    ORDER BY fecha DESC, id_transaccion
+    SETTINGS join_algorithm = 'parallel_hash', max_threads = 8, max_memory_usage = 12000000000
+  SQL
 end

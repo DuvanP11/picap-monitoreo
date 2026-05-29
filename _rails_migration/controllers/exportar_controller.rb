@@ -784,6 +784,26 @@ module Api
       end
     end
 
+    # GET /api/exportar/bonos_ayuda?desde=&hasta=&wallet_type=&pais=&q=
+    # v3.3.23: Bonos de Ayuda Voluntaria. Acceso restringido a
+    # admin/monitoreo/financiero.
+    def bonos_ayuda
+      unless Api::BonosAyudaVoluntariaController::ROLES_PERMITIDOS.include?(current_rol.to_s)
+        return render(json: {
+          ok: false,
+          error: "Acceso restringido — solo roles: admin, monitoreo, financiero",
+        }, status: :forbidden)
+      end
+      send_xlsx(self.class.build_bonos_ayuda_xlsx(
+        desde_param, hasta_param, ch,
+        wallet_type: params[:wallet_type].to_s.strip,
+        pais:        params[:pais].to_s.strip,
+        q:           params[:q].to_s.strip,
+      ))
+    rescue => e
+      handle_error(e, "bonos_ayuda")
+    end
+
     # GET /api/exportar/reporte_ops_cv?desde=&hasta=&estado=&next_day=&ciudad=
     # Devuelve Excel con 1 hoja "Data" (37 columnas — espejo del archivo
     # de referencia del cliente). Acceso restringido a admin/monitoreo/financiero.
@@ -802,6 +822,116 @@ module Api
       ))
     rescue => e
       handle_error(e, "reporte_ops_cv")
+    end
+
+    # v3.3.23: Bonos de Ayuda Voluntaria — xlsx con 2 hojas (Masivo + Corporativo)
+    # + columna Coherencia que marca filas inconsistentes (alerta).
+    def self.build_bonos_ayuda_xlsx(desde, hasta, ch, wallet_type: "", pais: "", q: "", preloaded_rows: nil)
+      if preloaded_rows
+        rows = preloaded_rows
+      else
+        sql = QueriesService.format(QueriesService::Q_BONOS_AYUDA_VOLUNTARIA,
+                                     fecha_desde: desde, fecha_hasta: hasta)
+        raw = ch.query(sql, timeout: 300)
+        rows = raw.map { |r|
+          company_id   = r["company_id"].to_s.strip
+          wallet       = r["wallet_type"].to_s
+          tiene_company = !company_id.empty?
+          es_corp      = wallet == "corporativo pibox"
+          coherente    = (tiene_company && es_corp) || (!tiene_company && !es_corp)
+          {
+            "id_transaccion" => r["id_transaccion"].to_s,
+            "id_passenger"   => r["id_passenger"].to_s,
+            "fecha"          => r["fecha"].to_s,
+            "company_id"     => company_id,
+            "company_name"   => r["company_name"].to_s,
+            "type_cd"        => r["type_cd"].to_s,
+            "tipo_tx"        => r["tipo_tx"].to_s,
+            "monto_cop"      => r["monto_cop"].to_f.round(2),
+            "descripcion"    => r["descripcion"].to_s,
+            "wallet_type"    => wallet,
+            "daviplata_response" => r["daviplata_response"].to_s,
+            "pais"           => r["pais"].to_s,
+            "from_trump"     => r["from_trump"].to_s,
+            "reverted_to_id" => r["reverted_to_id"].to_s,
+            "custom_message" => r["custom_message"].to_s,
+            "coherente"      => coherente,
+          }
+        }
+        # Filtros opcionales (sólo se usan cuando NO viene preloaded_rows)
+        rows = rows.select { |r| r["wallet_type"] == wallet_type } unless wallet_type.to_s.empty?
+        rows = rows.select { |r| r["pais"].to_s.upcase == pais.to_s.upcase } unless pais.to_s.empty?
+        unless q.to_s.empty?
+          q_low = q.downcase
+          rows = rows.select { |r|
+            r["id_passenger"].to_s.downcase.include?(q_low) ||
+            r["company_id"].to_s.downcase.include?(q_low) ||
+            r["company_name"].to_s.downcase.include?(q_low) ||
+            r["id_transaccion"].to_s.downcase.include?(q_low)
+          }
+        end
+      end
+
+      filas_masivo      = rows.select { |r| r["company_id"].to_s.strip.empty? }
+      filas_corporativo = rows.reject { |r| r["company_id"].to_s.strip.empty? }
+      total_monto = rows.sum { |r| r["monto_cop"].to_f }
+      n_inconsist = rows.count { |r| !r["coherente"] }
+
+      ExcelExportService.build("Picap_Bonos_Ayuda_Voluntaria") do |x|
+        # Hoja Resumen
+        x.add_sheet("Resumen") do |s|
+          s.banner("Bonos de Ayuda Voluntaria — Resumen",
+                   "Período: #{desde} → #{hasta}", 2)
+          s.kpi_section("KPIs ejecutivos", [
+            ["Transacciones totales",   rows.size],
+            ["Monto total COP",         total_monto.to_i],
+            ["• Masivo (sin company)",  filas_masivo.size],
+            ["• Corporativo (con company)", filas_corporativo.size],
+            ["⚠️ Inconsistentes (company_id vs wallet_type)", n_inconsist],
+          ], ncols: 2)
+          s.finalize
+        end
+
+        # Hoja Masivo
+        x.add_sheet("Masivo") do |s|
+          s.banner("Bonos Masivos (sin company)",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{filas_masivo.size}", 11)
+          s.headers([
+            "ID Transacción", "ID Pasajero", "Fecha", "Type CD", "Tipo Tx",
+            "Monto COP", "Descripción", "Wallet Type", "País",
+            "Daviplata Resp.", "Coherencia",
+          ])
+          filas_masivo.each do |r|
+            s.data_row([
+              r["id_transaccion"], r["id_passenger"], r["fecha"],
+              r["type_cd"], r["tipo_tx"], r["monto_cop"], r["descripcion"],
+              r["wallet_type"], r["pais"], r["daviplata_response"],
+              r["coherente"] ? "✓ OK" : "⚠️ ALERTA",
+            ], right_align: [6])
+          end
+          s.finalize(freeze_row: 4)
+        end
+
+        # Hoja Corporativo
+        x.add_sheet("Corporativo") do |s|
+          s.banner("Bonos Corporativos (con company)",
+                   "Período: #{desde} → #{hasta}  ·  Registros: #{filas_corporativo.size}", 11)
+          s.headers([
+            "ID Transacción", "ID Pasajero", "Fecha", "Company ID", "Company Name",
+            "Type CD", "Tipo Tx", "Monto COP", "Descripción",
+            "Wallet Type", "Coherencia",
+          ])
+          filas_corporativo.each do |r|
+            s.data_row([
+              r["id_transaccion"], r["id_passenger"], r["fecha"],
+              r["company_id"], r["company_name"], r["type_cd"], r["tipo_tx"],
+              r["monto_cop"], r["descripcion"], r["wallet_type"],
+              r["coherente"] ? "✓ OK" : "⚠️ ALERTA",
+            ], right_align: [8])
+          end
+          s.finalize(freeze_row: 4)
+        end
+      end
     end
 
     # Builder centralizado del xlsx de Reporte OPS CV. 1 hoja "Data" con

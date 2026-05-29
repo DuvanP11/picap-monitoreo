@@ -50,6 +50,10 @@ Rails.application.routes.draw do
     get  "reporte_ops_cv",                to: "reporte_ops_cv#index"
     post "reporte_ops_cv/enviar_email",   to: "reporte_ops_cv#enviar_email"
 
+    # v3.3.23: Bonos de Ayuda Voluntaria (acceso restringido)
+    get  "bonos_ayuda",                   to: "bonos_ayuda_voluntaria#index"
+    post "bonos_ayuda/enviar_email",      to: "bonos_ayuda_voluntaria#enviar_email"
+
     # Auditoría Pibox
     namespace :auditoria do
       get    "comisiones",  to: "/api/auditoria#comisiones"
@@ -87,6 +91,7 @@ Rails.application.routes.draw do
       get  "moviired",      to: "/api/exportar#moviired"
       get  "dispersiones",  to: "/api/exportar#dispersiones"
       get  "reporte_ops_cv",to: "/api/exportar#reporte_ops_cv"
+      get  "bonos_ayuda",   to: "/api/exportar#bonos_ayuda"
     end
 
     # Autenticación
