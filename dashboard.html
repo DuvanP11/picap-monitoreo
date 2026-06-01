@@ -14114,18 +14114,25 @@ async function _minticFetch(endpoint, opts = {}) {
   // rápido. Reintentamos automáticamente hasta MAX_RETRIES veces.
   if (!ct.includes('application/json')) {
     const txt = await r.text();
-    const esTimeout = r.status === 502 || r.status === 504 || /bad gateway|gateway timeout/i.test(txt);
-    if (esTimeout && _retryCount < MAX_RETRIES) {
-      const espera = 5 * (_retryCount + 1);  // 5s, 10s
+    // 502/504 = timeout del proxy (la query CH sigue corriendo, retry usa caché).
+    // 503    = pods no listos durante un rollout de ArgoCD (transitorio, espera).
+    // 500    = error interno del Rails (raro, retry por si fue glitch transitorio).
+    const esTimeout      = r.status === 502 || r.status === 504 || /bad gateway|gateway timeout/i.test(txt);
+    const esTransitorio  = r.status === 503 || /no available server|unavailable/i.test(txt);
+    const esInterno      = r.status === 500;
+    const esRetryable    = esTimeout || esTransitorio || esInterno;
+    if (esRetryable && _retryCount < MAX_RETRIES) {
+      const motivo = esTimeout ? 'timeout del proxy' : esTransitorio ? 'rollout del cluster' : 'error transitorio';
+      const espera = (esTransitorio ? 8 : 5) * (_retryCount + 1);  // 503 espera más (pods levantando)
       const cnt = document.getElementById(`mintic-tabla-${_minticTab}`);
-      if (cnt) cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#92400e;background:#fef3c7;border-radius:8px">⏱ Timeout del proxy. Reintentando automáticamente en ${espera}s (intento ${_retryCount + 2}/${MAX_RETRIES + 1})… La query sigue corriendo en CH, la siguiente vez usa caché interno.</div>`;
+      if (cnt) cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#92400e;background:#fef3c7;border-radius:8px">⏱ ${motivo} (HTTP ${r.status}). Reintentando automáticamente en ${espera}s (intento ${_retryCount + 2}/${MAX_RETRIES + 1})…</div>`;
       await new Promise(res => setTimeout(res, espera * 1000));
       return _minticFetch(endpoint, { _retryCount: _retryCount + 1 });
     }
-    if (esTimeout) {
+    if (esRetryable) {
       throw new Error(
-        `⏱ Después de ${MAX_RETRIES + 1} intentos la query sigue tardando más que el timeout del proxy. ` +
-        `Probá un trimestre con menos servicios, o esperá unos minutos y reintentá manualmente.`
+        `⏱ Después de ${MAX_RETRIES + 1} intentos sigue fallando (HTTP ${r.status}). ` +
+        `Probá un trimestre con menos servicios, o esperá 1-2 minutos y reintentá manualmente.`
       );
     }
     throw new Error(`Respuesta inesperada (HTTP ${r.status}): ${txt.slice(0, 200)}`);
