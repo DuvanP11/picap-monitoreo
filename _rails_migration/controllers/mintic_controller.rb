@@ -198,7 +198,11 @@ module Api
     def ejecutar_query(desde, hasta)
       sql = QueriesService.format(QueriesService::Q_MINTIC,
                                   fecha_desde: desde, fecha_hasta: hasta)
-      ch.query(sql, timeout: 600)
+      t0 = Time.now
+      Rails.logger.info("[MinticController] Q_MINTIC inicio (desde=#{desde} hasta=#{hasta})")
+      rows = ch.query(sql, timeout: 600)
+      Rails.logger.info("[MinticController] Q_MINTIC OK: #{rows.size} filas en #{(Time.now - t0).round(1)}s")
+      rows
     end
 
     # Lee facturas extraídas (JSON) del directorio storage/mintic/.

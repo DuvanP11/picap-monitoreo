@@ -2504,6 +2504,9 @@ module QueriesService
   SQL
 
   # v3.3.24: MINTIC — reporte trimestral de bookings B2B Pibox.
+  # v3.3.24-rc3: OPTIMIZACIÓN — push-down de filtros de fecha antes de FINAL,
+  # remoción de envoltorios `(SELECT * FROM ... FINAL)` que forzaban full-scan,
+  # grace_hash en vez de parallel_hash (menos memoria, spill a disco).
   # Devuelve todas las columnas necesarias para construir el Informe General
   # (cruce con facturas extraídas del Drive vía NIT + período de fechas).
   # Parámetros: %{fecha_desde}, %{fecha_hasta} (formato YYYY-MM-DD).
@@ -2527,23 +2530,32 @@ module QueriesService
           ELSE 'Other'
         END AS type
       FROM picapmongoprod.service_types
+      WHERE name_es != 'Test'
     ),
+    -- Optimización: filter early. Primero obtenemos solo los _id de bookings
+    -- que cumplen el rango de fecha + status + B2B. Sin FINAL ni JOINs.
+    -- Esto descarta el 99% de la tabla bookings antes de tocar nada.
+    q_bookings_ids AS (
+      SELECT _id, requested_service_type_id, country_id, company_id, passenger_id, driver_id
+      FROM picapmongoprod.bookings FINAL
+      WHERE status_cd IN (4, 107, 108)
+        AND nullIf(trim(relaunched_to_id), '') IS NULL
+        AND toDate(toTimeZone(coalesce(scheduled_at, created_at), 'America/Bogota'))
+            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+        AND company_id IS NOT NULL AND company_id != ''
+    ),
+    -- Re-filtrar por service_type Pibox + country Colombia (tablas chicas).
     q_filtered_bookings AS (
-      SELECT b._id as booking_id, b.*
-      FROM (SELECT * FROM picapmongoprod.bookings FINAL) b
+      SELECT b._id AS booking_id, b.*
+      FROM picapmongoprod.bookings FINAL b
         INNER JOIN q_service_types st ON st._id = b.requested_service_type_id
         INNER JOIN picapmongoprod.countries c ON c._id = b.country_id
-      WHERE b.status_cd IN (4, 107, 108)
-        AND nullIf(trim(relaunched_to_id), '') IS NULL
-        AND st.name != 'Test'
+      WHERE b._id IN (SELECT _id FROM q_bookings_ids)
         AND st.type = 'Pibox'
         AND JSONExtractString(c.name, 'es') = 'Colombia'
-        AND toDate(toTimeZone(coalesce(b.scheduled_at, b.created_at), 'America/Bogota'))
-            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
-        AND if(b.company_id IS NOT NULL AND b.company_id != '', 'B2B', 'B2C') = 'B2B'
     ),
     q_filtered_bookings_unique AS (
-      SELECT DISTINCT qfb.booking_id FROM q_filtered_bookings AS qfb
+      SELECT DISTINCT booking_id FROM q_filtered_bookings
     ),
     q_transactions AS (
       SELECT
@@ -2552,12 +2564,12 @@ module QueriesService
         SUM(if(wat._type = 'WalletAccountTransactionCommissionDriverPayment', -toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS driver,
         SUM(if(wat._type = 'WalletAccountTransactionCommissionCompanyPayment', -toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS company,
         SUM(if(wat._type = 'WalletAccountTransactionBookingDriverPayment', toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS booking_driver_payment
-      FROM (SELECT * FROM picapmongoprod.wallet_account_transactions FINAL) wat
-        INNER JOIN q_filtered_bookings_unique qfb ON wat.booking_id = qfb.booking_id
-      WHERE wat._type IN (
-        'WalletAccountTransactionCommissionDriverPayment',
-        'WalletAccountTransactionCommissionCompanyPayment',
-        'WalletAccountTransactionBookingDriverPayment')
+      FROM picapmongoprod.wallet_account_transactions FINAL wat
+      WHERE wat.booking_id IN (SELECT booking_id FROM q_filtered_bookings_unique)
+        AND wat._type IN (
+          'WalletAccountTransactionCommissionDriverPayment',
+          'WalletAccountTransactionCommissionCompanyPayment',
+          'WalletAccountTransactionBookingDriverPayment')
       GROUP BY wat.booking_id, currency
     ),
     q_payment_methods AS (
@@ -2570,32 +2582,41 @@ module QueriesService
           WHEN b.payment_method_cd = '3' THEN 'Credit Card'
           ELSE 'Other'
         END AS txt_payment_method
-      FROM (SELECT * FROM picapmongoprod.bookings FINAL) b
-        INNER JOIN q_filtered_bookings qfb ON b._id = qfb.booking_id
+      FROM picapmongoprod.bookings FINAL b
+      WHERE b._id IN (SELECT booking_id FROM q_filtered_bookings_unique)
     ),
     q_packages AS (
       SELECT DISTINCT
         pck._id, pck.booking_id, pck.reference, pck.declared_value,
         pck.status_cd, pck.counter_delivery
-      FROM (SELECT * FROM picapmongoprod.packages FINAL) pck
-        INNER JOIN q_filtered_bookings qfb ON pck.booking_id = qfb.booking_id
+      FROM picapmongoprod.packages FINAL pck
+      WHERE pck.booking_id IN (SELECT booking_id FROM q_filtered_bookings_unique)
+    ),
+    -- Combinar passengers_p + passengers_d en una sola CTE (un solo scan).
+    q_passengers_all AS (
+      SELECT DISTINCT p._id, p.name, p.company_id, p.document_type, p.cod_identification
+      FROM picapmongoprod.passengers_w_data FINAL p
+      WHERE p._id IN (
+        SELECT passenger_id FROM q_bookings_ids
+        UNION DISTINCT
+        SELECT driver_id FROM q_bookings_ids WHERE driver_id IS NOT NULL
+      )
     ),
     q_passengers_p AS (
-      SELECT DISTINCT p._id, p.name, p.company_id
-      FROM (SELECT * FROM picapmongoprod.passengers_w_data FINAL) p
-        INNER JOIN q_filtered_bookings qfb ON p._id = qfb.passenger_id
+      SELECT _id, name, company_id FROM q_passengers_all
     ),
     q_passengers_d AS (
-      SELECT DISTINCT d._id, d.name, d.document_type, d.cod_identification
-      FROM (SELECT * FROM picapmongoprod.passengers_w_data FINAL) d
-        INNER JOIN q_filtered_bookings qfb ON d._id = qfb.driver_id
+      SELECT _id, name, document_type, cod_identification FROM q_passengers_all
     ),
     q_passengers_k AS (
       SELECT DISTINCT k._id, k.name
-      FROM (SELECT * FROM picapmongoprod.passengers_w_data FINAL) k
-        INNER JOIN picapmongoprod.companies comp ON k._id = comp.commercial_manager_id
-        INNER JOIN q_filtered_bookings qfb ON comp._id = qfb.company_id
-      WHERE k._id IS NOT NULL
+      FROM picapmongoprod.passengers_w_data FINAL k
+      WHERE k._id IN (
+        SELECT comp.commercial_manager_id
+        FROM picapmongoprod.companies comp
+        WHERE comp._id IN (SELECT company_id FROM q_bookings_ids WHERE company_id != '')
+          AND comp.commercial_manager_id IS NOT NULL
+      )
     )
     SELECT DISTINCT
       b._id AS Booking_ID,
@@ -2659,6 +2680,11 @@ module QueriesService
       LEFT  JOIN picapmongoprod.cities        cit ON cit._id = b.city_id
       LEFT  JOIN picapmongoprod.cost_centers  cs  ON cs._id  = b.cost_center_id
       LEFT  JOIN q_passengers_k   k  ON k._id  = comp.commercial_manager_id
-    SETTINGS join_algorithm = 'parallel_hash', max_threads = 8, max_memory_usage = 14000000000
+    SETTINGS
+      join_algorithm = 'grace_hash',
+      max_bytes_in_join = 4000000000,
+      max_threads = 6,
+      max_memory_usage = 12000000000,
+      max_execution_time = 250
   SQL
 end

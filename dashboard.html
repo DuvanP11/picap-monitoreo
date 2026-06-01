@@ -14104,6 +14104,19 @@ async function cargarMintic() {
 async function _minticFetch(endpoint) {
   const params = new URLSearchParams({ trimestre: _minticTrimestre, anio: _minticAnio });
   const r = await fetch(`${API}/api/mintic/${endpoint}?${params}`, { headers: { 'X-Token': _sesionToken } });
+  // El proxy puede devolver HTML (Bad Gateway / 504) en vez de JSON si la
+  // query CH excede el timeout (~30s). Detectarlo y dar un mensaje claro.
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const txt = await r.text();
+    if (r.status === 502 || r.status === 504 || /bad gateway|gateway timeout/i.test(txt)) {
+      throw new Error(
+        `⏱ La query tardó más que el timeout del proxy (HTTP ${r.status}). ` +
+        `Sugerencia: reintentá en unos segundos — la siguiente ejecución usa caché interno de ClickHouse y suele ser 3-5x más rápida.`
+      );
+    }
+    throw new Error(`Respuesta inesperada (HTTP ${r.status}): ${txt.slice(0, 200)}`);
+  }
   const d = await r.json();
   if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
   return d;
