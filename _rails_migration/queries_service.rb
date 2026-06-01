@@ -2547,7 +2547,7 @@ module QueriesService
     -- Re-filtrar por service_type Pibox + country Colombia (tablas chicas).
     q_filtered_bookings AS (
       SELECT b._id AS booking_id, b.*
-      FROM picapmongoprod.bookings FINAL b
+      FROM picapmongoprod.bookings AS b FINAL
         INNER JOIN q_service_types st ON st._id = b.requested_service_type_id
         INNER JOIN picapmongoprod.countries c ON c._id = b.country_id
       WHERE b._id IN (SELECT _id FROM q_bookings_ids)
@@ -2564,7 +2564,7 @@ module QueriesService
         SUM(if(wat._type = 'WalletAccountTransactionCommissionDriverPayment', -toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS driver,
         SUM(if(wat._type = 'WalletAccountTransactionCommissionCompanyPayment', -toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS company,
         SUM(if(wat._type = 'WalletAccountTransactionBookingDriverPayment', toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS booking_driver_payment
-      FROM picapmongoprod.wallet_account_transactions FINAL wat
+      FROM picapmongoprod.wallet_account_transactions AS wat FINAL
       WHERE wat.booking_id IN (SELECT booking_id FROM q_filtered_bookings_unique)
         AND wat._type IN (
           'WalletAccountTransactionCommissionDriverPayment',
@@ -2582,20 +2582,20 @@ module QueriesService
           WHEN b.payment_method_cd = '3' THEN 'Credit Card'
           ELSE 'Other'
         END AS txt_payment_method
-      FROM picapmongoprod.bookings FINAL b
+      FROM picapmongoprod.bookings AS b FINAL
       WHERE b._id IN (SELECT booking_id FROM q_filtered_bookings_unique)
     ),
     q_packages AS (
       SELECT DISTINCT
         pck._id, pck.booking_id, pck.reference, pck.declared_value,
         pck.status_cd, pck.counter_delivery
-      FROM picapmongoprod.packages FINAL pck
+      FROM picapmongoprod.packages AS pck FINAL
       WHERE pck.booking_id IN (SELECT booking_id FROM q_filtered_bookings_unique)
     ),
     -- Combinar passengers_p + passengers_d en una sola CTE (un solo scan).
     q_passengers_all AS (
       SELECT DISTINCT p._id, p.name, p.company_id, p.document_type, p.cod_identification
-      FROM picapmongoprod.passengers_w_data FINAL p
+      FROM picapmongoprod.passengers_w_data AS p FINAL
       WHERE p._id IN (
         SELECT passenger_id FROM q_bookings_ids
         UNION DISTINCT
@@ -2610,7 +2610,7 @@ module QueriesService
     ),
     q_passengers_k AS (
       SELECT DISTINCT k._id, k.name
-      FROM picapmongoprod.passengers_w_data FINAL k
+      FROM picapmongoprod.passengers_w_data AS k FINAL
       WHERE k._id IN (
         SELECT comp.commercial_manager_id
         FROM picapmongoprod.companies comp
