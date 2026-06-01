@@ -1661,6 +1661,7 @@ window.fetch = function(url, opts) {
       <div class="fly-link" id="nav-dispersiones" onclick="switchView('dispersiones')"><span>💸</span> Dispersiones</div>
       <div class="fly-link" id="nav-reporte_ops_cv" onclick="switchView('reporte_ops_cv')"><span>🚀</span> Reporte OPS CV</div>
       <div class="fly-link" id="nav-bonos_ayuda" onclick="switchView('bonos_ayuda')"><span>🤝</span> Bonos de Ayuda Voluntaria</div>
+      <div class="fly-link" id="nav-mintic" onclick="switchView('mintic')"><span>🏛️</span> MINTIC — Reporte Trimestral</div>
     </div>
   </div>
   <div class="sb2-item sb2-disabled" id="sbg-retencion">
@@ -3946,11 +3947,12 @@ window.fetch = function(url, opts) {
           <div class="inf-card-badge inf-badge-ok">Activo</div>
         </div>
 
-        <div class="inf-card inf-card-leaf" onclick="informesProximamente('Mintic')" title="Mintic">
-          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#b45309,#92400e)">📡</div>
-          <div class="inf-card-name">Mintic</div>
-          <div class="inf-card-desc">Reportes regulatorios</div>
-          <div class="inf-card-badge inf-badge-soon">Próximamente</div>
+        <!-- v3.3.24: MINTIC — reporte trimestral -->
+        <div class="inf-card inf-card-leaf" onclick="switchView('mintic')" title="MINTIC — Reporte Trimestral">
+          <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#1e40af,#1e3a8a)">🏛️</div>
+          <div class="inf-card-name">MINTIC</div>
+          <div class="inf-card-desc">Reporte trimestral B2B (regulatorio)</div>
+          <div class="inf-card-badge inf-badge-ok">Activo</div>
         </div>
       </div>
 
@@ -4295,6 +4297,55 @@ window.fetch = function(url, opts) {
 
       <!-- 2 Tablas: Masivo + Corporativo -->
       <div id="bonos-tablas" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+  <!-- ══ VISTA: MINTIC — Reporte Trimestral (v3.3.24 · admin/monitoreo/financiero) ══ -->
+  <div class="view" id="view-mintic">
+    <div class="wrap">
+
+      <!-- Selector de trimestre + año -->
+      <div class="rec-search-bar">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Trimestre:</label>
+        <button class="pbtn" data-trim="1" onclick="setMinticTrimestre(1)">1T (Ene-Mar)</button>
+        <button class="pbtn" data-trim="2" onclick="setMinticTrimestre(2)">2T (Abr-Jun)</button>
+        <button class="pbtn" data-trim="3" onclick="setMinticTrimestre(3)">3T (Jul-Sep)</button>
+        <button class="pbtn" data-trim="4" onclick="setMinticTrimestre(4)">4T (Oct-Dic)</button>
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap;margin-left:8px">Año:</label>
+        <select id="mintic-anio" onchange="setMinticAnio(this.value)" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Año</option>
+        </select>
+        <button class="search-btn" onclick="cargarMintic()">↻ Cargar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('mintic')" style="background:#1e40af" title="Enviar el reporte por email (pendiente F3)">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarMintic()" style="background:#1e3a8a" title="Descargar Excel multi-hoja (Resumen + Trimestre + Histórico) — pendiente F3">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+
+      <!-- Periodo info bar -->
+      <div id="mintic-info" style="margin-top:10px;padding:10px 14px;background:linear-gradient(90deg,#dbeafe,#e0e7ff);border-left:4px solid #1e40af;border-radius:6px;font-size:12px;color:#1e3a8a">
+        <strong>🏛️ MINTIC — Reporte Trimestral</strong> · Selecciona un trimestre arriba para cargar los datos.
+      </div>
+
+      <!-- Tabs sub-módulos -->
+      <div class="rec-search-bar" style="margin-top:12px;border-bottom:2px solid var(--border);padding-bottom:0">
+        <div class="aud-tab mintic-tab active" data-tab="query" onclick="switchMinticTab('query')">📊 Detallado Query</div>
+        <div class="aud-tab mintic-tab" data-tab="facturas" onclick="switchMinticTab('facturas')">📄 Detallado Facturas</div>
+        <div class="aud-tab mintic-tab" data-tab="informe" onclick="switchMinticTab('informe')">📑 Informe General</div>
+      </div>
+
+      <!-- KPIs comunes -->
+      <div id="mintic-kpis" style="margin-top:16px"></div>
+
+      <!-- Tablas por sub-tab -->
+      <div id="mintic-tabla-query"    class="mintic-pane" style="margin-top:8px"></div>
+      <div id="mintic-tabla-facturas" class="mintic-pane" style="margin-top:8px;display:none"></div>
+      <div id="mintic-tabla-informe"  class="mintic-pane" style="margin-top:8px;display:none"></div>
     </div>
   </div>
 
@@ -4795,6 +4846,7 @@ function switchView(view){
     'dispersiones':   'Dispersiones — Daviplata CashOut',
     'reporte_ops_cv': 'Reporte OPS CV — Cruz Verde Pibox',
     'bonos_ayuda':    'Bonos de Ayuda Voluntaria',
+    'mintic':         'MINTIC — Reporte Trimestral',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -4850,6 +4902,15 @@ function switchView(view){
   if(view === 'bonos_ayuda'){
     if(!_bonosDesde){ setBonosPeriod(15, document.querySelector('#view-bonos_ayuda .pbtn.active')); }
     else { cargarBonosAyuda(); }
+  }
+  if(view === 'mintic'){
+    initMinticAnioSelect();
+    // Default: trimestre actual (basado en mes calendario) + año actual
+    if(!_minticTrimestre){
+      _minticTrimestre = Math.floor((new Date().getMonth()) / 3) + 1;
+      document.querySelector(`#view-mintic .pbtn[data-trim="${_minticTrimestre}"]`)?.classList.add('active');
+    }
+    _minticHeader();
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -9614,6 +9675,17 @@ const ENVIAR_EMAIL_CONFIGS = {
       return { desde: d, hasta: h, wallet_type, pais, q };
     },
   },
+  // v3.3.24: MINTIC (email pendiente F3 — el endpoint stub responde 501)
+  mintic: {
+    titulo: '🏛️ Enviar Reporte MINTIC',
+    color: 'linear-gradient(90deg,#1e40af 0%,#1e3a8a 100%)',
+    endpoint: '/api/mintic/enviar_email',
+    extraParams: () => {
+      const t = (typeof _minticTrimestre !== 'undefined' ? _minticTrimestre : null) || 2;
+      const a = (typeof _minticAnio !== 'undefined' ? _minticAnio : null) || new Date().getFullYear();
+      return { trimestre: t, anio: a };
+    },
+  },
 };
 
 let _emailGenericoModulo = null;
@@ -13956,6 +14028,264 @@ function exportarBonosAyuda(btn) {
 }
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MINTIC — Reporte Trimestral B2B (v3.3.24 · admin/monitoreo/financiero)
+// Tres sub-tabs: Detallado Query / Detallado Facturas / Informe General.
+// Selector por trimestre calendario (1T..4T) + año.
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _minticTrimestre = null;
+let _minticAnio      = null;
+let _minticTab       = 'query';  // tab activa
+let _minticDataQuery = null;
+let _minticDataFact  = null;
+let _minticDataInf   = null;
+const LIMIT_UI_MINTIC = 5000;
+
+function initMinticAnioSelect() {
+  const sel = document.getElementById('mintic-anio');
+  if (!sel || sel.options.length > 1) return;
+  const y = new Date().getFullYear();
+  for (let i = y; i >= y - 4; i--) sel.innerHTML += `<option value="${i}">${i}</option>`;
+  sel.value = String(y);
+  _minticAnio = y;
+}
+
+function setMinticTrimestre(t) {
+  _minticTrimestre = t;
+  document.querySelectorAll('#view-mintic .pbtn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`#view-mintic .pbtn[data-trim="${t}"]`)?.classList.add('active');
+  cargarMintic();
+}
+
+function setMinticAnio(a) {
+  _minticAnio = parseInt(a, 10) || new Date().getFullYear();
+}
+
+function switchMinticTab(tab) {
+  _minticTab = tab;
+  document.querySelectorAll('#view-mintic .mintic-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('#view-mintic .mintic-pane').forEach(p => p.style.display = 'none');
+  document.getElementById(`mintic-tabla-${tab}`).style.display = '';
+  // Lazy load: si hay trimestre seleccionado, cargo la tab si no estaba cacheada
+  if (_minticTrimestre && _minticAnio) {
+    if (tab === 'query'    && !_minticDataQuery) cargarMinticQuery();
+    if (tab === 'facturas' && !_minticDataFact)  cargarMinticFacturas();
+    if (tab === 'informe'  && !_minticDataInf)   cargarMinticInforme();
+    // Re-render KPIs según tab activa
+    renderMinticKpis();
+  }
+}
+
+function _minticHeader() {
+  const meses = ['Ene-Mar','Abr-Jun','Jul-Sep','Oct-Dic'];
+  const nombre = `${['1er','2do','3er','4to'][_minticTrimestre-1]} Trimestre ${_minticAnio}`;
+  document.getElementById('mintic-info').innerHTML =
+    `<strong>🏛️ MINTIC — ${nombre}</strong> · Periodo: ${meses[_minticTrimestre-1]} · Tab activa: ` +
+    `<span style="background:#1e40af;color:#fff;padding:2px 8px;border-radius:4px;font-weight:600">${{query:'Detallado Query',facturas:'Detallado Facturas',informe:'Informe General'}[_minticTab]}</span>`;
+}
+
+async function cargarMintic() {
+  initMinticAnioSelect();
+  if (!_minticTrimestre) _minticTrimestre = Math.floor((new Date().getMonth()) / 3) + 1;
+  if (!_minticAnio)      _minticAnio = new Date().getFullYear();
+  document.querySelector(`#view-mintic .pbtn[data-trim="${_minticTrimestre}"]`)?.classList.add('active');
+  // Reset cache cuando cambia el período
+  _minticDataQuery = null;
+  _minticDataFact  = null;
+  _minticDataInf   = null;
+  _minticHeader();
+  // Cargar la tab activa
+  if (_minticTab === 'query')    await cargarMinticQuery();
+  if (_minticTab === 'facturas') await cargarMinticFacturas();
+  if (_minticTab === 'informe')  await cargarMinticInforme();
+}
+
+async function _minticFetch(endpoint) {
+  const params = new URLSearchParams({ trimestre: _minticTrimestre, anio: _minticAnio });
+  const r = await fetch(`${API}/api/mintic/${endpoint}?${params}`, { headers: { 'X-Token': _sesionToken } });
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+
+async function cargarMinticQuery() {
+  const cnt = document.getElementById('mintic-tabla-query');
+  cnt.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando query (puede tardar 30-90s)…</div>';
+  try {
+    _minticDataQuery = await _minticFetch('detallado_query');
+    renderMinticKpis();
+    renderMinticQuery(_minticDataQuery);
+  } catch (err) {
+    cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message}</div>`;
+  }
+}
+
+async function cargarMinticFacturas() {
+  const cnt = document.getElementById('mintic-tabla-facturas');
+  cnt.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando facturas…</div>';
+  try {
+    _minticDataFact = await _minticFetch('detallado_facturas');
+    renderMinticKpis();
+    renderMinticFacturas(_minticDataFact);
+  } catch (err) {
+    cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message}</div>`;
+  }
+}
+
+async function cargarMinticInforme() {
+  const cnt = document.getElementById('mintic-tabla-informe');
+  cnt.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cruzando bookings con facturas (puede tardar 60-120s)…</div>';
+  try {
+    _minticDataInf = await _minticFetch('informe_general');
+    renderMinticKpis();
+    renderMinticInforme(_minticDataInf);
+  } catch (err) {
+    cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message}</div>`;
+  }
+}
+
+function renderMinticKpis() {
+  const cnt = document.getElementById('mintic-kpis');
+  const d = _minticTab === 'query' ? _minticDataQuery : _minticTab === 'facturas' ? _minticDataFact : _minticDataInf;
+  if (!d) { cnt.innerHTML = ''; return; }
+  let kpis = '';
+  if (_minticTab === 'query') {
+    const s = d.stats || {};
+    kpis = `
+      <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr)">
+        <div class="rec-kpi" style="border-top:3px solid #1e40af"><div class="rec-kpi-val" style="color:#1e40af">${fmtNum(s.total_bookings||0)}</div><div class="rec-kpi-sub">Servicios B2B</div></div>
+        <div class="rec-kpi" style="border-top:3px solid #1e3a8a"><div class="rec-kpi-val" style="color:#1e3a8a">${fmtNum(s.total_paquetes||0)}</div><div class="rec-kpi-sub">Paquetes totales</div></div>
+        <div class="rec-kpi" style="border-top:3px solid #16a34a"><div class="rec-kpi-val" style="color:#16a34a;font-size:18px">${fmtMoney(s.gmv_total||0)}</div><div class="rec-kpi-sub">GMV total</div></div>
+        <div class="rec-kpi" style="border-top:3px solid #7c3aed"><div class="rec-kpi-val" style="color:#7c3aed">${fmtNum((s.por_empresa||[]).length)}</div><div class="rec-kpi-sub">Empresas distintas</div></div>
+      </div>`;
+  } else if (_minticTab === 'facturas') {
+    const s = d.stats || {};
+    kpis = `
+      <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr)">
+        <div class="rec-kpi" style="border-top:3px solid #1e40af"><div class="rec-kpi-val" style="color:#1e40af">${fmtNum(d.total_periodo||0)}</div><div class="rec-kpi-sub">Facturas del trimestre</div></div>
+        <div class="rec-kpi" style="border-top:3px solid #16a34a"><div class="rec-kpi-val" style="color:#16a34a;font-size:18px">${fmtMoney(s.monto_total||0)}</div><div class="rec-kpi-sub">Monto facturado</div></div>
+        <div class="rec-kpi" style="border-top:3px solid #7c3aed"><div class="rec-kpi-val" style="color:#7c3aed">${fmtNum((s.por_cliente||[]).length)}</div><div class="rec-kpi-sub">Clientes facturados</div></div>
+        <div class="rec-kpi" style="border-top:3px solid #94a3b8"><div class="rec-kpi-val" style="color:#94a3b8">${fmtNum(d.total_disponibles||0)}</div><div class="rec-kpi-sub">Total cargadas (json)</div></div>
+      </div>`;
+  } else {
+    const s = d.stats || {};
+    kpis = `
+      <div class="rec-kpis" style="grid-template-columns:repeat(4,1fr)">
+        <div class="rec-kpi" style="border-top:3px solid #1e40af"><div class="rec-kpi-val" style="color:#1e40af">${fmtNum(d.total||0)}</div><div class="rec-kpi-sub">Filas Informe General</div></div>
+        <div class="rec-kpi ok"><div class="rec-kpi-val">${fmtNum(d.con_factura||0)}</div><div class="rec-kpi-sub">Con factura asignada</div><div class="rec-kpi-bar" style="background:#22c55e"></div></div>
+        <div class="rec-kpi" style="border-top:3px solid #f59e0b"><div class="rec-kpi-val" style="color:#f59e0b">${fmtNum(d.sin_factura||0)}</div><div class="rec-kpi-sub">Sin factura (revisar)</div></div>
+        <div class="rec-kpi" style="border-top:3px solid #16a34a"><div class="rec-kpi-val" style="color:#16a34a;font-size:18px">${fmtMoney(s.valor_total||0)}</div><div class="rec-kpi-sub">Valor cobrado total</div></div>
+      </div>`;
+  }
+  cnt.innerHTML = kpis;
+}
+
+function renderMinticQuery(d) {
+  const filas = d.filas || [];
+  const cnt = document.getElementById('mintic-tabla-query');
+  if (!filas.length) {
+    cnt.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Sin servicios B2B en este trimestre.</div>';
+    return;
+  }
+  const ellipsis = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  const rows = filas.slice(0, 200).map(f => `<tr>
+    <td style="${ellipsis};font-family:monospace;font-size:10px;color:var(--text2)" title="${f.Booking_ID||''}">${(f.Booking_ID||'').slice(0,12)}…</td>
+    <td style="font-size:11px;font-family:monospace;${ellipsis}">${(f.Fecha_VERDADERA||'').slice(0,10)}</td>
+    <td style="font-size:11px;${ellipsis}">${f.Ciudad||'—'}</td>
+    <td style="font-size:12px;font-weight:600;${ellipsis}" title="${(f.Nombre_Compania||'').replace(/"/g,'&quot;')}">${f.Nombre_Compania||'—'}</td>
+    <td style="font-size:10px;${ellipsis}">${f.NIT||'—'}</td>
+    <td style="font-size:11px;${ellipsis}">${f.Estado_Paquete||'—'}</td>
+    <td class="right" style="font-weight:700;color:#16a34a;font-family:monospace">${fmtMoney(f.GMV)}</td>
+    <td style="font-size:10px;${ellipsis}" title="${(f.id_paquete||'').replace(/"/g,'&quot;')}">${(f.id_paquete||'').slice(0,12)}…</td>
+  </tr>`).join('');
+  cnt.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
+      ${filas.length} filas · Primeras 200 mostradas · El Excel descargable (F3) trae las ${filas.length} con todas las columnas.
+    </div>
+    <div style="overflow-x:auto"><table class="aud-table rec-detail-table" style="min-width:1100px">
+      <thead><tr>
+        <th>Booking ID</th><th>Fecha</th><th>Ciudad</th><th>Empresa</th><th>NIT</th><th>Estado Pq</th><th class="right">GMV</th><th>ID Paquete</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderMinticFacturas(d) {
+  const filas = d.filas || [];
+  const cnt = document.getElementById('mintic-tabla-facturas');
+  if (!filas.length) {
+    cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:8px">
+      ⚠️ No hay facturas cargadas para este trimestre.<br>
+      <span style="font-size:11px">Verificá que <code>storage/mintic/facturas.json</code> existe en el server y contiene facturas con período dentro de ${d.desde} → ${d.hasta}.</span>
+    </div>`;
+    return;
+  }
+  const ellipsis = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  const rows = filas.map(f => `<tr>
+    <td style="font-weight:600">${f.Numero_Factura||'—'}</td>
+    <td style="font-size:11px;font-family:monospace">${f.NIT_Cliente||'—'}</td>
+    <td style="font-size:12px;${ellipsis}" title="${(f.Cliente||'').replace(/"/g,'&quot;')}">${f.Cliente||'—'}</td>
+    <td style="font-size:11px">${f.Ciudad||'—'}</td>
+    <td style="font-size:11px;font-family:monospace">${f.Fecha_Emision||'—'}</td>
+    <td style="font-size:11px;font-family:monospace">${f.Fecha_Inicio_Periodo||''} → ${f.Fecha_Fin_Periodo||''}</td>
+    <td class="right" style="font-weight:700;color:#16a34a;font-family:monospace">${fmtMoney(f.Total_Pagar)}</td>
+  </tr>`).join('');
+  cnt.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
+      ${filas.length} facturas con periodo dentro del trimestre (de ${d.total_disponibles} totales en el json).
+    </div>
+    <div style="overflow-x:auto"><table class="aud-table rec-detail-table" style="min-width:1100px">
+      <thead><tr>
+        <th>Factura</th><th>NIT</th><th>Cliente</th><th>Ciudad</th><th>Emisión</th><th>Periodo</th><th class="right">Total</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderMinticInforme(d) {
+  const filas = d.filas || [];
+  const cnt = document.getElementById('mintic-tabla-informe');
+  if (!filas.length) {
+    cnt.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Sin filas en el Informe General para este trimestre.</div>';
+    return;
+  }
+  const ellipsis = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  const rows = filas.slice(0, 200).map(f => `<tr>
+    <td style="font-family:monospace;font-size:10px;${ellipsis}" title="${f['ID SERVICIO']||''}">${(f['ID SERVICIO']||'').slice(0,10)}…</td>
+    <td style="font-family:monospace;font-size:10px;${ellipsis}" title="${f['ID PAQUETE']||''}">${(f['ID PAQUETE']||'').slice(0,10)}…</td>
+    <td style="font-weight:600;font-size:11px">${f.Factura ? `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px">${f.Factura}</span>` : '<span style="color:#dc2626;font-size:10px">(sin factura)</span>'}</td>
+    <td style="font-size:11px">${f.NIT||'—'}</td>
+    <td style="font-size:10px"><span style="background:#f3f0fa;color:#5a2bb8;padding:2px 6px;border-radius:4px">${f['TIPO SERVICIO']||''}</span></td>
+    <td style="font-size:11px">${f['CIUDAD ORIGEN']||'—'}</td>
+    <td style="font-size:11px;font-family:monospace">${f['CODIGO POSTAL ORIGEN']||''}</td>
+    <td style="font-size:11px;font-family:monospace">${(f['FECHA RECEPCIÓN']||'').slice(0,10)}</td>
+    <td style="font-size:12px;${ellipsis}" title="${(f.EMPRESA||'').replace(/"/g,'&quot;')}">${f.EMPRESA||'—'}</td>
+    <td style="font-size:11px">${f['ESTADO PAQUETE']||'—'}</td>
+    <td class="right" style="font-weight:700;color:#16a34a;font-family:monospace">${fmtMoney(f['VALOR COBRADO'])}</td>
+    <td style="font-size:11px">${f['CIUDAD REAL']||'—'}</td>
+    <td style="font-size:11px;font-family:monospace">${f['FECHA FACTURACION']||'—'}</td>
+  </tr>`).join('');
+  cnt.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
+      ${filas.length} filas únicas · Primeras 200 mostradas · ${d.con_factura||0} con factura · ${d.sin_factura||0} sin factura.
+    </div>
+    <div style="overflow-x:auto"><table class="aud-table rec-detail-table" style="min-width:1500px">
+      <thead><tr>
+        <th>ID SERVICIO</th><th>ID PAQUETE</th><th>Factura</th><th>NIT</th><th>TIPO SERV.</th>
+        <th>Ciudad Orig.</th><th>Cod. Post.</th><th>F. Recepción</th>
+        <th>Empresa</th><th>Estado Pq</th><th class="right">Valor Cobrado</th>
+        <th>Ciudad Real</th><th>F. Facturación</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function exportarMintic() {
+  alert('📊 Exportar Excel — pendiente Fase 3.\n\nEl Excel multi-hoja (Resumen + Trimestre + Histórico) se implementará en la próxima fase. Por ahora podés usar los 3 endpoints del backend con la API.');
+}
+
+
 // ── Panel de usuario dropdown ─────────────────────────────────────────────
 function toggleUserMenu(e) {
   e.stopPropagation();
@@ -14190,6 +14520,7 @@ function sb2SetActive(view) {
     dispersiones:   'sbg-informes',
     reporte_ops_cv: 'sbg-informes',
     bonos_ayuda:    'sbg-informes',
+    mintic:         'sbg-informes',
     auditoria:      'sbg-auditoria',
   };
   const grpId = MAP[view];
