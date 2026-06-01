@@ -56,11 +56,12 @@ Rails.application.routes.draw do
 
     # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
     namespace :mintic do
-      get  "detallado_query",    to: "/api/mintic#detallado_query"
-      get  "detallado_facturas", to: "/api/mintic#detallado_facturas"
-      get  "informe_general",    to: "/api/mintic#informe_general"
+      get  "detallado_query",        to: "/api/mintic#detallado_query"
+      get  "detallado_facturas",     to: "/api/mintic#detallado_facturas"
+      get  "informe_general",        to: "/api/mintic#informe_general"
+      get  "job_status/:job_id",     to: "/api/mintic#job_status"
     end
-    post "mintic/enviar_email",  to: "mintic#enviar_email"
+    post "mintic/enviar_email",      to: "mintic#enviar_email"
 
     # Auditoría Pibox
     namespace :auditoria do

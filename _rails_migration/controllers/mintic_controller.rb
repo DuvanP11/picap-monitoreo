@@ -21,6 +21,15 @@ module Api
     ROLES_PERMITIDOS = %w[admin monitoreo financiero].freeze
     LIMIT_UI         = 5_000
 
+    # Storage en memoria de jobs async. Persiste mientras vive el proceso del
+    # Rails (suficiente para queries de 1-5 min). Cleanup automático a los 30 min.
+    # En producción con múltiples workers cada uno tiene su propio @@jobs, pero
+    # como ArgoCD usa típicamente 1-2 réplicas la chance de "mismatch" es baja.
+    @@jobs = {}
+    @@jobs_mutex = Mutex.new
+
+    JOB_TTL_SEC = 1_800  # 30 min — después se descartan automáticamente
+
     # Mapeo ciudad → código postal (según convención MINTIC).
     CIUDAD_A_CODIGO_POSTAL = {
       "bogota"        => "11001", "bogotá"   => "11001", "bogota d.c." => "11001", "bogotá d.c." => "11001",
@@ -41,21 +50,32 @@ module Api
     ].freeze
 
     # GET /api/mintic/detallado_query?trimestre=2&anio=2026
+    # ASYNC: devuelve 202 + job_id. Thread ejecuta la query en background.
+    # Frontend hace polling vía GET /api/mintic/job_status/:job_id.
     def detallado_query
       desde, hasta = trimestre_a_fechas(trimestre_param, anio_param)
-      rows = ejecutar_query(desde, hasta)
-      render json: limpiar({
-        ok: true,
-        trimestre: trimestre_param,
-        anio: anio_param,
-        desde: desde, hasta: hasta,
-        total: rows.size,
-        filas: rows.first(LIMIT_UI),
-        stats: stats_query(rows),
-      })
+      kind  = "detallado_query"
+      cache_key = "#{kind}_#{trimestre_param}_#{anio_param}"
+
+      # Si ya hay un job done para esta combinación, devolverlo directo.
+      hit = buscar_job_done(cache_key)
+      return render(json: hit[:result]) if hit
+
+      job_id = lanzar_job(cache_key, kind, trimestre_param, anio_param) do
+        rows = ejecutar_query(desde, hasta)
+        limpiar({
+          ok: true, async: false,
+          trimestre: trimestre_param, anio: anio_param,
+          desde: desde, hasta: hasta,
+          total: rows.size,
+          filas: rows.first(LIMIT_UI),
+          stats: stats_query(rows),
+        })
+      end
+
+      render json: { ok: true, async: true, job_id: job_id, status: "queued" }, status: :accepted
     rescue => e
       Rails.logger.error("[MinticController#detallado_query] #{e.class}: #{e.message}")
-      Rails.logger.error(e.backtrace.first(8).join("\n"))
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
@@ -85,8 +105,104 @@ module Api
     end
 
     # GET /api/mintic/informe_general?trimestre=2&anio=2026
+    # ASYNC: devuelve 202 + job_id (corre la Q_MINTIC en background + match facturas).
     def informe_general
       desde, hasta = trimestre_a_fechas(trimestre_param, anio_param)
+      kind  = "informe_general"
+      cache_key = "#{kind}_#{trimestre_param}_#{anio_param}"
+
+      hit = buscar_job_done(cache_key)
+      return render(json: hit[:result]) if hit
+
+      job_id = lanzar_job(cache_key, kind, trimestre_param, anio_param) do
+        _informe_general_compute(desde, hasta)
+      end
+
+      render json: { ok: true, async: true, job_id: job_id, status: "queued" }, status: :accepted
+    rescue => e
+      Rails.logger.error("[MinticController#informe_general] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # GET /api/mintic/job_status/:job_id
+    # Polling del estado de un job lanzado por detallado_query / informe_general.
+    # Devuelve:
+    #   - 202 + {status: 'running', elapsed: Xs}      → aún corriendo
+    #   - 200 + {ok: true, ...resultado...}           → terminado OK
+    #   - 500 + {ok: false, error: msg}               → falló
+    #   - 404 + {ok: false, error: 'job no existe'}   → no encontrado o expirado
+    def job_status
+      job_id = params[:job_id].to_s
+      cleanup_old_jobs
+      @@jobs_mutex.synchronize do
+        job = @@jobs[job_id]
+        return render(json: { ok: false, error: "Job no encontrado o expirado (>30 min)" }, status: :not_found) if job.nil?
+        case job[:status]
+        when :done
+          render json: job[:result]
+        when :error
+          render json: { ok: false, error: job[:error], job_id: job_id }, status: :internal_server_error
+        else
+          elapsed = (Time.now - job[:t0]).round(1)
+          render json: {
+            ok: true, async: true, status: "running",
+            elapsed_sec: elapsed, job_id: job_id,
+            kind: job[:kind], trimestre: job[:trimestre], anio: job[:anio],
+          }, status: :accepted
+        end
+      end
+    end
+
+    private
+
+    # Helper: lanza un job en background. Devuelve job_id.
+    def lanzar_job(cache_key, kind, trimestre, anio, &block)
+      job_id = SecureRandom.hex(16)
+      @@jobs_mutex.synchronize do
+        @@jobs[job_id] = {
+          status: :running,
+          kind: kind, trimestre: trimestre, anio: anio,
+          cache_key: cache_key,
+          t0: Time.now,
+        }
+      end
+      Thread.new do
+        begin
+          result = block.call
+          @@jobs_mutex.synchronize do
+            @@jobs[job_id][:status] = :done
+            @@jobs[job_id][:result] = result
+            @@jobs[job_id][:t_elapsed] = Time.now - @@jobs[job_id][:t0]
+          end
+          Rails.logger.info("[MinticJob #{job_id}] #{kind} OK en #{@@jobs[job_id][:t_elapsed].round(1)}s")
+        rescue => e
+          Rails.logger.error("[MinticJob #{job_id}] #{e.class}: #{e.message}")
+          Rails.logger.error(e.backtrace.first(8).join("\n"))
+          @@jobs_mutex.synchronize do
+            @@jobs[job_id][:status] = :error
+            @@jobs[job_id][:error] = e.message
+          end
+        end
+      end
+      job_id
+    end
+
+    # Si existe un job done para esta cache_key (≤30 min) lo devuelve para reuso.
+    def buscar_job_done(cache_key)
+      @@jobs_mutex.synchronize do
+        @@jobs.values.find { |j| j[:cache_key] == cache_key && j[:status] == :done }
+      end
+    end
+
+    def cleanup_old_jobs
+      now = Time.now
+      @@jobs_mutex.synchronize do
+        @@jobs.delete_if { |_id, job| now - job[:t0] > JOB_TTL_SEC }
+      end
+    end
+
+    # Lógica original de informe_general extraída para reuso desde el Thread.
+    def _informe_general_compute(desde, hasta)
       bookings = ejecutar_query(desde, hasta)
       facturas = cargar_facturas_xlsx
 
@@ -175,7 +291,7 @@ module Api
       # un mismo booking que aparecen varias veces (1 booking puede tener N paquetes).
       filas_unicas = filas.uniq { |f| [f["ID SERVICIO"], f["ID PAQUETE"]] }
 
-      render json: limpiar({
+      limpiar({
         ok: true,
         trimestre: trimestre_param,
         anio: anio_param,
@@ -186,11 +302,9 @@ module Api
         filas: filas_unicas.first(LIMIT_UI),
         stats: stats_informe(filas_unicas, facturas),
       })
-    rescue => e
-      Rails.logger.error("[MinticController#informe_general] #{e.class}: #{e.message}")
-      Rails.logger.error(e.backtrace.first(8).join("\n"))
-      render json: { ok: false, error: e.message }, status: :internal_server_error
     end
+
+    public
 
     # POST /api/mintic/enviar_email — pendiente Fase 3
     def enviar_email
