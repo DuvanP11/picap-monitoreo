@@ -93,31 +93,65 @@ module Api
       # Index facturas por NIT normalizado para lookup O(1) por booking.
       facturas_por_nit = facturas.group_by { |f| nit_normalizar(f["NIT_Cliente"]) }
 
-      # Pre-cómputo: paquetes por booking (para VALOR COBRADO = GMV / n_paquetes).
+      # Pre-cómputo: paquetes por booking.
       paquetes_por_booking = bookings.group_by { |b| b["Booking_ID"] }
                                      .transform_values(&:size)
 
-      filas = bookings.map do |b|
+      # PASO 1: pre-asignar factura a cada booking + calcular ΣGMV por factura.
+      # La invariante MINTIC pide que ΣVALOR_COBRADO por factura = Total_Pagar
+      # de esa factura. Para que cuadre, distribuimos el Total_Pagar entre
+      # los bookings de la factura PROPORCIONAL al GMV de cada booking, y luego
+      # entre sus paquetes en partes iguales:
+      #
+      #   ΣGMV_factura  = Σ_bookings_de_la_factura (GMV_booking)
+      #   % booking     = GMV_booking / ΣGMV_factura
+      #   valor_cobr_pq = (% booking) × Total_Pagar_factura / n_paquetes_booking
+      #
+      # Eso garantiza Σ_paquetes_factura (valor_cobr_pq) = Total_Pagar_factura.
+      bookings_unicos = bookings.uniq { |b| b["Booking_ID"] }
+      factura_por_booking = {}  # booking_id => factura_match (o nil)
+      gmv_por_factura     = Hash.new(0.0)  # numero_factura => ΣGMV
+
+      bookings_unicos.each do |b|
         nit_b   = nit_normalizar(b["NIT"])
         fecha_b = parse_fecha(b["Fecha_VERDADERA"])
         cand    = facturas_por_nit[nit_b] || []
-        factura_match = cand.find do |f|
+        f_match = cand.find do |f|
           fi = parse_fecha_dmy(f["Fecha_Inicio_Periodo"])
           ff = parse_fecha_dmy(f["Fecha_Fin_Periodo"])
           fecha_b && fi && ff && fecha_b.between?(fi, ff)
         end
+        factura_por_booking[b["Booking_ID"]] = f_match
+        if f_match
+          gmv_por_factura[f_match["Numero_Factura"]] += b["GMV"].to_f
+        end
+      end
 
+      # PASO 2: armar las filas con el VALOR COBRADO ya derivado.
+      filas = bookings.map do |b|
+        f_match = factura_por_booking[b["Booking_ID"]]
         ciudad_pibox = b["Ciudad"].to_s
         ciudad_real  = mapear_ciudad_real(ciudad_pibox)
         cod_postal   = codigo_postal_para(ciudad_pibox)
         n_paquetes   = [paquetes_por_booking[b["Booking_ID"]] || 1, 1].max
         gmv          = b["GMV"].to_f
-        valor_cobr   = (gmv / n_paquetes).round(2)
+
+        # Calcular VALOR COBRADO según la fórmula proporcional. Sin factura
+        # matcheada, fallback al cálculo bruto (GMV / n_paquetes) y se marca
+        # como "(sin factura)" en el campo Factura.
+        if f_match
+          sum_gmv_fac  = gmv_por_factura[f_match["Numero_Factura"]]
+          total_pagar  = f_match["Total_Pagar"].to_f
+          pct          = sum_gmv_fac > 0 ? (gmv / sum_gmv_fac) : 0.0
+          valor_cobr   = ((pct * total_pagar) / n_paquetes).round(2)
+        else
+          valor_cobr   = (gmv / n_paquetes).round(2)
+        end
 
         {
           "ID SERVICIO"             => b["Booking_ID"],
           "ID PAQUETE"              => b["id_paquete"],
-          "Factura"                 => factura_match ? factura_match["Numero_Factura"] : "",
+          "Factura"                 => f_match ? f_match["Numero_Factura"] : "",
           "NIT"                     => b["NIT"],
           "TIPO SERVICIO"           => "MASIVO",
           "codigo divipola origen"  => "",
@@ -133,7 +167,7 @@ module Api
           "ESTADO PAQUETE"          => b["Estado_Paquete"],
           "VALOR COBRADO"           => valor_cobr,
           "CIUDAD REAL"             => ciudad_real,
-          "FECHA FACTURACION"       => factura_match ? factura_match["Fecha_Emision"] : "",
+          "FECHA FACTURACION"       => f_match ? f_match["Fecha_Emision"] : "",
         }
       end
 
@@ -150,7 +184,7 @@ module Api
         con_factura: filas_unicas.count { |f| f["Factura"].present? },
         sin_factura: filas_unicas.count { |f| f["Factura"].blank? },
         filas: filas_unicas.first(LIMIT_UI),
-        stats: stats_informe(filas_unicas),
+        stats: stats_informe(filas_unicas, facturas),
       })
     rescue => e
       Rails.logger.error("[MinticController#informe_general] #{e.class}: #{e.message}")
@@ -291,13 +325,24 @@ module Api
       }
     end
 
-    def stats_informe(filas)
+    def stats_informe(filas, facturas_disponibles = [])
+      # Index de facturas por número para poder mostrar el Total_Pagar real.
+      facturas_idx = facturas_disponibles.index_by { |f| f["Numero_Factura"].to_s }
+
       por_factura = filas.group_by { |f| f["Factura"].to_s }
-                         .map { |k, g| {
-                           factura: k.presence || "(sin factura)",
-                           paquetes: g.size,
-                           valor_cobrado: g.sum { |f| f["VALOR COBRADO"].to_f }.round(2),
-                         } }
+                         .map { |k, g|
+                           total_pagar_real = facturas_idx[k] ? facturas_idx[k]["Total_Pagar"].to_f : nil
+                           suma_calc        = g.sum { |f| f["VALOR COBRADO"].to_f }.round(2)
+                           diff             = total_pagar_real ? (suma_calc - total_pagar_real).round(2) : nil
+                           {
+                             factura: k.presence || "(sin factura)",
+                             paquetes: g.size,
+                             valor_cobrado_query: suma_calc,
+                             total_pagar_factura: total_pagar_real,
+                             diff: diff,
+                             cuadra: diff.nil? ? nil : diff.abs < 0.5,  # tolerancia 0.5 COP
+                           }
+                         }
                          .sort_by { |h| -h[:paquetes] }
       por_empresa = filas.group_by { |f| f["EMPRESA"].to_s }
                          .map { |k, g| {
@@ -306,13 +351,24 @@ module Api
                            valor_cobrado: g.sum { |f| f["VALOR COBRADO"].to_f }.round(2),
                          } }
                          .sort_by { |h| -h[:paquetes] }
+
+      # Reconciliación global: cuántas facturas cuadran exacto, cuántas no.
+      cuadran      = por_factura.count { |h| h[:cuadra] == true }
+      no_cuadran   = por_factura.count { |h| h[:cuadra] == false }
+      sin_factura  = por_factura.count { |h| h[:cuadra].nil? }
+
       {
-        total:          filas.size,
-        valor_total:    filas.sum { |f| f["VALOR COBRADO"].to_f }.round(2),
-        por_factura:    por_factura.first(30),
-        por_empresa:    por_empresa.first(30),
-        total_facturas: (por_factura.map { |h| h[:factura] } - ["(sin factura)"]).size,
-        total_empresas: por_empresa.size,
+        total:                   filas.size,
+        valor_total:             filas.sum { |f| f["VALOR COBRADO"].to_f }.round(2),
+        por_factura:             por_factura.first(50),
+        por_empresa:             por_empresa.first(30),
+        total_facturas:          (por_factura.map { |h| h[:factura] } - ["(sin factura)"]).size,
+        total_empresas:          por_empresa.size,
+        reconciliacion: {
+          facturas_cuadran:      cuadran,
+          facturas_no_cuadran:   no_cuadran,
+          filas_sin_factura:     sin_factura,
+        },
       }
     end
 
