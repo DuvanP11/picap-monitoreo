@@ -54,6 +54,14 @@ Rails.application.routes.draw do
     get  "bonos_ayuda",                   to: "bonos_ayuda_voluntaria#index"
     post "bonos_ayuda/enviar_email",      to: "bonos_ayuda_voluntaria#enviar_email"
 
+    # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
+    namespace :mintic do
+      get  "detallado_query",    to: "/api/mintic#detallado_query"
+      get  "detallado_facturas", to: "/api/mintic#detallado_facturas"
+      get  "informe_general",    to: "/api/mintic#informe_general"
+    end
+    post "mintic/enviar_email",  to: "mintic#enviar_email"
+
     # Auditoría Pibox
     namespace :auditoria do
       get    "comisiones",  to: "/api/auditoria#comisiones"

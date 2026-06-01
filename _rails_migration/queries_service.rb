@@ -2502,4 +2502,163 @@ module QueriesService
     ORDER BY fecha DESC, id_transaccion
     SETTINGS join_algorithm = 'parallel_hash', max_threads = 8, max_memory_usage = 12000000000
   SQL
+
+  # v3.3.24: MINTIC — reporte trimestral de bookings B2B Pibox.
+  # Devuelve todas las columnas necesarias para construir el Informe General
+  # (cruce con facturas extraídas del Drive vía NIT + período de fechas).
+  # Parámetros: %{fecha_desde}, %{fecha_hasta} (formato YYYY-MM-DD).
+  Q_MINTIC = <<~'SQL'
+    WITH q_service_types AS (
+      SELECT
+        _id,
+        name_es AS name,
+        CASE
+          WHEN name_es IN (
+            'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor
+', 'Moto favor',
+            'Carga', 'Carga Carry', 'Carga Moto-Vagón', 'Carga NHR', 'Carga NKR', 'Carga NPR',
+            'Mensajería', 'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada'
+          ) THEN 'Pibox'
+          WHEN name_es IN (
+            'Moto', 'Mototaxi', 'Moto sin conductor', 'Subasta', 'Taxi', 'Carro',
+            'Carro sin conductor', 'Moto VIP', 'Moto Económica', 'Carro Quenn',
+            'Moto lite', 'Moto Quenn', 'Picap Carro', 'Picap Moto', 'Grúa Carro', 'Grúa Moto'
+          ) THEN 'Picap'
+          ELSE 'Other'
+        END AS type
+      FROM picapmongoprod.service_types
+    ),
+    q_filtered_bookings AS (
+      SELECT b._id as booking_id, b.*
+      FROM (SELECT * FROM picapmongoprod.bookings FINAL) b
+        INNER JOIN q_service_types st ON st._id = b.requested_service_type_id
+        INNER JOIN picapmongoprod.countries c ON c._id = b.country_id
+      WHERE b.status_cd IN (4, 107, 108)
+        AND nullIf(trim(relaunched_to_id), '') IS NULL
+        AND st.name != 'Test'
+        AND st.type = 'Pibox'
+        AND JSONExtractString(c.name, 'es') = 'Colombia'
+        AND toDate(toTimeZone(coalesce(b.scheduled_at, b.created_at), 'America/Bogota'))
+            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+        AND if(b.company_id IS NOT NULL AND b.company_id != '', 'B2B', 'B2C') = 'B2B'
+    ),
+    q_filtered_bookings_unique AS (
+      SELECT DISTINCT qfb.booking_id FROM q_filtered_bookings AS qfb
+    ),
+    q_transactions AS (
+      SELECT
+        wat.booking_id,
+        JSONExtractString(wat.amount, 'currency_iso') AS currency,
+        SUM(if(wat._type = 'WalletAccountTransactionCommissionDriverPayment', -toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS driver,
+        SUM(if(wat._type = 'WalletAccountTransactionCommissionCompanyPayment', -toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS company,
+        SUM(if(wat._type = 'WalletAccountTransactionBookingDriverPayment', toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS booking_driver_payment
+      FROM (SELECT * FROM picapmongoprod.wallet_account_transactions FINAL) wat
+        INNER JOIN q_filtered_bookings_unique qfb ON wat.booking_id = qfb.booking_id
+      WHERE wat._type IN (
+        'WalletAccountTransactionCommissionDriverPayment',
+        'WalletAccountTransactionCommissionCompanyPayment',
+        'WalletAccountTransactionBookingDriverPayment')
+      GROUP BY wat.booking_id, currency
+    ),
+    q_payment_methods AS (
+      SELECT
+        b._id AS booking_id,
+        b.payment_method_cd,
+        CASE
+          WHEN b.payment_method_cd = '1' THEN 'Cash'
+          WHEN b.payment_method_cd = '2' THEN 'Voucher'
+          WHEN b.payment_method_cd = '3' THEN 'Credit Card'
+          ELSE 'Other'
+        END AS txt_payment_method
+      FROM (SELECT * FROM picapmongoprod.bookings FINAL) b
+        INNER JOIN q_filtered_bookings qfb ON b._id = qfb.booking_id
+    ),
+    q_packages AS (
+      SELECT DISTINCT
+        pck._id, pck.booking_id, pck.reference, pck.declared_value,
+        pck.status_cd, pck.counter_delivery
+      FROM (SELECT * FROM picapmongoprod.packages FINAL) pck
+        INNER JOIN q_filtered_bookings qfb ON pck.booking_id = qfb.booking_id
+    ),
+    q_passengers_p AS (
+      SELECT DISTINCT p._id, p.name, p.company_id
+      FROM (SELECT * FROM picapmongoprod.passengers_w_data FINAL) p
+        INNER JOIN q_filtered_bookings qfb ON p._id = qfb.passenger_id
+    ),
+    q_passengers_d AS (
+      SELECT DISTINCT d._id, d.name, d.document_type, d.cod_identification
+      FROM (SELECT * FROM picapmongoprod.passengers_w_data FINAL) d
+        INNER JOIN q_filtered_bookings qfb ON d._id = qfb.driver_id
+    ),
+    q_passengers_k AS (
+      SELECT DISTINCT k._id, k.name
+      FROM (SELECT * FROM picapmongoprod.passengers_w_data FINAL) k
+        INNER JOIN picapmongoprod.companies comp ON k._id = comp.commercial_manager_id
+        INNER JOIN q_filtered_bookings qfb ON comp._id = qfb.company_id
+      WHERE k._id IS NOT NULL
+    )
+    SELECT DISTINCT
+      b._id AS Booking_ID,
+      ifNull(b.company_id, p.company_id) AS Company_ID,
+      toDate(toTimeZone(coalesce(b.scheduled_at, b.created_at), 'America/Bogota')) AS Fecha_VERDADERA,
+      toTimeZone(b.created_at, 'America/Bogota') AS Date_Time,
+      toTimeZone(b.scheduled_at, 'America/Bogota') AS Scheduled_Time,
+      JSONExtractString(cit.name, 'es') AS Ciudad,
+      comp.name AS Nombre_Compania,
+      p.name AS Usuario_Tienda,
+      replaceAll(pck.reference, '\n', '-') AS Package_Reference_Numbers,
+      toString(toFloat64OrZero(JSONExtractString(pck.declared_value, 'cents')) / 100) AS Package_Declared_Value,
+      CASE pck.status_cd
+        WHEN -1 THEN 'Pending_Status'
+        WHEN 0  THEN 'Waiting_For_Pick-Up'
+        WHEN 1  THEN 'Picked-Up'
+        WHEN 2  THEN 'Delivered'
+        WHEN 3  THEN 'Canceled'
+        WHEN 4  THEN 'Not_Received'
+        WHEN 5  THEN 'Returned'
+        WHEN 15 THEN 'No_visitado'
+        ELSE 'Other'
+      END AS Estado_Paquete,
+      CASE WHEN lower(pck.counter_delivery) = 'true' THEN 'SI' ELSE 'NO' END AS Contraentrega,
+      replaceAll(b.address, '\n', '-') AS Direccion_Salida,
+      replaceAll(b.end_address, '\n', '-') AS Direccion_Entrega,
+      if(b.estimated_traveled_distance <> 0, b.estimated_traveled_distance, b.traveled_distance) AS Distancia_Recorrida,
+      b.traveled_time AS Traveled_Time,
+      ifNull(toFloat64OrZero(JSONExtractString(b.company_final_cost, 'cents')), 0) / 100 AS Final_Service_Cost,
+      if(t.booking_driver_payment != 0,
+         t.booking_driver_payment + t.company,
+         toFloat64OrZero(JSONExtractString(b.total_company_final_cost, 'cents')) / 100) AS Valor_final_con_Ajuste,
+      (ifNull(toFloat64OrZero(JSONExtractString(b.company_final_cost, 'cents')) / 100,
+              ifNull(toFloat64OrZero(JSONExtractString(b.final_cost, 'cents')) / 100, 0)) +
+       ifNull(toFloat64OrZero(JSONExtractString(b.additional_company_final_cost, 'cents')) / 100, 0) +
+       ifNull(toFloat64OrZero(JSONExtractString(b.dispute_company_final_cost, 'cents')) / 100, 0)) AS GMV,
+      comp.name AS Company,
+      t.driver AS Ganancia_piloto,
+      t.company AS Ganancia_Corporativo,
+      (t.driver + t.company) AS Ganancia_Total,
+      k.name AS KAM,
+      b.driver_id AS Driver_ID,
+      d.name AS Nombre_Driver,
+      d.document_type AS Document_Type,
+      d.cod_identification AS COD_Identification,
+      ifNull(JSONExtractString(vt.name, 'es'), '') AS vt_name_es,
+      if(b.company_id IS NOT NULL, 'B2B', 'B2C') AS business_type,
+      pck._id AS id_paquete,
+      comp.tax_id AS NIT,
+      cs.name AS cost_center
+    FROM q_filtered_bookings b
+      INNER JOIN q_service_types  st ON st._id = b.requested_service_type_id
+      INNER JOIN q_passengers_p   p  ON p._id  = b.passenger_id
+      INNER JOIN q_passengers_d   d  ON d._id  = b.driver_id
+      LEFT  JOIN picapmongoprod.companies comp ON comp._id = b.company_id
+      LEFT  JOIN q_transactions   t  ON t.booking_id = b._id
+      INNER JOIN picapmongoprod.countries c    ON c._id    = b.country_id
+      LEFT  JOIN q_packages       pck ON pck.booking_id = b._id
+      LEFT  JOIN q_payment_methods pm  ON pm.booking_id = b._id
+      LEFT  JOIN picapmongoprod.vehicle_types vt ON vt._id = b.served_vehicle_type_id
+      LEFT  JOIN picapmongoprod.cities        cit ON cit._id = b.city_id
+      LEFT  JOIN picapmongoprod.cost_centers  cs  ON cs._id  = b.cost_center_id
+      LEFT  JOIN q_passengers_k   k  ON k._id  = comp.commercial_manager_id
+    SETTINGS join_algorithm = 'parallel_hash', max_threads = 8, max_memory_usage = 14000000000
+  SQL
 end
