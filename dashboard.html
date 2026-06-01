@@ -14101,18 +14101,31 @@ async function cargarMintic() {
   if (_minticTab === 'informe')  await cargarMinticInforme();
 }
 
-async function _minticFetch(endpoint) {
+async function _minticFetch(endpoint, opts = {}) {
+  const { _retryCount = 0 } = opts;
+  const MAX_RETRIES = 2;  // hasta 3 intentos totales (0, 1, 2)
   const params = new URLSearchParams({ trimestre: _minticTrimestre, anio: _minticAnio });
   const r = await fetch(`${API}/api/mintic/${endpoint}?${params}`, { headers: { 'X-Token': _sesionToken } });
-  // El proxy puede devolver HTML (Bad Gateway / 504) en vez de JSON si la
-  // query CH excede el timeout (~30s). Detectarlo y dar un mensaje claro.
   const ct = r.headers.get('content-type') || '';
+
+  // El proxy puede devolver HTML (Bad Gateway / 504) si la query CH excede
+  // el timeout (~30s). La query SIGUE corriendo en CH después del timeout
+  // del proxy, así que el siguiente intento usa caché interno y es 3-5x más
+  // rápido. Reintentamos automáticamente hasta MAX_RETRIES veces.
   if (!ct.includes('application/json')) {
     const txt = await r.text();
-    if (r.status === 502 || r.status === 504 || /bad gateway|gateway timeout/i.test(txt)) {
+    const esTimeout = r.status === 502 || r.status === 504 || /bad gateway|gateway timeout/i.test(txt);
+    if (esTimeout && _retryCount < MAX_RETRIES) {
+      const espera = 5 * (_retryCount + 1);  // 5s, 10s
+      const cnt = document.getElementById(`mintic-tabla-${_minticTab}`);
+      if (cnt) cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#92400e;background:#fef3c7;border-radius:8px">⏱ Timeout del proxy. Reintentando automáticamente en ${espera}s (intento ${_retryCount + 2}/${MAX_RETRIES + 1})… La query sigue corriendo en CH, la siguiente vez usa caché interno.</div>`;
+      await new Promise(res => setTimeout(res, espera * 1000));
+      return _minticFetch(endpoint, { _retryCount: _retryCount + 1 });
+    }
+    if (esTimeout) {
       throw new Error(
-        `⏱ La query tardó más que el timeout del proxy (HTTP ${r.status}). ` +
-        `Sugerencia: reintentá en unos segundos — la siguiente ejecución usa caché interno de ClickHouse y suele ser 3-5x más rápida.`
+        `⏱ Después de ${MAX_RETRIES + 1} intentos la query sigue tardando más que el timeout del proxy. ` +
+        `Probá un trimestre con menos servicios, o esperá unos minutos y reintentá manualmente.`
       );
     }
     throw new Error(`Respuesta inesperada (HTTP ${r.status}): ${txt.slice(0, 200)}`);

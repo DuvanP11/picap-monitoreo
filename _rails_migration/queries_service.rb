@@ -2514,7 +2514,6 @@ module QueriesService
     WITH q_service_types AS (
       SELECT
         _id,
-        name_es AS name,
         CASE
           WHEN name_es IN (
             'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor
@@ -2522,40 +2521,42 @@ module QueriesService
             'Carga', 'Carga Carry', 'Carga Moto-Vagón', 'Carga NHR', 'Carga NKR', 'Carga NPR',
             'Mensajería', 'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada'
           ) THEN 'Pibox'
-          WHEN name_es IN (
-            'Moto', 'Mototaxi', 'Moto sin conductor', 'Subasta', 'Taxi', 'Carro',
-            'Carro sin conductor', 'Moto VIP', 'Moto Económica', 'Carro Quenn',
-            'Moto lite', 'Moto Quenn', 'Picap Carro', 'Picap Moto', 'Grúa Carro', 'Grúa Moto'
-          ) THEN 'Picap'
           ELSE 'Other'
         END AS type
       FROM picapmongoprod.service_types
       WHERE name_es != 'Test'
     ),
-    -- Optimización: filter early. Primero obtenemos solo los _id de bookings
-    -- que cumplen el rango de fecha + status + B2B. Sin FINAL ni JOINs.
-    -- Esto descarta el 99% de la tabla bookings antes de tocar nada.
-    q_bookings_ids AS (
-      SELECT _id, requested_service_type_id, country_id, company_id, passenger_id, driver_id
-      FROM picapmongoprod.bookings FINAL
-      WHERE status_cd IN (4, 107, 108)
-        AND nullIf(trim(relaunched_to_id), '') IS NULL
-        AND toDate(toTimeZone(coalesce(scheduled_at, created_at), 'America/Bogota'))
-            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
-        AND company_id IS NOT NULL AND company_id != ''
+    q_country_co AS (
+      SELECT _id FROM picapmongoprod.countries
+      WHERE JSONExtractString(name, 'es') = 'Colombia'
     ),
-    -- Re-filtrar por service_type Pibox + country Colombia (tablas chicas).
-    q_filtered_bookings AS (
-      SELECT b._id AS booking_id, b.*
+    -- 1 solo scan de bookings con TODOS los filtros aplicados. La operacion
+    -- mas cara — solo se hace una vez. Las CTEs hijas referencian q_bookings_full.
+    q_bookings_full AS (
+      SELECT
+        b._id, b.company_id, b.country_id, b.requested_service_type_id,
+        b.passenger_id, b.driver_id, b.served_vehicle_type_id, b.city_id,
+        b.cost_center_id, b.payment_method_cd,
+        b.scheduled_at, b.created_at, b.status_cd,
+        b.address, b.end_address,
+        b.estimated_traveled_distance, b.traveled_distance, b.traveled_time,
+        b.company_final_cost, b.total_company_final_cost,
+        b.final_cost, b.additional_final_cost, b.dispute_final_cost, b.total_final_cost,
+        b.additional_company_final_cost, b.dispute_company_final_cost,
+        b.amount_charged_to_company_wallet,
+        b.express_service, b.return_to_origin
       FROM picapmongoprod.bookings AS b FINAL
-        INNER JOIN q_service_types st ON st._id = b.requested_service_type_id
-        INNER JOIN picapmongoprod.countries c ON c._id = b.country_id
-      WHERE b._id IN (SELECT _id FROM q_bookings_ids)
-        AND st.type = 'Pibox'
-        AND JSONExtractString(c.name, 'es') = 'Colombia'
+      WHERE b.status_cd IN (4, 107, 108)
+        AND nullIf(trim(b.relaunched_to_id), '') IS NULL
+        AND b.company_id IS NOT NULL AND b.company_id != ''
+        AND toDate(toTimeZone(coalesce(b.scheduled_at, b.created_at), 'America/Bogota'))
+            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+        AND b.requested_service_type_id IN (SELECT _id FROM q_service_types WHERE type = 'Pibox')
+        AND b.country_id IN (SELECT _id FROM q_country_co)
     ),
-    q_filtered_bookings_unique AS (
-      SELECT DISTINCT booking_id FROM q_filtered_bookings
+    -- alias para compatibilidad con el SELECT final.
+    q_filtered_bookings AS (
+      SELECT b._id AS booking_id, b.* FROM q_bookings_full AS b
     ),
     q_transactions AS (
       SELECT
@@ -2565,41 +2566,28 @@ module QueriesService
         SUM(if(wat._type = 'WalletAccountTransactionCommissionCompanyPayment', -toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS company,
         SUM(if(wat._type = 'WalletAccountTransactionBookingDriverPayment', toFloat64OrZero(JSONExtractString(wat.amount, 'cents')) / 100, 0)) AS booking_driver_payment
       FROM picapmongoprod.wallet_account_transactions AS wat FINAL
-      WHERE wat.booking_id IN (SELECT booking_id FROM q_filtered_bookings_unique)
+      WHERE wat.booking_id IN (SELECT _id FROM q_bookings_full)
         AND wat._type IN (
           'WalletAccountTransactionCommissionDriverPayment',
           'WalletAccountTransactionCommissionCompanyPayment',
           'WalletAccountTransactionBookingDriverPayment')
       GROUP BY wat.booking_id, currency
     ),
-    q_payment_methods AS (
-      SELECT
-        b._id AS booking_id,
-        b.payment_method_cd,
-        CASE
-          WHEN b.payment_method_cd = '1' THEN 'Cash'
-          WHEN b.payment_method_cd = '2' THEN 'Voucher'
-          WHEN b.payment_method_cd = '3' THEN 'Credit Card'
-          ELSE 'Other'
-        END AS txt_payment_method
-      FROM picapmongoprod.bookings AS b FINAL
-      WHERE b._id IN (SELECT booking_id FROM q_filtered_bookings_unique)
-    ),
     q_packages AS (
       SELECT DISTINCT
         pck._id, pck.booking_id, pck.reference, pck.declared_value,
         pck.status_cd, pck.counter_delivery
       FROM picapmongoprod.packages AS pck FINAL
-      WHERE pck.booking_id IN (SELECT booking_id FROM q_filtered_bookings_unique)
+      WHERE pck.booking_id IN (SELECT _id FROM q_bookings_full)
     ),
-    -- Combinar passengers_p + passengers_d en una sola CTE (un solo scan).
+    -- 1 scan de passengers_w_data filtrando por (passenger_id ∪ driver_id).
     q_passengers_all AS (
       SELECT DISTINCT p._id, p.name, p.company_id, p.document_type, p.cod_identification
       FROM picapmongoprod.passengers_w_data AS p FINAL
       WHERE p._id IN (
-        SELECT passenger_id FROM q_bookings_ids
+        SELECT passenger_id FROM q_bookings_full
         UNION DISTINCT
-        SELECT driver_id FROM q_bookings_ids WHERE driver_id IS NOT NULL
+        SELECT driver_id    FROM q_bookings_full WHERE driver_id IS NOT NULL
       )
     ),
     q_passengers_p AS (
@@ -2612,10 +2600,10 @@ module QueriesService
       SELECT DISTINCT k._id, k.name
       FROM picapmongoprod.passengers_w_data AS k FINAL
       WHERE k._id IN (
-        SELECT comp.commercial_manager_id
-        FROM picapmongoprod.companies comp
-        WHERE comp._id IN (SELECT company_id FROM q_bookings_ids WHERE company_id != '')
-          AND comp.commercial_manager_id IS NOT NULL
+        SELECT commercial_manager_id
+        FROM picapmongoprod.companies
+        WHERE _id IN (SELECT company_id FROM q_bookings_full WHERE company_id != '')
+          AND commercial_manager_id IS NOT NULL
       )
     )
     SELECT DISTINCT
@@ -2668,23 +2656,23 @@ module QueriesService
       comp.tax_id AS NIT,
       cs.name AS cost_center
     FROM q_filtered_bookings b
-      INNER JOIN q_service_types  st ON st._id = b.requested_service_type_id
       INNER JOIN q_passengers_p   p  ON p._id  = b.passenger_id
       INNER JOIN q_passengers_d   d  ON d._id  = b.driver_id
       LEFT  JOIN picapmongoprod.companies comp ON comp._id = b.company_id
       LEFT  JOIN q_transactions   t  ON t.booking_id = b._id
-      INNER JOIN picapmongoprod.countries c    ON c._id    = b.country_id
       LEFT  JOIN q_packages       pck ON pck.booking_id = b._id
-      LEFT  JOIN q_payment_methods pm  ON pm.booking_id = b._id
       LEFT  JOIN picapmongoprod.vehicle_types vt ON vt._id = b.served_vehicle_type_id
       LEFT  JOIN picapmongoprod.cities        cit ON cit._id = b.city_id
       LEFT  JOIN picapmongoprod.cost_centers  cs  ON cs._id  = b.cost_center_id
       LEFT  JOIN q_passengers_k   k  ON k._id  = comp.commercial_manager_id
     SETTINGS
+      enable_analyzer = 0,
       join_algorithm = 'grace_hash',
       max_bytes_in_join = 4000000000,
-      max_threads = 6,
+      max_threads = 12,
       max_memory_usage = 12000000000,
-      max_execution_time = 250
+      max_execution_time = 240,
+      optimize_read_in_order = 1,
+      optimize_skip_unused_shards = 1
   SQL
 end
