@@ -61,6 +61,7 @@ Rails.application.routes.draw do
       get  "informe_general",        to: "/api/mintic#informe_general"
       get  "job_status/:job_id",     to: "/api/mintic#job_status"
     end
+    post "mintic/upload_facturas",   to: "mintic#upload_facturas"
     post "mintic/enviar_email",      to: "mintic#enviar_email"
 
     # Auditoría Pibox

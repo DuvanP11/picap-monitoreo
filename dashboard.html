@@ -4317,6 +4317,11 @@ window.fetch = function(url, opts) {
         </select>
         <button class="search-btn" onclick="cargarMintic()">↻ Cargar</button>
         <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="document.getElementById('mintic-upload-input').click()" style="background:#7c3aed" title="Subir facturas.json al servidor para que el Informe General pueda matchear bookings con facturas">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 3l-4 4M10 3l4 4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Subir facturas
+        </button>
+        <input type="file" id="mintic-upload-input" accept=".json,application/json" style="display:none" onchange="subirFacturasMintic(this)">
         <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('mintic')" style="background:#1e40af" title="Enviar el reporte por email (pendiente F3)">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Enviar por email
@@ -14394,6 +14399,48 @@ function renderMinticInforme(d) {
 
 function exportarMintic() {
   alert('📊 Exportar Excel — pendiente Fase 3.\n\nEl Excel multi-hoja (Resumen + Trimestre + Histórico) se implementará en la próxima fase. Por ahora podés usar los 3 endpoints del backend con la API.');
+}
+
+// Subir facturas.json al servidor (storage/mintic/facturas.json).
+async function subirFacturasMintic(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.json')) {
+    alert('⚠️ El archivo debe ser .json (generado por procesar_facturas_mintic.py)');
+    input.value = '';
+    return;
+  }
+  const cnt = document.getElementById(`mintic-tabla-${_minticTab}`);
+  if (cnt) cnt.innerHTML = `<div style="padding:24px;text-align:center;color:#7c3aed;background:#f3e8ff;border-radius:8px">⏳ Subiendo ${file.name} (${(file.size/1024).toFixed(0)} KB)…</div>`;
+  try {
+    const fd = new FormData();
+    fd.append('archivo', file);
+    const r = await fetch(`${API}/api/mintic/upload_facturas`, {
+      method: 'POST',
+      headers: { 'X-Token': _sesionToken },
+      body: fd,
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    alert(
+      `✅ Facturas cargadas\n\n` +
+      `• Total: ${d.total_cargadas}\n` +
+      `• Rango: ${d.rango_facturas}\n` +
+      `• Clientes distintos: ${d.clientes_distintos}\n` +
+      `• Total acumulado: $${(d.total_pagar_acumulado||0).toLocaleString('es-CO')}\n\n` +
+      `Recargando vista actual…`
+    );
+    // Forzar recarga de las tabs
+    _minticDataQuery = null;
+    _minticDataFact  = null;
+    _minticDataInf   = null;
+    cargarMintic();
+  } catch (err) {
+    alert('❌ Error al subir facturas: ' + (err.message || err));
+    if (cnt) cnt.innerHTML = '';
+  } finally {
+    input.value = '';
+  }
 }
 
 

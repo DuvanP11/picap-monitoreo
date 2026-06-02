@@ -306,6 +306,64 @@ module Api
 
     public
 
+    # POST /api/mintic/upload_facturas
+    # Recibe el JSON de facturas (generado por mintic_facturas/procesar_facturas_mintic.py)
+    # y lo guarda en storage/mintic/facturas.json para uso del controller.
+    def upload_facturas
+      archivo = params[:archivo] || params[:file]
+      contenido = nil
+      if archivo.respond_to?(:read)
+        contenido = archivo.read
+      elsif params[:json].is_a?(String) && params[:json].present?
+        contenido = params[:json]
+      elsif request.body.respond_to?(:read)
+        request.body.rewind rescue nil
+        contenido = request.body.read
+      end
+
+      if contenido.blank?
+        return render(json: { ok: false, error: "Falta el archivo. Subí el JSON en el campo 'archivo' (multipart) o como body JSON." }, status: :bad_request)
+      end
+
+      begin
+        data = JSON.parse(contenido)
+        raise "Esperaba un array de facturas" unless data.is_a?(Array)
+        raise "Array vacío" if data.empty?
+        primera = data.first
+        %w[Numero_Factura NIT_Cliente Cliente Total_Pagar Fecha_Inicio_Periodo Fecha_Fin_Periodo Fecha_Emision].each do |campo|
+          raise "Falta el campo '#{campo}' en las facturas (la primera tiene: #{primera.keys.join(', ')})" unless primera.key?(campo)
+        end
+      rescue JSON::ParserError => e
+        return render(json: { ok: false, error: "JSON inválido: #{e.message}" }, status: :bad_request)
+      rescue => e
+        return render(json: { ok: false, error: e.message }, status: :bad_request)
+      end
+
+      dir = Rails.root.join("storage", "mintic")
+      FileUtils.mkdir_p(dir)
+      path = dir.join("facturas.json")
+      File.write(path, contenido)
+
+      # Pre-cómputo de stats útiles para mostrar al usuario.
+      total_pagar = data.sum { |f| f["Total_Pagar"].to_f }.round(2)
+      clientes_uniques = data.map { |f| f["Cliente"] }.uniq.compact.size
+      facturas_min = data.map { |f| f["Numero_Factura"] }.compact.min
+      facturas_max = data.map { |f| f["Numero_Factura"] }.compact.max
+
+      render json: {
+        ok: true,
+        total_cargadas: data.size,
+        total_pagar_acumulado: total_pagar,
+        clientes_distintos: clientes_uniques,
+        rango_facturas: "#{facturas_min} → #{facturas_max}",
+        guardado_en: "storage/mintic/facturas.json",
+        mensaje: "✓ facturas.json cargado. Recargá la tab 'Detallado Facturas' o 'Informe General' para ver el match.",
+      }
+    rescue => e
+      Rails.logger.error("[MinticController#upload_facturas] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
     # POST /api/mintic/enviar_email — pendiente Fase 3
     def enviar_email
       render json: { ok: false, error: "Email aún no implementado — pendiente Fase 3" }, status: :not_implemented
