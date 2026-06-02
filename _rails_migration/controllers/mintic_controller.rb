@@ -325,6 +325,11 @@ module Api
         return render(json: { ok: false, error: "Falta el archivo. Subí el JSON en el campo 'archivo' (multipart) o como body JSON." }, status: :bad_request)
       end
 
+      # multipart files vienen con encoding ASCII-8BIT (binary). Forzarlo a
+      # UTF-8 para que JSON.parse + File.write maneje caracteres con tildes/ñ
+      # (ej. 'BOLIVAR PATIÑO', 'GOURMET') sin Encoding::UndefinedConversionError.
+      contenido = contenido.force_encoding(Encoding::UTF_8) if contenido.respond_to?(:force_encoding)
+
       begin
         data = JSON.parse(contenido)
         raise "Esperaba un array de facturas" unless data.is_a?(Array)
