@@ -3975,7 +3975,10 @@ window.fetch = function(url, opts) {
             <span class="inf-mini-label">Estado de Cuenta Surtido</span>
             <span class="inf-mini-arrow">›</span>
           </div>
-          <div class="inf-mini" onclick="informesProximamente('Pérdidas por Recaudo')">
+          <!-- v3.3.27: mini-módulo "Pérdidas por Recaudo" ahora abre el view-recaudos
+               completo (con sus 2 sub-tabs: Recaudos Picash + Ida y Vuelta + botones
+               Enviar email / Exportar Excel). No se modifica view-recaudos en si. -->
+          <div class="inf-mini" onclick="switchView('recaudos','stats')">
             <span class="inf-mini-icon">📉</span>
             <span class="inf-mini-label">Pérdidas por Recaudo</span>
             <span class="inf-mini-arrow">›</span>
