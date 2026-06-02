@@ -1057,22 +1057,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text1);min-height:
   box-shadow:0 4px 18px rgba(107,33,168,.07);}
 .home-module-card:hover{border-color:var(--purple1);transform:translateY(-4px);
   box-shadow:0 10px 32px rgba(107,33,168,.16);}
-.home-module-card-top{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
-/* v3.3.25: rediseño con logos PNG. El gradient queda como "halo" sutil
-   detrás del PNG en lugar de cubrirlo, para preservar el estilo de marca
-   por módulo (cada uno tiene su color característico). */
-.home-module-card-icon{width:72px;height:72px;border-radius:16px;display:flex;
-  align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;
-  background:#faf7ff;border:1px solid #ede5f7;padding:4px;
-  box-shadow:0 2px 8px rgba(107,33,168,.06);}
-.home-module-card-icon img{width:100%;height:100%;object-fit:contain;display:block;}
-/* Tintes sutiles de fondo por módulo (~5% opacity) — el logo es el protagonista. */
-.home-module-card-icon.sac          {background:linear-gradient(135deg,#f3e8ff,#e9d5ff);}
-.home-module-card-icon.admin        {background:linear-gradient(135deg,#e0f2fe,#bae6fd);}
-.home-module-card-icon.financiero   {background:linear-gradient(135deg,#d1fae5,#a7f3d0);}
-.home-module-card-icon.pivots       {background:linear-gradient(135deg,#fef3c7,#fde68a);}
-.home-module-card-icon.informes     {background:linear-gradient(135deg,#fce7f3,#fbcfe8);}
-.home-module-card-icon.productividad{background:linear-gradient(135deg,#dbeafe,#bfdbfe);}
+.home-module-card-top{display:flex;align-items:center;gap:16px;margin-bottom:16px;}
+/* v3.3.26: logos PNG limpios — sin contenedor coloreado, sin border ni
+   tinte. El logo ya tiene su propio diseño visual, solo lo mostramos
+   centrado y al tamaño que respire. */
+.home-module-card-icon{width:84px;height:84px;display:flex;
+  align-items:center;justify-content:center;flex-shrink:0;
+  background:transparent;border:none;padding:0;}
+.home-module-card-icon img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
 .home-module-card-name{font-size:18px;font-weight:800;color:var(--text1);}
 .home-module-card-count{font-size:11px;color:var(--text3);margin-top:2px;}
 .home-module-options{display:flex;flex-direction:column;gap:8px;}
