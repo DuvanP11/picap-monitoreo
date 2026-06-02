@@ -339,9 +339,10 @@ module Api
         return render(json: { ok: false, error: e.message }, status: :bad_request)
       end
 
-      dir = Rails.root.join("storage", "mintic")
-      FileUtils.mkdir_p(dir)
-      path = dir.join("facturas.json")
+      # tmp/ siempre es escribible en Rails (el código en /app/ es read-only
+      # en el contenedor k8s, así que /app/storage NO se puede escribir).
+      path = mintic_facturas_path
+      FileUtils.mkdir_p(path.dirname)
       File.write(path, contenido)
 
       # Pre-cómputo de stats útiles para mostrar al usuario.
@@ -356,8 +357,8 @@ module Api
         total_pagar_acumulado: total_pagar,
         clientes_distintos: clientes_uniques,
         rango_facturas: "#{facturas_min} → #{facturas_max}",
-        guardado_en: "storage/mintic/facturas.json",
-        mensaje: "✓ facturas.json cargado. Recargá la tab 'Detallado Facturas' o 'Informe General' para ver el match.",
+        guardado_en: "tmp/mintic/facturas.json",
+        mensaje: "✓ facturas.json cargado. Recargá la tab 'Detallado Facturas' o 'Informe General' para ver el match. NOTA: el archivo se pierde si el pod reinicia — re-subilo después de cada deploy.",
       }
     rescue => e
       Rails.logger.error("[MinticController#upload_facturas] #{e.class}: #{e.message}")
@@ -411,21 +412,28 @@ module Api
       rows
     end
 
-    # Lee facturas extraídas (JSON) del directorio storage/mintic/.
+    # Lee facturas extraídas (JSON) del directorio tmp/mintic/.
     # El archivo es generado por el extractor Python (mintic_facturas/procesar_facturas_mintic.py)
     # que escribe un .json paralelo al .xlsx con los mismos campos.
-    # Convención: storage/mintic/facturas.json (acumulativo — el usuario lo mantiene).
+    # Convención: tmp/mintic/facturas.json (acumulativo — el usuario lo sube vía /upload_facturas).
+    # OJO: en k8s el directorio /app/storage es read-only, por eso usamos tmp/
+    # (Rails.root.join("tmp") siempre es escribible). Trade-off: se pierde
+    # al reiniciar el pod — el operador re-sube el JSON.
     # Cada elemento del array tiene los 11 campos del dataclass FacturaExtraida:
     #   Archivo, Numero_Factura, NIT_Cliente, Cliente, Ciudad,
     #   Fecha_Emision, Fecha_Vencimiento, Total_Pagar,
     #   Fecha_Inicio_Periodo, Fecha_Fin_Periodo, Periodo_Completo.
     def cargar_facturas_xlsx
-      path = Rails.root.join("storage", "mintic", "facturas.json")
+      path = mintic_facturas_path
       return [] unless File.exist?(path)
       JSON.parse(File.read(path))
     rescue => e
       Rails.logger.error("[MinticController] Error leyendo facturas.json: #{e.message}")
       []
+    end
+
+    def mintic_facturas_path
+      Rails.root.join("tmp", "mintic", "facturas.json")
     end
 
     # Quita guiones, espacios, y opcionalmente el dígito de verificación (último).
