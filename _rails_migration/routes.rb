@@ -1,5 +1,11 @@
 Rails.application.routes.draw do
 
+  # ── Health check (k8s liveness/readiness/startup) ──
+  # ⚠️ NO BORRAR: los probes de k8s (helm web.yaml) pegan a GET /up.
+  # Sin esta ruta, el catch-all `match "*path"` responde 404 → CrashLoopBackOff
+  # → rollout ProgressDeadlineExceeded → ArgoCD Degraded. (Regresión rc8 / commit 591924d)
+  get "up" => "rails/health#show", as: :rails_health_check
+
   # ── Frontend ──
   root "pages#dashboard"
   get  "/dashboard.html", to: "pages#dashboard"
