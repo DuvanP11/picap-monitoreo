@@ -60,6 +60,16 @@ Rails.application.routes.draw do
     get  "bonos_ayuda",                   to: "bonos_ayuda_voluntaria#index"
     post "bonos_ayuda/enviar_email",      to: "bonos_ayuda_voluntaria#enviar_email"
 
+    # v3.3.28: Saldo Recaudos (acceso restringido) — balance mensual Recaudos vs Servicios B2B.
+    namespace :saldo_recaudos do
+      get  "estadisticas",         to: "/api/saldo_recaudos#estadisticas"
+      get  "query_recaudos",       to: "/api/saldo_recaudos#query_recaudos"
+      get  "query_transacciones",  to: "/api/saldo_recaudos#query_transacciones"
+      get  "informe_general",      to: "/api/saldo_recaudos#informe_general"
+      get  "job_status/:job_id",   to: "/api/saldo_recaudos#job_status"
+    end
+    post "saldo_recaudos/enviar_email",   to: "saldo_recaudos#enviar_email"
+
     # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
     namespace :mintic do
       get  "detallado_query",        to: "/api/mintic#detallado_query"

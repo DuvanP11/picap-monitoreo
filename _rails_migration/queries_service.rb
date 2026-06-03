@@ -2675,4 +2675,214 @@ module QueriesService
       optimize_read_in_order = 1,
       optimize_skip_unused_shards = 1
   SQL
+
+  # ════════════════════════════════════════════════════════════════════════
+  # SALDO RECAUDOS — Reporte mensual del balance Recaudos vs Servicios B2B.
+  # Paridad EXACTA con recaudos_bi/generar_recaudos.py (validado abril 2026
+  # cuadra centavo a centavo: $414,712,527 total, Surtitodo -$33,910.04).
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Hoja 1: detalle por booking con contraentrega cobrada (data cruda).
+  # Variables: %{fecha_desde}, %{fecha_hasta}
+  Q_SALDO_RECAUDOS_RECAUDOS = <<~'SQL'
+    WITH
+      q_service_types AS (
+        SELECT
+          _id,
+          name_es AS name,
+          CASE
+            WHEN name_es IN (
+              'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor', 'Moto favor',
+              'Carga', 'Carga Carry', 'Carga Moto-Vagón', 'Carga NHR', 'Carga NKR', 'Carga NPR',
+              'Mensajería', 'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada'
+            ) THEN 'Pibox'
+            WHEN name_es IN (
+              'Moto', 'Mototaxi', 'Moto sin conductor', 'Subasta','Carro Subasta','Taxi', 'Carro',
+              'Carro sin conductor', 'Moto VIP', 'Moto Económica', 'Carro Queen','Rapidín','Espero tranqui',
+              'Moto lite', 'Moto Queen', 'Picap Carro', 'Picap Moto', 'Grúa Carro', 'Grúa Moto'
+            ) THEN 'Picap'
+            ELSE 'Other'
+          END AS type
+        FROM (SELECT * FROM picapmongoprod.service_types FINAL)
+      ),
+      q_wat_filtered AS (
+        SELECT
+          wat._id AS transaction_id,
+          wat.booking_id AS booking_id,
+          wat.package_id AS package_id,
+          wat.account_id AS account_id,
+          wat.amount AS amount,
+          wat.normalized_amount_after_transaction AS normalized_amount_after_transaction,
+          wat.transaction_state_cd AS transaction_state_cd,
+          wat._type AS tx_type,
+          wat.created_at AS created_at,
+          b.created_at AS booking_created_at,
+          pck.reference AS package_reference,
+          pck.declared_value AS package_declared_value,
+          pck.counter_delivery AS package_counter_delivery,
+          b.passenger_id AS passenger_id,
+          b.driver_id AS driver_id,
+          b.served_vehicle_type_id AS served_vehicle_type_id,
+          b.city_id AS city_id,
+          b.requested_service_type_id AS requested_service_type_id,
+          b.country_id AS country_id,
+          wa._id AS wallet_account_id,
+          p.company_id AS passenger_company_id,
+          p.name AS passenger_name,
+          d.name AS driver_name
+        FROM picapmongoprod.wallet_account_transactions AS wat FINAL
+        INNER JOIN picapmongoprod.packages AS pck FINAL ON pck._id = wat.package_id
+        INNER JOIN picapmongoprod.bookings AS b FINAL ON b._id = wat.booking_id
+        INNER JOIN picapmongoprod.wallet_accounts AS wa FINAL ON wa._id = wat.account_id
+        INNER JOIN picapmongoprod.passengers AS p FINAL ON p._id = b.passenger_id
+        INNER JOIN picapmongoprod.passengers AS d FINAL ON d._id = b.driver_id
+        INNER JOIN picapmongoprod.countries AS c FINAL ON c._id = b.country_id
+        WHERE
+          JSONExtractString(c.name, 'es') = 'Colombia'
+          AND JSONExtractString(wat.amount, 'currency_iso') = 'COP'
+          AND pck.counter_delivery = 'true'
+          AND wat._type = 'WalletAccountCounterDeliveryPaymentTransaction'
+          AND toDate(toTimeZone(wat.created_at, 'America/Bogota'))
+              BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+      )
+    SELECT
+      toDate(toTimeZone(qtf.created_at, 'America/Bogota'))                        AS Date_transaction,
+      JSONExtractString(qtf.amount, 'currency_iso')                               AS Transaction_currency,
+      toFloat64OrZero(JSONExtractString(qtf.amount, 'cents')) / 100               AS Transaction_amount,
+      qtf.transaction_id                                                          AS Transaction_ID,
+      toFloat64OrZero(JSONExtractString(qtf.normalized_amount_after_transaction, 'cents')) / 100 AS Normalized_Amount_After_Transaction,
+      toDate(toTimeZone(qtf.booking_created_at, 'America/Bogota'))                AS Date_booking,
+      qtf.booking_id                                                              AS ID_Booking,
+      qtf.package_id                                                              AS ID_Package,
+      qtf.package_reference                                                       AS Reference,
+      qtf.passenger_id                                                            AS ID_User,
+      compp.name                                                                  AS User_Company,
+      qtf.passenger_name                                                          AS User_Name,
+      toFloat64OrZero(JSONExtractString(qtf.package_declared_value, 'cents')) / 100 AS Declared_Value,
+      qtf.transaction_state_cd                                                    AS transaction_state_cd,
+      qtf.driver_id                                                               AS ID_Driver,
+      qtf.driver_name                                                             AS Driver_Name,
+      st.type                                                                     AS type,
+      st.name                                                                     AS service_type_name,
+      JSONExtractString(cit.name, 'es')                                           AS Ciudad,
+      JSONExtractString(vt.name, 'es')                                            AS name_vehicle,
+      qtf.passenger_company_id                                                    AS company_id
+    FROM q_wat_filtered qtf
+    LEFT JOIN picapmongoprod.companies      AS compp FINAL ON compp._id = qtf.passenger_company_id
+    LEFT JOIN picapmongoprod.vehicle_types  AS vt    FINAL ON vt._id    = qtf.served_vehicle_type_id
+    LEFT JOIN picapmongoprod.cities         AS cit   FINAL ON cit._id   = qtf.city_id
+    LEFT JOIN q_service_types               AS st          ON st._id    = qtf.requested_service_type_id
+    ORDER BY Date_transaction ASC
+  SQL
+
+  # Hoja 3: detalle de transacciones (3 tipos) — alimenta cols Recaudos + Servicios.
+  # Variables: %{fecha_desde}, %{fecha_hasta}
+  Q_SALDO_RECAUDOS_TRANSACCIONES = <<~'SQL'
+    WITH q_service_types AS (
+      SELECT
+        _id,
+        any(name_es) AS name,
+        any(multiIf(
+          name_es IN (
+            'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor',
+            'Moto favor', 'Carga', 'Carga Carry', 'Carga Moto-Vagón',
+            'Carga NHR', 'Carga NKR', 'Carga NPR', 'Mensajería',
+            'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada'
+          ), 'Pibox',
+          name_es IN (
+            'Moto', 'Mototaxi', 'Moto sin conductor', 'Subasta', 'Taxi',
+            'Carro', 'Rapidín', 'Carro sin conductor', 'Moto VIP',
+            'Moto Económica', 'Carro Queen', 'Espero tranqui',
+            'Moto lite', 'Moto Queen', 'Picap Carro', 'Picap Moto',
+            'Grúa Carro', 'Grúa Moto'
+          ), 'Picap',
+          'Other'
+        )) AS type
+      FROM picapmongoprod.service_types
+      GROUP BY _id
+    ),
+    q_transactions_filtered AS (
+      SELECT
+        wat._id AS _id,
+        wat.booking_id,
+        wat.account_id,
+        wat._type AS txt_type,
+        wat.created_at AS created_at,
+        wat.amount,
+        s.payment_method_cd,
+        toFloat64OrZero(JSONExtractString(s.amount_charged_to_passenger_wallet, 'cents')) / 100 AS amount_charged_to_passenger_wallet,
+        toFloat64OrZero(JSONExtractString(s.amount_charged_to_company_wallet, 'cents')) / 100   AS amount_charged_to_company_wallet,
+        wa.passenger_id AS passenger_id,
+        comp._id   AS company_id,
+        comp.name  AS company_name,
+        st.type    AS service_type
+      FROM picapmongoprod.wallet_account_transactions wat FINAL
+      ANY LEFT JOIN picapmongoprod.bookings        s    FINAL ON s._id    = wat.booking_id
+      ANY LEFT JOIN q_service_types                st         ON st._id   = s.requested_service_type_id
+      ANY LEFT JOIN picapmongoprod.wallet_accounts wa   FINAL ON wa._id   = wat.account_id
+      ANY LEFT JOIN picapmongoprod.companies       comp FINAL ON comp._id = s.company_id
+      WHERE
+        wat._type IN (
+          'WalletAccountCounterDeliveryPaymentTransaction',
+          'WalletAccountTransactionBookingCompanyCharge',
+          'WalletAccountTransactionCommissionCompanyPayment'
+        )
+        AND JSONExtractString(wat.amount, 'currency_iso') = 'COP'
+        AND st.type = 'Pibox'
+        AND toDate(toTimeZone(wat.created_at, 'America/Bogota'))
+            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+    ),
+    q_transactions AS (
+      SELECT
+        t.booking_id,
+        JSONExtractString(t.amount, 'currency_iso') AS currency,
+        SUM(IF(t._type = 'WalletAccountTransactionBookingDriverPayment',
+               JSONExtractFloat(t.amount, 'cents') / 100, 0)) AS booking_driver_payment
+      FROM picapmongoprod.wallet_account_transactions t FINAL
+      INNER JOIN (SELECT DISTINCT booking_id FROM q_transactions_filtered) qtf ON t.booking_id = qtf.booking_id
+      GROUP BY t.booking_id, currency
+    ),
+    q_payment_methods AS (
+      SELECT
+        b._id AS booking_id,
+        multiIf(
+          b.payment_method_cd = '1', 'Cash',
+          b.payment_method_cd = '2', 'Voucher',
+          b.payment_method_cd = '3', 'Credit Card',
+          'Other'
+        ) AS txt_payment_method
+      FROM picapmongoprod.bookings b FINAL
+      WHERE b._id IN (SELECT booking_id FROM q_transactions_filtered)
+      GROUP BY b._id, b.payment_method_cd
+    )
+    SELECT
+      qtf.passenger_id,
+      qtf.company_id,
+      qtf.company_name                                                     AS Company_name,
+      qtf.txt_type                                                         AS TXT_TYPE,
+      toDate(toTimeZone(qtf.created_at, 'America/Bogota'))                 AS TMS_CREATED,
+      qtf.booking_id,
+      toFloat64OrZero(JSONExtractString(qtf.amount, 'cents')) / 100        AS VAL_AMOUNT,
+      qtf._id,
+      ifNull(t.booking_driver_payment, 0)                                  AS VAL_AMOUNT_BOOKING_DRIVER_PAYMENT,
+      multiIf(
+        (pm.txt_payment_method = 'Cash') AND (t.booking_driver_payment != 0), 'Company Wallet',
+        pm.txt_payment_method != 'Cash', pm.txt_payment_method,
+        qtf.amount_charged_to_company_wallet > 0, 'Company Wallet',
+        'Cash'
+      ) AS Payment_Type
+    FROM q_transactions_filtered qtf
+    LEFT JOIN q_transactions  t  ON t.booking_id  = qtf.booking_id
+    LEFT JOIN q_payment_methods pm ON pm.booking_id = qtf.booking_id
+    ORDER BY TMS_CREATED, qtf.booking_id
+  SQL
+
+  # Auxiliar: collection_fee por company_id (porcentaje de comisión por
+  # pago contra-entrega). Variables: %{ids} (string CSV de IDs entre comillas).
+  Q_SALDO_RECAUDOS_COMMISSION = <<~'SQL'
+    SELECT _id, toFloat64OrZero(collection_fee) / 100.0 AS fee
+    FROM picapmongoprod.companies FINAL
+    WHERE _id IN (%{ids})
+      AND collection_fee IS NOT NULL AND collection_fee != ''
+  SQL
 end

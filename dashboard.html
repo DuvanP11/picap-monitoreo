@@ -3961,7 +3961,7 @@ window.fetch = function(url, opts) {
           <div class="inf-card-icon-wrap" style="background:linear-gradient(135deg,#16a34a,#15803d)">💰</div>
           <div>
             <div class="inf-card-name">Recaudos</div>
-            <div class="inf-card-desc">4 reportes de gestión de recaudos</div>
+            <div class="inf-card-desc">5 reportes de gestión de recaudos</div>
           </div>
         </div>
         <div class="inf-mini-grid">
@@ -3986,6 +3986,14 @@ window.fetch = function(url, opts) {
           <div class="inf-mini" onclick="informesProximamente('Recaudos y Dispersiones')">
             <span class="inf-mini-icon">🔄</span>
             <span class="inf-mini-label">Recaudos y Dispersiones</span>
+            <span class="inf-mini-arrow">›</span>
+          </div>
+          <!-- v3.3.28: nuevo módulo "Saldo Recaudos" — balance mensual Recaudos vs
+               Servicios B2B. Reproduce el archivo "Saldo Recaudos al 30 abril.xlsx"
+               de BI directamente desde el portal. -->
+          <div class="inf-mini" onclick="switchView('saldo_recaudos')">
+            <span class="inf-mini-icon">💼</span>
+            <span class="inf-mini-label">Saldo Recaudos</span>
             <span class="inf-mini-arrow">›</span>
           </div>
         </div>
@@ -4353,6 +4361,58 @@ window.fetch = function(url, opts) {
       <div id="mintic-tabla-query"    class="mintic-pane" style="margin-top:8px"></div>
       <div id="mintic-tabla-facturas" class="mintic-pane" style="margin-top:8px;display:none"></div>
       <div id="mintic-tabla-informe"  class="mintic-pane" style="margin-top:8px;display:none"></div>
+    </div>
+  </div>
+
+  <!-- ══ VISTA: SALDO RECAUDOS (admin / monitoreo / financiero) ══
+       v3.3.28: balance mensual Recaudos vs Servicios B2B. Reproduce el
+       "Saldo Recaudos al 30 abril.xlsx" directamente desde el portal. -->
+  <div class="view" id="view-saldo_recaudos">
+    <div class="wrap">
+
+      <!-- Header info -->
+      <div style="margin-top:10px;padding:12px 16px;background:linear-gradient(90deg,#ede9f5,#e8d7f0);border-left:4px solid #6b21a8;border-radius:8px;display:flex;align-items:center;gap:14px">
+        <div style="font-size:24px">💼</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#5b2169">Saldo Recaudos</div>
+          <div style="font-size:11px;color:#6b21a8">Balance mensual: Recaudos cobrados contra-entrega vs Servicios B2B facturados</div>
+        </div>
+      </div>
+
+      <!-- Selector de mes -->
+      <div class="rec-search-bar" style="margin-top:12px">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Período:</label>
+        <select id="sr-mes" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select id="sr-anio" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer"></select>
+        <button class="search-btn" onclick="cargarSaldoRecaudos()">↻ Cargar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('saldo_recaudos')" style="background:#1e40af" title="Enviar el Excel completo (5 hojas) por email">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarSaldoRecaudos()" style="background:#5b2169" title="Descargar Excel 5 hojas + tabla Resumen Surtitodo">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Generar Excel
+        </button>
+      </div>
+
+      <!-- Estado / barra de progreso -->
+      <div id="sr-estado" style="margin-top:14px;font-size:13px;color:var(--text3)">Seleccioná un mes y año, luego presioná <b>Cargar</b>.</div>
+
+      <!-- KPIs principales -->
+      <div id="sr-kpis" style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
+
+      <!-- Tabla Top empresas por Recaudo -->
+      <div id="sr-tabla-empresas" style="margin-top:18px"></div>
+
+      <!-- Tabla destacada Resumen Surtitodo -->
+      <div id="sr-resumen-surtitodo" style="margin-top:24px"></div>
+
     </div>
   </div>
 
@@ -4854,6 +4914,7 @@ function switchView(view){
     'reporte_ops_cv': 'Reporte OPS CV — Cruz Verde Pibox',
     'bonos_ayuda':    'Bonos de Ayuda Voluntaria',
     'mintic':         'MINTIC — Reporte Trimestral',
+    'saldo_recaudos': 'Saldo Recaudos — Balance Mensual B2B',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -4918,6 +4979,10 @@ function switchView(view){
       document.querySelector(`#view-mintic .pbtn[data-trim="${_minticTrimestre}"]`)?.classList.add('active');
     }
     _minticHeader();
+  }
+  if(view === 'saldo_recaudos'){
+    // v3.3.28: Inicializar selector año + setear default (mes anterior, año actual)
+    _initSaldoRecaudosAnios();
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -9693,6 +9758,16 @@ const ENVIAR_EMAIL_CONFIGS = {
       return { trimestre: t, anio: a };
     },
   },
+  // v3.3.28: Saldo Recaudos — balance mensual Recaudos vs Servicios B2B
+  saldo_recaudos: {
+    titulo: '💼 Enviar Saldo Recaudos',
+    color: 'linear-gradient(90deg,#6b21a8 0%,#5b2169 100%)',
+    endpoint: '/api/saldo_recaudos/enviar_email',
+    extraParams: () => {
+      const r = _saldoRecaudosRango();
+      return { desde: r.desde, hasta: r.hasta };
+    },
+  },
 };
 
 let _emailGenericoModulo = null;
@@ -14461,6 +14536,314 @@ async function subirFacturasMintic(input) {
   } finally {
     input.value = '';
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// v3.3.28: SALDO RECAUDOS — balance mensual Recaudos vs Servicios B2B
+// ══════════════════════════════════════════════════════════════════════════
+
+let _saldoRecaudosJobId   = null;
+let _saldoRecaudosData    = null;
+let _saldoRecaudosPoller  = null;
+
+// Helpers
+function _saldoRecaudosRango() {
+  const mes  = parseInt(document.getElementById('sr-mes')?.value || '4', 10);
+  const anio = parseInt(document.getElementById('sr-anio')?.value || new Date().getFullYear(), 10);
+  // Primer y último día del mes
+  const dFirst = new Date(anio, mes - 1, 1);
+  const dLast  = new Date(anio, mes, 0);
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return { desde: fmt(dFirst), hasta: fmt(dLast), mes, anio };
+}
+
+function _fmtCop(n) {
+  if (n === null || n === undefined || isNaN(n)) return '$ —';
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return `${sign}$ ${abs}`;
+}
+
+function _fmtCopRedNeg(n) {
+  if (n === null || n === undefined || isNaN(n)) return '$ —';
+  return n < 0
+    ? `<span style="color:#dc2626;font-weight:600">${_fmtCop(n)}</span>`
+    : `<span style="color:#16a34a;font-weight:600">${_fmtCop(n)}</span>`;
+}
+
+// Llenar selector de años (2024..año actual+1)
+function _initSaldoRecaudosAnios() {
+  const sel = document.getElementById('sr-anio');
+  if (!sel || sel.options.length > 0) return;
+  const ahora = new Date();
+  const yMax = ahora.getFullYear() + 1;
+  for (let y = yMax; y >= 2024; y--) {
+    const o = document.createElement('option');
+    o.value = y;
+    o.textContent = y;
+    if (y === ahora.getFullYear()) o.selected = true;
+    sel.appendChild(o);
+  }
+  // Mes default = mes anterior (lo que tipicamente se cierra)
+  const mesSel = document.getElementById('sr-mes');
+  if (mesSel) {
+    const mesPrev = ahora.getMonth() === 0 ? 12 : ahora.getMonth();
+    mesSel.value = String(mesPrev);
+  }
+}
+
+// Cargar KPIs + tabla empresas + tabla Surtitodo
+async function cargarSaldoRecaudos() {
+  _initSaldoRecaudosAnios();
+  const r = _saldoRecaudosRango();
+  const estado = document.getElementById('sr-estado');
+  const kpis   = document.getElementById('sr-kpis');
+  const tabla  = document.getElementById('sr-tabla-empresas');
+  const surti  = document.getElementById('sr-resumen-surtitodo');
+
+  estado.innerHTML = `⏳ Ejecutando queries CH para ${r.desde} → ${r.hasta}… (puede tomar 1-2 min)`;
+  estado.style.color = '#6b21a8';
+  kpis.innerHTML = ''; tabla.innerHTML = ''; surti.innerHTML = '';
+
+  // Cancelar poller anterior si lo hay
+  if (_saldoRecaudosPoller) { clearInterval(_saldoRecaudosPoller); _saldoRecaudosPoller = null; }
+
+  try {
+    const url = `${API}/api/saldo_recaudos/estadisticas?desde=${r.desde}&hasta=${r.hasta}`;
+    const resp = await fetch(url, { headers: { 'X-Token': _sesionToken }});
+
+    // Si es async (202), arranca polling
+    if (resp.status === 202) {
+      const j = await resp.json();
+      _saldoRecaudosJobId = j.job_id;
+      _saldoRecaudosPoller = setInterval(() => _polleaSaldoRecaudos(j.job_id), 3000);
+      return;
+    }
+    const d = await resp.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+    _renderSaldoRecaudos(d);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+async function _polleaSaldoRecaudos(jobId) {
+  try {
+    const r = await fetch(`${API}/api/saldo_recaudos/job_status/${jobId}`, { headers: { 'X-Token': _sesionToken }});
+    if (r.status === 202) {
+      const j = await r.json();
+      const est = document.getElementById('sr-estado');
+      if (est) est.innerHTML = `⏳ Ejecutando queries CH… (${j.elapsed_sec}s)`;
+      return;
+    }
+    clearInterval(_saldoRecaudosPoller);
+    _saldoRecaudosPoller = null;
+    const d = await r.json();
+    if (!d.ok) {
+      const est = document.getElementById('sr-estado');
+      est.innerHTML = `❌ Error: ${d.error || 'desconocido'}`;
+      est.style.color = '#dc2626';
+      return;
+    }
+    _renderSaldoRecaudos(d);
+  } catch (err) {
+    clearInterval(_saldoRecaudosPoller);
+    _saldoRecaudosPoller = null;
+    const est = document.getElementById('sr-estado');
+    if (est) { est.innerHTML = `❌ Error de polling: ${err.message}`; est.style.color = '#dc2626'; }
+  }
+}
+
+function _renderSaldoRecaudos(d) {
+  _saldoRecaudosData = d;
+  const estado = document.getElementById('sr-estado');
+  estado.innerHTML = `✅ Datos cargados · <b>${d.kpis.empresas_activas}</b> empresas · <b>${d.kpis.transacciones.toLocaleString('es-CO')}</b> transacciones · período ${d.desde} → ${d.hasta}`;
+  estado.style.color = 'var(--text2)';
+
+  // ── KPI cards ──
+  const k = d.kpis;
+  const kpis = document.getElementById('sr-kpis');
+  kpis.innerHTML = `
+    <div style="background:linear-gradient(135deg,#dcfce7,#bbf7d0);padding:14px 18px;border-radius:10px;border-left:4px solid #16a34a">
+      <div style="font-size:11px;color:#065f46;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Recaudos</div>
+      <div style="font-size:22px;color:#14532d;font-weight:700;margin-top:4px">${_fmtCop(k.total_recaudos)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#fee2e2,#fecaca);padding:14px 18px;border-radius:10px;border-left:4px solid #dc2626">
+      <div style="font-size:11px;color:#7f1d1d;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Servicios</div>
+      <div style="font-size:22px;color:#7f1d1d;font-weight:700;margin-top:4px">${_fmtCop(k.total_servicios)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#ede9f5,#e8d7f0);padding:14px 18px;border-radius:10px;border-left:4px solid #6b21a8">
+      <div style="font-size:11px;color:#5b2169;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Balance Neto</div>
+      <div style="font-size:22px;color:#5b2169;font-weight:700;margin-top:4px">${_fmtCop(k.balance_neto)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);padding:14px 18px;border-radius:10px;border-left:4px solid #1e40af">
+      <div style="font-size:11px;color:#1e3a8a;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Empresas activas</div>
+      <div style="font-size:22px;color:#1e3a8a;font-weight:700;margin-top:4px">${k.empresas_activas}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#fef9c3,#fef08a);padding:14px 18px;border-radius:10px;border-left:4px solid #d97706">
+      <div style="font-size:11px;color:#854d0e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Transacciones</div>
+      <div style="font-size:22px;color:#854d0e;font-weight:700;margin-top:4px">${k.transacciones.toLocaleString('es-CO')}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#f3f0fa,#ede9f5);padding:14px 18px;border-radius:10px;border-left:4px solid #7c3aed">
+      <div style="font-size:11px;color:#5b21b6;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Bookings Recaudo</div>
+      <div style="font-size:22px;color:#5b21b6;font-weight:700;margin-top:4px">${k.bookings_recaudo.toLocaleString('es-CO')}</div>
+    </div>
+  `;
+
+  // ── Top 10 empresas ──
+  const tabla = document.getElementById('sr-tabla-empresas');
+  if (d.top_empresas && d.top_empresas.length > 0) {
+    const rows = d.top_empresas.map((e, i) => `
+      <tr>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;color:#5b2169;font-weight:600">${i+1}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5">${(e.empresa||'').replace(/</g,'&lt;')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right;color:#16a34a;font-weight:600">${_fmtCop(e.recaudos)}</td>
+      </tr>
+    `).join('');
+    tabla.innerHTML = `
+      <div style="background:#fff;border:1px solid #e8d7f0;border-radius:10px;overflow:hidden">
+        <div style="background:linear-gradient(90deg,#6b21a8,#5b2169);color:#fff;padding:12px 16px;font-weight:700;font-size:14px">🏆 Top 10 empresas por Recaudo</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead style="background:#f3f0fa">
+            <tr>
+              <th style="padding:10px 12px;text-align:left;color:#5b2169;font-weight:700;width:50px">#</th>
+              <th style="padding:10px 12px;text-align:left;color:#5b2169;font-weight:700">Empresa</th>
+              <th style="padding:10px 12px;text-align:right;color:#5b2169;font-weight:700">Σ Recaudo</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // ── Tabla resumen Surtitodo (destacada al final) ──
+  if (d.surtitodo) {
+    const s = d.surtitodo;
+    const mesNombre = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][parseInt((d.desde||'').slice(5,7),10) - 1] || '';
+    const surti = document.getElementById('sr-resumen-surtitodo');
+    surti.innerHTML = `
+      <div style="background:#fff;border:2px solid #5b2169;border-radius:12px;overflow:hidden;max-width:480px;box-shadow:0 4px 12px rgba(91,33,105,0.15)">
+        <div style="background:#5b2169;color:#fff;padding:14px 18px;text-align:center;font-weight:700;font-size:15px;letter-spacing:.5px">
+          🎯 Resumen Surtitodo · ${mesNombre} ${d.desde?.slice(0,4) || ''}
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tr>
+            <td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169;border-bottom:1px solid #d8c7e0">Recaudos</td>
+            <td style="padding:11px 16px;background:#FFFF00;text-align:right;font-weight:700;border-bottom:1px solid #d8c7e0">${_fmtCop(s.recaudos)}</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169;border-bottom:1px solid #d8c7e0">Servicios</td>
+            <td style="padding:11px 16px;background:#d4edda;text-align:right;font-weight:700;border-bottom:1px solid #d8c7e0">${_fmtCop(s.servicios)}</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169;border-bottom:1px solid #d8c7e0">Comisión <span style="font-weight:400;color:#7f1d1d">(1%)</span></td>
+            <td style="padding:11px 16px;text-align:right;color:#c00000;border-bottom:1px solid #d8c7e0">${_fmtCop(s.comision)}</td>
+          </tr>
+          <tr>
+            <td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169;border-bottom:1px solid #d8c7e0">ICA <span style="font-weight:400;color:#666">(9.66/1000)</span></td>
+            <td style="padding:11px 16px;text-align:right;border-bottom:1px solid #d8c7e0">${_fmtCop(s.ica)}</td>
+          </tr>
+          <tr>
+            <td style="padding:13px 16px;background:#5b2169;color:#fff;font-weight:700">Total</td>
+            <td style="padding:13px 16px;background:#5b2169;text-align:right;color:#fca5a5;font-weight:700;font-size:15px">${_fmtCop(s.total)}</td>
+          </tr>
+        </table>
+      </div>
+    `;
+  }
+}
+
+// Genera y descarga el Excel completo (5 hojas)
+async function exportarSaldoRecaudos() {
+  const r = _saldoRecaudosRango();
+  const estado = document.getElementById('sr-estado');
+  estado.innerHTML = `⏳ Generando Excel para ${r.desde} → ${r.hasta}… (1-3 min)`;
+  estado.style.color = '#6b21a8';
+
+  try {
+    // Lanzar el job
+    const resp = await fetch(`${API}/api/saldo_recaudos/informe_general?desde=${r.desde}&hasta=${r.hasta}`, {
+      headers: { 'X-Token': _sesionToken },
+    });
+    let job_id;
+    if (resp.status === 202) {
+      const j = await resp.json();
+      job_id = j.job_id;
+    } else {
+      const j = await resp.json();
+      if (!j.ok) throw new Error(j.error || `HTTP ${resp.status}`);
+      job_id = j.job_id;
+      if (j.listo_para_descargar) {
+        _descargarSaldoRecaudosExcel(job_id, r);
+        return;
+      }
+    }
+
+    // Polling cada 3s hasta que esté listo
+    const start = Date.now();
+    const poll = async () => {
+      const ps = await fetch(`${API}/api/saldo_recaudos/job_status/${job_id}`, { headers: { 'X-Token': _sesionToken }});
+      if (ps.status === 202) {
+        const jj = await ps.json();
+        estado.innerHTML = `⏳ Generando Excel… (${jj.elapsed_sec}s)`;
+        return false;
+      }
+      const dj = await ps.json();
+      if (!dj.ok) throw new Error(dj.error || 'desconocido');
+      return dj.listo_para_descargar;
+    };
+    const interval = setInterval(async () => {
+      try {
+        const listo = await poll();
+        if (listo) {
+          clearInterval(interval);
+          _descargarSaldoRecaudosExcel(job_id, r);
+        } else if (Date.now() - start > 600000) {  // 10 min timeout
+          clearInterval(interval);
+          estado.innerHTML = '⚠️ Timeout 10 min — probá de nuevo';
+          estado.style.color = '#d97706';
+        }
+      } catch (err) {
+        clearInterval(interval);
+        estado.innerHTML = `❌ Error: ${err.message || err}`;
+        estado.style.color = '#dc2626';
+      }
+    }, 3000);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+function _descargarSaldoRecaudosExcel(job_id, r) {
+  const estado = document.getElementById('sr-estado');
+  // Construir URL de descarga (con token en query para que send_data funcione)
+  const url = `${API}/api/saldo_recaudos/informe_general?download=1&job_id=${job_id}&desde=${r.desde}&hasta=${r.hasta}`;
+  // Fetch con token y trigger download
+  fetch(url, { headers: { 'X-Token': _sesionToken } })
+    .then(resp => {
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return resp.blob();
+    })
+    .then(blob => {
+      const a = document.createElement('a');
+      const objurl = window.URL.createObjectURL(blob);
+      a.href = objurl;
+      a.download = `Saldo_Recaudos_${r.desde}_a_${r.hasta}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(objurl);
+      a.remove();
+      estado.innerHTML = `✅ Excel descargado: Saldo_Recaudos_${r.desde}_a_${r.hasta}.xlsx`;
+      estado.style.color = '#16a34a';
+    })
+    .catch(err => {
+      estado.innerHTML = `❌ Error descargando: ${err.message || err}`;
+      estado.style.color = '#dc2626';
+    });
 }
 
 
