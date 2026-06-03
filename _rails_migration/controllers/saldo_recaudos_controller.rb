@@ -530,9 +530,9 @@ module Api
       end
     end
 
-    # Cliente ClickHouse (usa el mismo helper que el resto del portal).
-    def ch
-      ClickHouseClient.instance
-    end
+    # NOTA: el helper `ch` (= ClickhouseClient) ya viene de ApplicationController.
+    # NO definir aquí — antes había una def errónea que pisaba al padre con
+    # `ClickHouseClient.instance` (capital H + .instance) y rompía con
+    # "uninitialized constant Api::SaldoRecaudosController::ClickHouseClient".
   end
 end
