@@ -62,10 +62,34 @@ class ResendMailerService
     payload[:bcc] = bcc_list if bcc_list.any?
 
     if attachment_bytes && !attachment_bytes.empty?
+      # ── v3.3.33: validar tamaño antes de enviar ──
+      # Resend rechaza payloads > ~40MB (base64 incluido). Como base64 incrementa
+      # el tamaño ~33%, si los bytes raw superan ~25MB el envío falla con HTTP
+      # 400/422 que NO siempre da un mensaje claro. Hacemos pre-validación
+      # explícita para fail-rápido + logging útil que permita al admin/operador
+      # diagnosticar por qué un email "no llegó".
+      raw_size_mb = (attachment_bytes.bytesize.to_f / 1024 / 1024).round(2)
+      max_mb = 25.0
+      if raw_size_mb > max_mb
+        msg = "Adjunto demasiado grande para Resend: #{raw_size_mb} MB (límite #{max_mb} MB). " \
+              "Reducí el rango de fechas o filtrá por ciudad/estado para que el Excel sea más chico. " \
+              "Archivo: #{attachment_filename || '(sin nombre)'}"
+        Rails.logger.error("[ResendMailerService] #{msg}") if defined?(Rails)
+        raise ValidationError, msg
+      end
+
       payload[:attachments] = [{
         filename: attachment_filename || "adjunto.xlsx",
         content:  Base64.strict_encode64(attachment_bytes),
       }]
+
+      # Logging útil para diagnosticar envíos lentos / pesados.
+      Rails.logger.info(
+        "[ResendMailerService] enviando email " \
+        "(to=#{Array(to).size}, cc=#{Array(cc).size}, bcc=#{Array(bcc).size}, " \
+        "subject=#{subject.to_s.first(80).inspect}, " \
+        "attachment=#{attachment_filename.inspect}, size=#{raw_size_mb} MB)"
+      ) if defined?(Rails)
     end
 
     response = post_json(API_URL, payload, api_key)
