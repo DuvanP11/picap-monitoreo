@@ -80,6 +80,16 @@ Rails.application.routes.draw do
     end
     post "comisiones_recaudo/enviar_email",   to: "comisiones_recaudo#enviar_email"
 
+    # v3.3.30: Recaudos y Dispersiones (acceso restringido) — informe mensual 7 hojas.
+    namespace :recaudos_dispersiones do
+      get  "estadisticas",         to: "/api/recaudos_dispersiones#estadisticas"
+      get  "query_dispersiones",   to: "/api/recaudos_dispersiones#query_dispersiones"
+      get  "query_recaudos",       to: "/api/recaudos_dispersiones#query_recaudos"
+      get  "informe_general",      to: "/api/recaudos_dispersiones#informe_general"
+      get  "job_status/:job_id",   to: "/api/recaudos_dispersiones#job_status"
+    end
+    post "recaudos_dispersiones/enviar_email",   to: "recaudos_dispersiones#enviar_email"
+
     # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
     namespace :mintic do
       get  "detallado_query",        to: "/api/mintic#detallado_query"

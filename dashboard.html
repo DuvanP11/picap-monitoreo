@@ -3984,7 +3984,8 @@ window.fetch = function(url, opts) {
             <span class="inf-mini-label">Pérdidas por Recaudo</span>
             <span class="inf-mini-arrow">›</span>
           </div>
-          <div class="inf-mini" onclick="informesProximamente('Recaudos y Dispersiones')">
+          <!-- v3.3.30: mini-módulo "Recaudos y Dispersiones" — informe mensual 7 hojas. -->
+          <div class="inf-mini" onclick="switchView('recaudos_dispersiones')">
             <span class="inf-mini-icon">🔄</span>
             <span class="inf-mini-label">Recaudos y Dispersiones</span>
             <span class="inf-mini-arrow">›</span>
@@ -4465,6 +4466,59 @@ window.fetch = function(url, opts) {
 
       <!-- Tabla Resumen Final (Hoja 5) + Pivote 1. Comisión Recaudo -->
       <div id="cr-tabla-resumen" style="margin-top:24px"></div>
+
+    </div>
+  </div>
+
+  <!-- ══ VISTA: RECAUDOS Y DISPERSIONES (admin / monitoreo / financiero) ══
+       v3.3.30: informe mensual 7 hojas. Compara dispersión Daviplata CashOut
+       vs recaudos cobrados por contraentrega. Validado contra plantilla
+       "Recaudos y Dispersiones Abril 2026.xlsx" al 100%. -->
+  <div class="view" id="view-recaudos_dispersiones">
+    <div class="wrap">
+
+      <!-- Header info -->
+      <div style="margin-top:10px;padding:12px 16px;background:linear-gradient(90deg,#e0e7ff,#c7d2fe);border-left:4px solid #6366f1;border-radius:8px;display:flex;align-items:center;gap:14px">
+        <div style="font-size:24px">🔄</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#3730a3">Recaudos y Dispersiones</div>
+          <div style="font-size:11px;color:#6366f1">Informe mensual: dispersiones Daviplata CashOut vs recaudos cobrados (contraentrega)</div>
+        </div>
+      </div>
+
+      <!-- Selector de mes -->
+      <div class="rec-search-bar" style="margin-top:12px">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Período:</label>
+        <select id="rd-mes" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select id="rd-anio" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer"></select>
+        <button class="search-btn" onclick="cargarRecaudosDispersiones()">↻ Cargar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('recaudos_dispersiones')" style="background:#1e40af" title="Enviar Excel (7 hojas) por email">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarRecaudosDispersiones()" style="background:#6366f1" title="Descargar Excel 7 hojas">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Generar Excel
+        </button>
+      </div>
+
+      <!-- Estado -->
+      <div id="rd-estado" style="margin-top:14px;font-size:13px;color:var(--text3)">Seleccioná un mes y año, luego presioná <b>Cargar</b>.</div>
+
+      <!-- KPIs principales -->
+      <div id="rd-kpis" style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px"></div>
+
+      <!-- Tabla Dispersión (Hoja 2) -->
+      <div id="rd-tabla-dispersion" style="margin-top:18px"></div>
+
+      <!-- Tabla TD Recaudos (Hoja 5) -->
+      <div id="rd-tabla-recaudos" style="margin-top:24px"></div>
 
     </div>
   </div>
@@ -4969,6 +5023,7 @@ function switchView(view){
     'mintic':         'MINTIC — Reporte Trimestral',
     'saldo_recaudos': 'Saldo Recaudos — Balance Mensual B2B',
     'comisiones_recaudo': 'Comisiones por Recaudo — Informe Mensual',
+    'recaudos_dispersiones': 'Recaudos y Dispersiones — Informe Mensual',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -5041,6 +5096,10 @@ function switchView(view){
   if(view === 'comisiones_recaudo'){
     // v3.3.29: Inicializar selector año
     _initComisionesRecaudoAnios();
+  }
+  if(view === 'recaudos_dispersiones'){
+    // v3.3.30: Inicializar selector año
+    _initRecaudosDispersionesAnios();
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -9833,6 +9892,16 @@ const ENVIAR_EMAIL_CONFIGS = {
     endpoint: '/api/comisiones_recaudo/enviar_email',
     extraParams: () => {
       const r = _comisionesRecaudoRango();
+      return { desde: r.desde, hasta: r.hasta };
+    },
+  },
+  // v3.3.30: Recaudos y Dispersiones — informe mensual 7 hojas
+  recaudos_dispersiones: {
+    titulo: '🔄 Enviar Recaudos y Dispersiones',
+    color: 'linear-gradient(90deg,#6366f1 0%,#4338ca 100%)',
+    endpoint: '/api/recaudos_dispersiones/enviar_email',
+    extraParams: () => {
+      const r = _recaudosDispersionesRango();
       return { desde: r.desde, hasta: r.hasta };
     },
   },
@@ -15233,6 +15302,296 @@ function _descargarComisionesRecaudoExcel(job_id, r) {
       window.URL.revokeObjectURL(objurl);
       a.remove();
       estado.innerHTML = `✅ Excel descargado (9 hojas): Comisión_Recaudos_${r.desde}_a_${r.hasta}.xlsx`;
+      estado.style.color = '#16a34a';
+    })
+    .catch(err => {
+      estado.innerHTML = `❌ Error descargando: ${err.message || err}`;
+      estado.style.color = '#dc2626';
+    });
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// v3.3.30: RECAUDOS Y DISPERSIONES — informe mensual 7 hojas
+// ══════════════════════════════════════════════════════════════════════════
+
+let _recaudosDispersionesJobId   = null;
+let _recaudosDispersionesData    = null;
+let _recaudosDispersionesPoller  = null;
+let _recaudosDispersionesRelaunched = false;
+
+function _recaudosDispersionesRango() {
+  const mes  = parseInt(document.getElementById('rd-mes')?.value || '4', 10);
+  const anio = parseInt(document.getElementById('rd-anio')?.value || new Date().getFullYear(), 10);
+  const dFirst = new Date(anio, mes - 1, 1);
+  const dLast  = new Date(anio, mes, 0);
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return { desde: fmt(dFirst), hasta: fmt(dLast), mes, anio };
+}
+
+function _initRecaudosDispersionesAnios() {
+  const sel = document.getElementById('rd-anio');
+  if (!sel || sel.options.length > 0) return;
+  const ahora = new Date();
+  const yMax = ahora.getFullYear() + 1;
+  for (let y = yMax; y >= 2024; y--) {
+    const o = document.createElement('option');
+    o.value = y; o.textContent = y;
+    if (y === ahora.getFullYear()) o.selected = true;
+    sel.appendChild(o);
+  }
+  const mesSel = document.getElementById('rd-mes');
+  if (mesSel) {
+    const mesPrev = ahora.getMonth() === 0 ? 12 : ahora.getMonth();
+    mesSel.value = String(mesPrev);
+  }
+}
+
+async function cargarRecaudosDispersiones(isRelaunch) {
+  _initRecaudosDispersionesAnios();
+  const r = _recaudosDispersionesRango();
+  const estado = document.getElementById('rd-estado');
+  const kpis   = document.getElementById('rd-kpis');
+  const tDisp  = document.getElementById('rd-tabla-dispersion');
+  const tRec   = document.getElementById('rd-tabla-recaudos');
+
+  estado.innerHTML = `⏳ Ejecutando queries CH para ${r.desde} → ${r.hasta}… (puede tomar 1-3 min)`;
+  estado.style.color = '#6366f1';
+  kpis.innerHTML = ''; tDisp.innerHTML = ''; tRec.innerHTML = '';
+  if (!isRelaunch) _recaudosDispersionesRelaunched = false;
+
+  if (_recaudosDispersionesPoller) { clearInterval(_recaudosDispersionesPoller); _recaudosDispersionesPoller = null; }
+
+  try {
+    const url = `${API}/api/recaudos_dispersiones/estadisticas?desde=${r.desde}&hasta=${r.hasta}`;
+    const resp = await fetch(url, { headers: { 'X-Token': _sesionToken }});
+    if (resp.status === 202) {
+      const j = await resp.json();
+      _recaudosDispersionesJobId = j.job_id;
+      _recaudosDispersionesPoller = setInterval(() => _polleaRecaudosDispersiones(j.job_id), 3000);
+      return;
+    }
+    const d = await resp.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+    _renderRecaudosDispersiones(d);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+async function _polleaRecaudosDispersiones(jobId) {
+  try {
+    const r = await fetch(`${API}/api/recaudos_dispersiones/job_status/${jobId}`, { headers: { 'X-Token': _sesionToken }});
+    if (r.status === 202) {
+      const j = await r.json();
+      const est = document.getElementById('rd-estado');
+      if (est) est.innerHTML = `⏳ Ejecutando queries CH… (${j.elapsed_sec}s)`;
+      return;
+    }
+    // Auto-relanzar UNA VEZ si el job se perdió (pod reiniciado)
+    if (r.status === 404 && !_recaudosDispersionesRelaunched) {
+      _recaudosDispersionesRelaunched = true;
+      clearInterval(_recaudosDispersionesPoller);
+      _recaudosDispersionesPoller = null;
+      const est = document.getElementById('rd-estado');
+      if (est) { est.innerHTML = '🔄 El job se perdió (pod reiniciado). Relanzando…'; est.style.color = '#d97706'; }
+      setTimeout(() => cargarRecaudosDispersiones(true), 500);
+      return;
+    }
+    clearInterval(_recaudosDispersionesPoller);
+    _recaudosDispersionesPoller = null;
+    const d = await r.json();
+    if (!d.ok) {
+      const est = document.getElementById('rd-estado');
+      est.innerHTML = `❌ Error: ${d.error || 'desconocido'}`;
+      est.style.color = '#dc2626';
+      return;
+    }
+    _renderRecaudosDispersiones(d);
+  } catch (err) {
+    clearInterval(_recaudosDispersionesPoller);
+    _recaudosDispersionesPoller = null;
+    const est = document.getElementById('rd-estado');
+    if (est) { est.innerHTML = `❌ Error de polling: ${err.message}`; est.style.color = '#dc2626'; }
+  }
+}
+
+function _fmtCop3(n) {
+  if (n === null || n === undefined || isNaN(n)) return '$ —';
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return `${sign}$ ${abs}`;
+}
+
+function _renderRecaudosDispersiones(d) {
+  _recaudosDispersionesData = d;
+  const estado = document.getElementById('rd-estado');
+  estado.innerHTML = `✅ Datos cargados · ${d.kpis.filas_dispersiones} disp · ${d.kpis.filas_recaudos.toLocaleString('es-CO')} recaudos · período ${d.desde} → ${d.hasta} (${d.corte})`;
+  estado.style.color = 'var(--text2)';
+
+  const k = d.kpis;
+  document.getElementById('rd-kpis').innerHTML = `
+    <div style="background:linear-gradient(135deg,#fee2e2,#fecaca);padding:14px 18px;border-radius:10px;border-left:4px solid #dc2626">
+      <div style="font-size:11px;color:#7f1d1d;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Dispersión Recaudo</div>
+      <div style="font-size:22px;color:#7f1d1d;font-weight:700;margin-top:4px">${_fmtCop3(k.total_dispersion)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#dcfce7,#bbf7d0);padding:14px 18px;border-radius:10px;border-left:4px solid #16a34a">
+      <div style="font-size:11px;color:#065f46;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Recaudos</div>
+      <div style="font-size:22px;color:#14532d;font-weight:700;margin-top:4px">${_fmtCop3(k.total_recaudos)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#fef9c3,#fef08a);padding:14px 18px;border-radius:10px;border-left:4px solid #d97706">
+      <div style="font-size:11px;color:#854d0e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Surtitodo · Dispersión</div>
+      <div style="font-size:22px;color:#854d0e;font-weight:700;margin-top:4px">${_fmtCop3(k.surtitodo_dispersion)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#fef9c3,#fde68a);padding:14px 18px;border-radius:10px;border-left:4px solid #d97706">
+      <div style="font-size:11px;color:#854d0e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Surtitodo · Recaudo</div>
+      <div style="font-size:22px;color:#854d0e;font-weight:700;margin-top:4px">${_fmtCop3(k.surtitodo_recaudo)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);padding:14px 18px;border-radius:10px;border-left:4px solid #1e40af">
+      <div style="font-size:11px;color:#1e3a8a;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Empresas (Recaudos)</div>
+      <div style="font-size:22px;color:#1e3a8a;font-weight:700;margin-top:4px">${k.empresas_recaudos}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#ede9f5,#e8d7f0);padding:14px 18px;border-radius:10px;border-left:4px solid #6366f1">
+      <div style="font-size:11px;color:#3730a3;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Filas Dispersiones</div>
+      <div style="font-size:22px;color:#3730a3;font-weight:700;margin-top:4px">${k.filas_dispersiones}</div>
+    </div>
+  `;
+
+  // Tabla Dispersión (Hoja 2)
+  if (d.tabla_dispersion && d.tabla_dispersion.length > 0) {
+    const rows = d.tabla_dispersion.map(e => `
+      <tr>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5">${(e.empresa||'').replace(/</g,'&lt;')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;color:#3730a3;font-weight:600">${(e.tipo||'').replace(/</g,'&lt;')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right;color:#dc2626;font-weight:600">${_fmtCop3(e.monto)}</td>
+      </tr>
+    `).join('');
+    const total = d.tabla_dispersion.reduce((acc, e) => acc + (e.monto || 0), 0);
+    document.getElementById('rd-tabla-dispersion').innerHTML = `
+      <div style="background:#fff;border:1px solid #c7d2fe;border-radius:10px;overflow:hidden;max-width:720px">
+        <div style="background:linear-gradient(90deg,#6366f1,#4338ca);color:#fff;padding:12px 16px;font-weight:700;font-size:14px">🔴 Dispersión Recaudo — Pivote (Hoja 2 del Excel)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead style="background:#eef2ff">
+            <tr>
+              <th style="padding:10px 12px;text-align:left;color:#3730a3;font-weight:700">Company_name</th>
+              <th style="padding:10px 12px;text-align:left;color:#3730a3;font-weight:700">tipo_dispersion</th>
+              <th style="padding:10px 12px;text-align:right;color:#3730a3;font-weight:700">Suma de amount_cents</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="background:#fef9c3">
+              <td colspan="2" style="padding:10px 12px;font-weight:700;color:#854d0e">Total general</td>
+              <td style="padding:10px 12px;text-align:right;font-weight:700;color:#dc2626">${_fmtCop3(total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+  }
+
+  // Tabla TD Recaudos (Hoja 5)
+  if (d.td_recaudos && d.td_recaudos.length > 0) {
+    const rows = d.td_recaudos.map(e => {
+      const badgeColor = e.tipo_cliente === 'Reportar' ? '#fef9c3' :
+                         e.tipo_cliente === 'prueba' ? '#fee2e2' : '#dcfce7';
+      const badgeText  = e.tipo_cliente === 'Reportar' ? '#854d0e' :
+                         e.tipo_cliente === 'prueba' ? '#7f1d1d' : '#065f46';
+      return `
+      <tr>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5">${(e.empresa||'').replace(/</g,'&lt;')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right;color:#16a34a;font-weight:600">${_fmtCop3(e.monto)}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:center">
+          <span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${badgeColor};color:${badgeText}">${e.tipo_cliente}</span>
+        </td>
+      </tr>`;
+    }).join('');
+    const total = d.td_recaudos.reduce((acc, e) => acc + (e.monto || 0), 0);
+    document.getElementById('rd-tabla-recaudos').innerHTML = `
+      <div style="background:#fff;border:1px solid #bbf7d0;border-radius:10px;overflow:hidden">
+        <div style="background:linear-gradient(90deg,#16a34a,#065f46);color:#fff;padding:12px 16px;font-weight:700;font-size:14px">🏢 TD Recaudos — Pivote por empresa con tipología (Hoja 5)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead style="background:#f0fdf4">
+            <tr>
+              <th style="padding:10px 12px;text-align:left;color:#065f46;font-weight:700">Etiquetas de fila</th>
+              <th style="padding:10px 12px;text-align:right;color:#065f46;font-weight:700">Suma de Transaction_amount</th>
+              <th style="padding:10px 12px;text-align:center;color:#065f46;font-weight:700">Tipo de cliente</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="background:#fef9c3">
+              <td style="padding:10px 12px;font-weight:700;color:#854d0e">Total general</td>
+              <td style="padding:10px 12px;text-align:right;font-weight:700;color:#16a34a">${_fmtCop3(total)}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+  }
+}
+
+async function exportarRecaudosDispersiones() {
+  const r = _recaudosDispersionesRango();
+  const estado = document.getElementById('rd-estado');
+  estado.innerHTML = `⏳ Generando Excel 7 hojas para ${r.desde} → ${r.hasta}… (1-3 min)`;
+  estado.style.color = '#6366f1';
+
+  try {
+    const resp = await fetch(`${API}/api/recaudos_dispersiones/informe_general?desde=${r.desde}&hasta=${r.hasta}`, {
+      headers: { 'X-Token': _sesionToken },
+    });
+    let job_id;
+    if (resp.status === 202) { const j = await resp.json(); job_id = j.job_id; }
+    else {
+      const j = await resp.json();
+      if (!j.ok) throw new Error(j.error || `HTTP ${resp.status}`);
+      job_id = j.job_id;
+      if (j.listo_para_descargar) { _descargarRecaudosDispersionesExcel(job_id, r); return; }
+    }
+
+    const start = Date.now();
+    const interval = setInterval(async () => {
+      try {
+        const ps = await fetch(`${API}/api/recaudos_dispersiones/job_status/${job_id}`, { headers: { 'X-Token': _sesionToken }});
+        if (ps.status === 202) {
+          const jj = await ps.json();
+          estado.innerHTML = `⏳ Generando Excel… (${jj.elapsed_sec}s)`;
+          return;
+        }
+        const dj = await ps.json();
+        if (!dj.ok) throw new Error(dj.error || 'desconocido');
+        clearInterval(interval);
+        if (dj.listo_para_descargar) _descargarRecaudosDispersionesExcel(job_id, r);
+        if (Date.now() - start > 600000) {
+          estado.innerHTML = '⚠️ Timeout 10 min — probá de nuevo';
+          estado.style.color = '#d97706';
+        }
+      } catch (err) {
+        clearInterval(interval);
+        estado.innerHTML = `❌ Error: ${err.message || err}`;
+        estado.style.color = '#dc2626';
+      }
+    }, 3000);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+function _descargarRecaudosDispersionesExcel(job_id, r) {
+  const estado = document.getElementById('rd-estado');
+  const url = `${API}/api/recaudos_dispersiones/informe_general?download=1&job_id=${job_id}&desde=${r.desde}&hasta=${r.hasta}`;
+  fetch(url, { headers: { 'X-Token': _sesionToken } })
+    .then(resp => { if (!resp.ok) throw new Error(`HTTP ${resp.status}`); return resp.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      const objurl = window.URL.createObjectURL(blob);
+      a.href = objurl;
+      a.download = `Recaudos_y_Dispersiones_${r.desde}_a_${r.hasta}.xlsx`;
+      document.body.appendChild(a); a.click();
+      window.URL.revokeObjectURL(objurl); a.remove();
+      estado.innerHTML = `✅ Excel descargado (7 hojas): Recaudos_y_Dispersiones_${r.desde}_a_${r.hasta}.xlsx`;
       estado.style.color = '#16a34a';
     })
     .catch(err => {

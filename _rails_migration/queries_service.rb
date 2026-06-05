@@ -3011,4 +3011,129 @@ module QueriesService
     GROUP BY compp.name
     ORDER BY Suma_Transaction_amount DESC
   SQL
+
+  # ════════════════════════════════════════════════════════════════════════
+  # RECAUDOS Y DISPERSIONES — informe mensual de 7 hojas.
+  # Validado contra plantilla "Recaudos y Dispersiones Abril 2026.xlsx" (100%).
+  # Replica recaudos_dispersiones_bi/generar_recaudos_dispersiones.py.
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Query A: Dispersiones Daviplata CashOut (sólo "Dispersión Recaudo").
+  # Variables: %{fecha_desde}, %{fecha_hasta}
+  Q_DISPERSIONES_DAVIPLATA = <<~'SQL'
+    WITH filtered_wat AS (
+        SELECT * FROM picapmongoprod.wallet_account_transactions FINAL
+        WHERE _type = 'WalletAccountDriverBalanceTransactionDaviplataCashOut'
+          AND toDate(toTimeZone(created_at, 'America/Bogota'))
+              BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+    )
+    SELECT DISTINCT
+        wat._id AS _id,
+        toDate(toTimeZone(wat.created_at, 'America/Bogota')) AS created_at,
+        ifNull(JSONExtractFloat(wat.amount, 'cents') / 100, 0) AS amount_cents,
+        wat._type AS _type,
+        comp._id AS company_id,
+        comp.name AS Company_name,
+        CASE
+            WHEN comp._id IN (
+                '5f9b1847dc3d1101c7ece86c',
+                '5e908acb4f75ba007912a4fd'
+            ) THEN 'Dispersión Recaudo'
+            ELSE 'Dispersión Garantía'
+        END AS tipo_dispersion
+    FROM filtered_wat wat
+    INNER JOIN picapmongoprod.wallet_accounts wa   ON wa._id   = wat.account_id
+    INNER JOIN picapmongoprod.companies      comp ON comp._id = wa.company_id
+    WHERE tipo_dispersion = 'Dispersión Recaudo'
+    ORDER BY created_at ASC
+  SQL
+
+  # Query B: Recaudos (22 cols, CounterDelivery).
+  # Variables: %{fecha_desde}, %{fecha_hasta}
+  Q_DISPERSIONES_RECAUDOS = <<~'SQL'
+    WITH
+    q_service_types AS (
+      SELECT
+        _id,
+        name_es AS name,
+        CASE
+          WHEN name_es IN (
+            'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor', 'Moto favor',
+            'Carga', 'Carga Carry', 'Carga Moto-Vagón', 'Carga NHR', 'Carga NKR', 'Carga NPR',
+            'Mensajería', 'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada'
+          ) THEN 'Pibox'
+          WHEN name_es IN (
+            'Moto', 'Mototaxi', 'Moto sin conductor', 'Subasta','Carro Subasta','Taxi', 'Carro',
+            'Carro sin conductor', 'Moto VIP', 'Moto Económica', 'Carro Queen','Rapidín','Espero tranqui',
+            'Moto lite', 'Moto Queen', 'Picap Carro', 'Picap Moto', 'Grúa Carro', 'Grúa Moto'
+          ) THEN 'Picap'
+          ELSE 'Other'
+        END AS type
+      FROM (SELECT * FROM picapmongoprod.service_types FINAL)
+    ),
+    q_wat_filtered AS (
+      SELECT
+        wat._id AS transaction_id, wat.booking_id, wat.package_id, wat.account_id,
+        wat.amount, wat.normalized_amount_after_transaction,
+        wat.transaction_state_cd, wat._type AS tx_type, wat.created_at,
+        b.created_at AS booking_created_at,
+        pck.reference AS package_reference,
+        pck.declared_value AS package_declared_value,
+        pck.counter_delivery AS package_counter_delivery,
+        b.passenger_id, b.driver_id, b.served_vehicle_type_id, b.city_id,
+        b.requested_service_type_id, b.country_id,
+        wa._id AS wallet_account_id,
+        p.company_id AS passenger_company_id,
+        p.name AS passenger_name,
+        d.name AS driver_name
+      FROM picapmongoprod.wallet_account_transactions AS wat FINAL
+      INNER JOIN picapmongoprod.packages AS pck FINAL ON pck._id = wat.package_id
+      INNER JOIN picapmongoprod.bookings AS b   FINAL ON b._id   = wat.booking_id
+      INNER JOIN picapmongoprod.wallet_accounts AS wa FINAL ON wa._id = wat.account_id
+      INNER JOIN picapmongoprod.passengers AS p FINAL ON p._id = b.passenger_id
+      INNER JOIN picapmongoprod.passengers AS d FINAL ON d._id = b.driver_id
+      INNER JOIN picapmongoprod.countries AS c FINAL ON c._id = b.country_id
+      WHERE
+        JSONExtractString(c.name, 'es') = 'Colombia'
+        AND JSONExtractString(wat.amount, 'currency_iso') = 'COP'
+        AND pck.counter_delivery = 'true'
+        AND wat._type = 'WalletAccountCounterDeliveryPaymentTransaction'
+        AND toDate(toTimeZone(wat.created_at, 'America/Bogota'))
+            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+    )
+    SELECT
+      toDate(toTimeZone(qtf.created_at, 'America/Bogota')) AS Date_transaction,
+      JSONExtractString(qtf.amount, 'currency_iso') AS Transaction_currency,
+      toFloat64OrZero(JSONExtractString(qtf.amount, 'cents')) / 100 AS Transaction_amount,
+      qtf.transaction_id AS Transaction_ID,
+      toFloat64OrZero(JSONExtractString(qtf.normalized_amount_after_transaction, 'cents')) / 100 AS Normalized_Amount_After_Transaction,
+      toDate(toTimeZone(qtf.booking_created_at, 'America/Bogota')) AS Date_booking,
+      qtf.booking_id AS ID_Booking,
+      qtf.package_id AS ID_Package,
+      qtf.package_reference AS Reference,
+      qtf.passenger_id AS ID_User,
+      compp.name AS User_Company,
+      qtf.passenger_name AS User_Name,
+      toFloat64OrZero(JSONExtractString(qtf.package_declared_value, 'cents')) / 100 AS Declared_Value,
+      qtf.transaction_state_cd AS transaction_state_cd,
+      qtf.driver_id AS ID_Driver,
+      qtf.driver_name AS Driver_Name,
+      st.type AS type,
+      st.name AS service_type_name,
+      JSONExtractString(cit.name, 'es') AS Ciudad,
+      JSONExtractString(vt.name, 'es') AS name_vehicle,
+      multiIf(sf.new_final_score_rent < 0, 0,
+              sf.new_final_score_rent >= 5, 5,
+              sf.new_final_score_rent) AS score_rent_fixed,
+      multiIf(sf.new_final_score_pibox < 0, 0,
+              sf.new_final_score_pibox >= 5, 5,
+              sf.new_final_score_pibox) AS score_pibox_fixed
+    FROM q_wat_filtered qtf
+    LEFT JOIN picapmongoprod.companies     AS compp FINAL ON compp._id = qtf.passenger_company_id
+    LEFT JOIN picapmongoprod.vehicle_types AS vt    FINAL ON vt._id    = qtf.served_vehicle_type_id
+    LEFT JOIN picapmongoprod.cities        AS cit   FINAL ON cit._id   = qtf.city_id
+    LEFT JOIN q_service_types              AS st          ON st._id    = qtf.requested_service_type_id
+    LEFT JOIN picapmongoprod.vw_atr_driver_scoring_with_frauds AS sf FINAL ON sf.driver_id = qtf.driver_id
+    ORDER BY Date_transaction ASC
+  SQL
 end
