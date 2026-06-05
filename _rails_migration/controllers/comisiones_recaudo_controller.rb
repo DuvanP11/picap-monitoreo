@@ -350,6 +350,16 @@ module Api
       total_comision_real = cruce_company.sum { |h| h[:comision_real] }
       total_comision_trump = cruce_company.sum { |h| h[:comision_trump] }
 
+      # ── Periodo legible (ej. "1 al 30 Abril 2026") ──
+      meses_es = {
+        1 => "Enero", 2 => "Febrero", 3 => "Marzo", 4 => "Abril",
+        5 => "Mayo", 6 => "Junio", 7 => "Julio", 8 => "Agosto",
+        9 => "Septiembre", 10 => "Octubre", 11 => "Noviembre", 12 => "Diciembre",
+      }
+      año, mes = desde.split("-")
+      last_day = Date.new(año.to_i, mes.to_i, -1).day rescue hasta.split("-")[2].to_i
+      periodo_txt = "1 al #{last_day} #{meses_es[mes.to_i]} #{año}"
+
       # Resumen Final (Hoja 5) — solo % > 0, excluir Cruz Verde
       resumen = cruce_company
         .reject { |h| h[:porcentaje] <= 0 }
@@ -364,11 +374,25 @@ module Api
             recaudos:  recaudo_real.round(2),
             porcentaje: h[:porcentaje],
             comision:  comision.round(2),
+            periodo:   periodo_txt,
             anticipo:  anticipo.round(2),
             pendiente: pendiente.round(2),
             estado:    pendiente.abs < 0.01 ? "Pagada" : "Pendiente",
           }
         end
+
+      # ── Pivote "1. Comisión Recaudo" (Hoja 1) por Company_name ──
+      # Suma VAL_AMOUNT de la Query B (BookingCompanyCollectionFee).
+      # Muestra los cobros del sistema por empresa (valores negativos = empresa debe).
+      pivot_comision = Hash.new(0.0)
+      comision.each do |r|
+        emp = r["Company_name"].to_s.strip
+        next if emp.empty?
+        pivot_comision[emp] += r["VAL_AMOUNT"].to_f
+      end
+      comision_pivot = pivot_comision
+        .map { |emp, monto| { empresa: emp, monto: monto.round(2) } }
+        .sort_by { |h| h[:empresa].downcase }
 
       # Resumen Surtitodo
       surt = cruce_company.find { |h| h[:empresa].downcase.strip == "surtitodo express" } || {}
@@ -394,8 +418,9 @@ module Api
           transacciones_recaudos: recaudos.size,
           transacciones_comision: comision.size,
         },
-        cruce_company: cruce_company.first(20),
-        resumen_final: resumen,
+        cruce_company:  cruce_company.first(20),
+        resumen_final:  resumen,
+        comision_pivot: comision_pivot,
         surtitodo: {
           recaudos:  surt_recaudo.round(2),
           servicios: surt_servicios.round(2),

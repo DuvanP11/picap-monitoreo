@@ -14954,7 +14954,7 @@ function _initComisionesRecaudoAnios() {
   }
 }
 
-async function cargarComisionesRecaudo() {
+async function cargarComisionesRecaudo(isRelaunch) {
   _initComisionesRecaudoAnios();
   const r = _comisionesRecaudoRango();
   const estado = document.getElementById('cr-estado');
@@ -14966,6 +14966,8 @@ async function cargarComisionesRecaudo() {
   estado.innerHTML = `⏳ Ejecutando queries CH para ${r.desde} → ${r.hasta}… (puede tomar 2-3 min)`;
   estado.style.color = '#16a34a';
   kpis.innerHTML = ''; tCruce.innerHTML = ''; tRes.innerHTML = ''; surti.innerHTML = '';
+  // Reset flag SOLO si el user clickeó manualmente (no si es auto-relanzar)
+  if (!isRelaunch) _comisionesRecaudoRelaunched = false;
 
   if (_comisionesRecaudoPoller) { clearInterval(_comisionesRecaudoPoller); _comisionesRecaudoPoller = null; }
 
@@ -14987,6 +14989,8 @@ async function cargarComisionesRecaudo() {
   }
 }
 
+let _comisionesRecaudoRelaunched = false;
+
 async function _polleaComisionesRecaudo(jobId) {
   try {
     const r = await fetch(`${API}/api/comisiones_recaudo/job_status/${jobId}`, { headers: { 'X-Token': _sesionToken }});
@@ -14994,6 +14998,16 @@ async function _polleaComisionesRecaudo(jobId) {
       const j = await r.json();
       const est = document.getElementById('cr-estado');
       if (est) est.innerHTML = `⏳ Ejecutando queries CH… (${j.elapsed_sec}s)`;
+      return;
+    }
+    // Auto-relanzar UNA VEZ si el job se perdió (pod reiniciado por deploy/restart)
+    if (r.status === 404 && !_comisionesRecaudoRelaunched) {
+      _comisionesRecaudoRelaunched = true;
+      clearInterval(_comisionesRecaudoPoller);
+      _comisionesRecaudoPoller = null;
+      const est = document.getElementById('cr-estado');
+      if (est) { est.innerHTML = '🔄 El job se perdió (pod reiniciado). Relanzando…'; est.style.color = '#d97706'; }
+      setTimeout(() => cargarComisionesRecaudo(true), 500);
       return;
     }
     clearInterval(_comisionesRecaudoPoller);
@@ -15086,30 +15100,34 @@ function _renderComisionesRecaudo(d) {
       </div>`;
   }
 
-  // Tabla Resumen Final
+  // Tabla Resumen Final (igual estructura que Excel Hoja "Resumen")
   if (d.resumen_final && d.resumen_final.length > 0) {
     const rows = d.resumen_final.map((e, i) => `
       <tr>
-        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;color:#5b2169;font-weight:600">${i+1}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;color:#5b2169;font-weight:600;text-align:center">${i+1}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #ede9f5">${(e.empresa||'').replace(/</g,'&lt;')}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right;color:#16a34a;font-weight:600">${_fmtCop2(e.recaudos)}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right">${(e.porcentaje*100).toFixed(2)}%</td>
         <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right;color:#dc2626;font-weight:600">${_fmtCop2(e.comision)}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:center;color:#475569;font-size:12px">${e.periodo || ''}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right">${_fmtCop2(e.anticipo)}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right">${_fmtCop2(e.pendiente)}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:center"><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${e.estado === 'Pagada' ? '#dcfce7' : '#fee2e2'};color:${e.estado === 'Pagada' ? '#065f46' : '#7f1d1d'}">${e.estado}</span></td>
       </tr>
     `).join('');
     document.getElementById('cr-tabla-resumen').innerHTML = `
       <div style="background:#fff;border:1px solid #e8d7f0;border-radius:10px;overflow:hidden">
-        <div style="background:linear-gradient(90deg,#1e40af,#1e3a8a);color:#fff;padding:12px 16px;font-weight:700;font-size:14px">💼 Resumen Final (clientes con % > 0, sin Cruz Verde)</div>
+        <div style="background:linear-gradient(90deg,#1e40af,#1e3a8a);color:#fff;padding:12px 16px;font-weight:700;font-size:14px">💼 Resumen (clientes con % > 0, sin Cruz Verde) — Hoja "Resumen" del Excel</div>
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead style="background:#f0f7ff">
             <tr>
-              <th style="padding:10px 12px;text-align:left;color:#1e3a8a;font-weight:700;width:50px">N°</th>
+              <th style="padding:10px 12px;text-align:center;color:#1e3a8a;font-weight:700;width:50px">N°</th>
               <th style="padding:10px 12px;text-align:left;color:#1e3a8a;font-weight:700">Cliente</th>
               <th style="padding:10px 12px;text-align:right;color:#1e3a8a;font-weight:700">Recaudo</th>
               <th style="padding:10px 12px;text-align:right;color:#1e3a8a;font-weight:700">%</th>
               <th style="padding:10px 12px;text-align:right;color:#1e3a8a;font-weight:700">Comisión</th>
+              <th style="padding:10px 12px;text-align:center;color:#1e3a8a;font-weight:700">Periodo</th>
+              <th style="padding:10px 12px;text-align:right;color:#1e3a8a;font-weight:700">Anticipo</th>
               <th style="padding:10px 12px;text-align:right;color:#1e3a8a;font-weight:700">Pendiente</th>
               <th style="padding:10px 12px;text-align:center;color:#1e3a8a;font-weight:700">Estado</th>
             </tr>
@@ -15117,6 +15135,38 @@ function _renderComisionesRecaudo(d) {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+  }
+
+  // Tabla "1. Comisión Recaudo" — pivote por Company de Hoja 1 (sumas negativas).
+  // Replica el bloque "Companies / Suma de Valores" del Excel Cruce Company (imagen 3).
+  if (d.comision_pivot && d.comision_pivot.length > 0) {
+    const tabla = document.getElementById('cr-tabla-resumen');
+    const rows = d.comision_pivot.map(e => `
+      <tr>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5">${(e.empresa||'').replace(/</g,'&lt;')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #ede9f5;text-align:right;font-weight:600;color:${e.monto < 0 ? '#dc2626' : (e.monto > 0 ? '#16a34a' : 'inherit')}">${_fmtCop2(e.monto)}</td>
+      </tr>
+    `).join('');
+    const total = d.comision_pivot.reduce((acc, e) => acc + (e.monto || 0), 0);
+    tabla.insertAdjacentHTML('beforeend', `
+      <div style="background:#fff;border:1px solid #e8d7f0;border-radius:10px;overflow:hidden;margin-top:18px;max-width:520px">
+        <div style="background:linear-gradient(90deg,#1F4E78,#0F2C4A);color:#fff;padding:12px 16px;font-weight:700;font-size:14px">📊 1. Comisión Recaudo — Pivote por Empresa</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead style="background:#dbeafe">
+            <tr>
+              <th style="padding:10px 12px;text-align:left;color:#1e3a8a;font-weight:700">Empresa</th>
+              <th style="padding:10px 12px;text-align:right;color:#1e3a8a;font-weight:700">Suma de Valores</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="background:#fef9c3">
+              <td style="padding:10px 12px;font-weight:700;color:#854d0e">Total general</td>
+              <td style="padding:10px 12px;text-align:right;font-weight:700;color:${total < 0 ? '#dc2626' : '#16a34a'}">${_fmtCop2(total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`);
   }
 
   // Resumen Surtitodo
