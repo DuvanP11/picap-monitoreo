@@ -4520,6 +4520,12 @@ window.fetch = function(url, opts) {
       <!-- Tabla TD Recaudos (Hoja 5) -->
       <div id="rd-tabla-recaudos" style="margin-top:24px"></div>
 
+      <!-- Tablas Acumulado (Hojas 3 y 7 del Excel) lado a lado -->
+      <div style="margin-top:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px">
+        <div id="rd-acumulado-dispersion"></div>
+        <div id="rd-acumulado-r"></div>
+      </div>
+
     </div>
   </div>
 
@@ -15354,10 +15360,13 @@ async function cargarRecaudosDispersiones(isRelaunch) {
   const kpis   = document.getElementById('rd-kpis');
   const tDisp  = document.getElementById('rd-tabla-dispersion');
   const tRec   = document.getElementById('rd-tabla-recaudos');
+  const aDisp  = document.getElementById('rd-acumulado-dispersion');
+  const aR     = document.getElementById('rd-acumulado-r');
 
   estado.innerHTML = `⏳ Ejecutando queries CH para ${r.desde} → ${r.hasta}… (puede tomar 1-3 min)`;
   estado.style.color = '#6366f1';
   kpis.innerHTML = ''; tDisp.innerHTML = ''; tRec.innerHTML = '';
+  if (aDisp) aDisp.innerHTML = ''; if (aR) aR.innerHTML = '';
   if (!isRelaunch) _recaudosDispersionesRelaunched = false;
 
   if (_recaudosDispersionesPoller) { clearInterval(_recaudosDispersionesPoller); _recaudosDispersionesPoller = null; }
@@ -15486,6 +15495,63 @@ function _renderRecaudosDispersiones(d) {
               <td style="padding:10px 12px;text-align:right;font-weight:700;color:#dc2626">${_fmtCop3(total)}</td>
             </tr>
           </tfoot>
+        </table>
+      </div>`;
+  }
+
+  // Cuadro "Acumulado Dispersión" (Hoja 3 del Excel) — Company_name + MONTO + CORTE (header morado)
+  if (d.tabla_dispersion && d.tabla_dispersion.length > 0) {
+    // Agrupar por Company_name (sumando todos los tipos por empresa)
+    const acumDispMap = {};
+    d.tabla_dispersion.forEach(e => {
+      const emp = e.empresa || '';
+      acumDispMap[emp] = (acumDispMap[emp] || 0) + (e.monto || 0);
+    });
+    const acumDispRows = Object.entries(acumDispMap)
+      .sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase()))
+      .map(([emp, monto]) => `
+        <tr>
+          <td style="padding:9px 12px;border:1px solid #ede9f5">${emp.replace(/</g,'&lt;')}</td>
+          <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:right;color:${monto < 0 ? '#dc2626' : (monto > 0 ? '#16a34a' : 'inherit')};font-weight:600">${_fmtCop3(monto)}</td>
+          <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:center;color:#5b2169;font-weight:600">${d.corte || ''}</td>
+        </tr>
+      `).join('');
+    document.getElementById('rd-acumulado-dispersion').innerHTML = `
+      <div style="background:#fff;border:2px solid #5b2169;border-radius:10px;overflow:hidden;box-shadow:0 4px 12px rgba(91,33,105,0.15)">
+        <div style="background:#5b2169;color:#fff;padding:12px 16px;font-weight:700;font-size:14px;text-align:center">📒 Acumulado Dispersión (Hoja 3 del Excel)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#5b2169;color:#fff">
+              <th style="padding:10px 12px;text-align:left;font-weight:700">Company_name</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700">MONTO</th>
+              <th style="padding:10px 12px;text-align:center;font-weight:700">CORTE</th>
+            </tr>
+          </thead>
+          <tbody>${acumDispRows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // Cuadro "Acumulado R" (Hoja 7 del Excel) — cliente + MONTO + CORTE (header morado)
+  if (d.kpis && d.kpis.surtitodo_recaudo !== undefined) {
+    document.getElementById('rd-acumulado-r').innerHTML = `
+      <div style="background:#fff;border:2px solid #5b2169;border-radius:10px;overflow:hidden;box-shadow:0 4px 12px rgba(91,33,105,0.15)">
+        <div style="background:#5b2169;color:#fff;padding:12px 16px;font-weight:700;font-size:14px;text-align:center">💰 Acumulado R (Hoja 7 del Excel)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#5b2169;color:#fff">
+              <th style="padding:10px 12px;text-align:left;font-weight:700">cliente</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700">MONTO</th>
+              <th style="padding:10px 12px;text-align:center;font-weight:700">CORTE</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:9px 12px;border:1px solid #ede9f5">Surtitodo</td>
+              <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:right;color:#16a34a;font-weight:600">${_fmtCop3(d.kpis.surtitodo_recaudo)}</td>
+              <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:center;color:#5b2169;font-weight:600">${d.corte || ''}</td>
+            </tr>
+          </tbody>
         </table>
       </div>`;
   }
