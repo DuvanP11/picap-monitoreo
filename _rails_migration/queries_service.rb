@@ -3073,19 +3073,29 @@ module QueriesService
     ),
     q_wat_filtered AS (
       SELECT
-        wat._id AS transaction_id, wat.booking_id, wat.package_id, wat.account_id,
-        wat.amount, wat.normalized_amount_after_transaction,
-        wat.transaction_state_cd, wat._type AS tx_type, wat.created_at,
-        b.created_at AS booking_created_at,
-        pck.reference AS package_reference,
+        wat._id          AS transaction_id,
+        wat.booking_id   AS booking_id,
+        wat.package_id   AS package_id,
+        wat.account_id   AS account_id,
+        wat.amount       AS amount,
+        wat.normalized_amount_after_transaction AS normalized_amount_after_transaction,
+        wat.transaction_state_cd AS transaction_state_cd,
+        wat._type        AS tx_type,
+        wat.created_at   AS created_at,
+        b.created_at     AS booking_created_at,
+        pck.reference    AS package_reference,
         pck.declared_value AS package_declared_value,
         pck.counter_delivery AS package_counter_delivery,
-        b.passenger_id, b.driver_id, b.served_vehicle_type_id, b.city_id,
-        b.requested_service_type_id, b.country_id,
-        wa._id AS wallet_account_id,
-        p.company_id AS passenger_company_id,
-        p.name AS passenger_name,
-        d.name AS driver_name
+        b.passenger_id   AS passenger_id,
+        b.driver_id      AS driver_id,
+        b.served_vehicle_type_id AS served_vehicle_type_id,
+        b.city_id        AS city_id,
+        b.requested_service_type_id AS requested_service_type_id,
+        b.country_id     AS country_id,
+        wa._id           AS wallet_account_id,
+        p.company_id     AS passenger_company_id,
+        p.name           AS passenger_name,
+        d.name           AS driver_name
       FROM picapmongoprod.wallet_account_transactions AS wat FINAL
       INNER JOIN picapmongoprod.packages AS pck FINAL ON pck._id = wat.package_id
       INNER JOIN picapmongoprod.bookings AS b   FINAL ON b._id   = wat.booking_id
