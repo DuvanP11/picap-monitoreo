@@ -15499,23 +15499,39 @@ function _renderRecaudosDispersiones(d) {
       </div>`;
   }
 
-  // Cuadro "Acumulado Dispersión" (Hoja 3 del Excel) — Company_name + MONTO + CORTE (header morado)
-  if (d.tabla_dispersion && d.tabla_dispersion.length > 0) {
-    // Agrupar por Company_name (sumando todos los tipos por empresa)
-    const acumDispMap = {};
-    d.tabla_dispersion.forEach(e => {
-      const emp = e.empresa || '';
-      acumDispMap[emp] = (acumDispMap[emp] || 0) + (e.monto || 0);
-    });
-    const acumDispRows = Object.entries(acumDispMap)
-      .sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase()))
-      .map(([emp, monto]) => `
+  // Cuadro "Acumulado Dispersión" (Hoja 3 del Excel) — Company_name + MONTO + CORTE (header morado).
+  // SIEMPRE se renderiza, aún si no hay dispersiones en el período (mostramos
+  // Surtitodo en $0 para mantener consistencia con la Hoja 7 "Acumulado R").
+  {
+    let acumDispRows = '';
+    if (d.tabla_dispersion && d.tabla_dispersion.length > 0) {
+      // Agrupar por Company_name (sumando todos los tipos por empresa)
+      const acumDispMap = {};
+      d.tabla_dispersion.forEach(e => {
+        const emp = e.empresa || '';
+        acumDispMap[emp] = (acumDispMap[emp] || 0) + (e.monto || 0);
+      });
+      acumDispRows = Object.entries(acumDispMap)
+        .sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase()))
+        .map(([emp, monto]) => `
+          <tr>
+            <td style="padding:9px 12px;border:1px solid #ede9f5">${emp.replace(/</g,'&lt;')}</td>
+            <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:right;color:${monto < 0 ? '#dc2626' : (monto > 0 ? '#16a34a' : 'inherit')};font-weight:600">${_fmtCop3(monto)}</td>
+            <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:center;color:#5b2169;font-weight:600">${d.corte || ''}</td>
+          </tr>
+        `).join('');
+    } else {
+      // Fallback: mostrar Surtitodo en $0 para que la vista sea consistente
+      // entre meses con/sin dispersiones (mismo formato que Acumulado R).
+      acumDispRows = `
         <tr>
-          <td style="padding:9px 12px;border:1px solid #ede9f5">${emp.replace(/</g,'&lt;')}</td>
-          <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:right;color:${monto < 0 ? '#dc2626' : (monto > 0 ? '#16a34a' : 'inherit')};font-weight:600">${_fmtCop3(monto)}</td>
+          <td style="padding:9px 12px;border:1px solid #ede9f5">Surtitodo</td>
+          <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:right;color:#94a3b8;font-weight:600">${_fmtCop3(0)}</td>
           <td style="padding:9px 12px;border:1px solid #ede9f5;text-align:center;color:#5b2169;font-weight:600">${d.corte || ''}</td>
         </tr>
-      `).join('');
+        <tr><td colspan="3" style="padding:8px 12px;border:1px solid #ede9f5;background:#f8fafc;text-align:center;font-size:11px;color:#64748b;font-style:italic">Sin dispersiones Daviplata CashOut en este período</td></tr>
+      `;
+    }
     document.getElementById('rd-acumulado-dispersion').innerHTML = `
       <div style="background:#fff;border:2px solid #5b2169;border-radius:10px;overflow:hidden;box-shadow:0 4px 12px rgba(91,33,105,0.15)">
         <div style="background:#5b2169;color:#fff;padding:12px 16px;font-weight:700;font-size:14px;text-align:center">📒 Acumulado Dispersión (Hoja 3 del Excel)</div>
