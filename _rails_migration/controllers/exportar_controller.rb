@@ -877,18 +877,41 @@ module Api
       total_monto = rows.sum { |r| r["monto_cop"].to_f }
       n_inconsist = rows.count { |r| !r["coherente"] }
 
+      # ── Pivote por wallet_type para la hoja Resumen ──
+      # Agrupa los bonos por tipo de wallet (corporativo pibox / masivo picap /
+      # masivo pibox / etc.) y suma los montos. Reemplaza el bloque de KPIs
+      # ejecutivos por una tabla limpia tipo Excel pivote (matching la
+      # plantilla validada por el usuario).
+      pivot_wallet = rows
+        .group_by { |r| r["wallet_type"].to_s.strip }
+        .transform_values { |rs| rs.sum { |r| r["monto_cop"].to_f } }
+        .reject { |k, _| k.empty? }
+        .sort_by { |_, v| -v }
+        .to_h
+
+      # Etiqueta de período tipo "abril 2026" / "mayo 2026" (mes del 'desde')
+      meses_es = %w[enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre]
+      mes_label = begin
+        d = Date.parse(desde.to_s)
+        "#{meses_es[d.month - 1]} #{d.year}"
+      rescue
+        "#{desde} → #{hasta}"
+      end
+
       ExcelExportService.build("Picap_Bonos_Ayuda_Voluntaria") do |x|
-        # Hoja Resumen
+        # Hoja Resumen — diseño tabla pivote por wallet_type.
+        # Reemplaza la versión vieja (KPI grid) por la tabla compacta validada
+        # por el usuario en su plantilla manual.
         x.add_sheet("Resumen") do |s|
-          s.banner("Bonos de Ayuda Voluntaria — Resumen",
-                   "Período: #{desde} → #{hasta}", 2)
-          s.kpi_section("KPIs ejecutivos", [
-            ["Transacciones totales",   rows.size],
-            ["Monto total COP",         total_monto.to_i],
-            ["• Masivo (sin company)",  filas_masivo.size],
-            ["• Corporativo (con company)", filas_corporativo.size],
-            ["⚠️ Inconsistentes (company_id vs wallet_type)", n_inconsist],
-          ], ncols: 2)
+          s.banner("Bonos de ayuda voluntaria", mes_label, 2)
+          s.blank_rows(1)
+          s.report_table_with_total(
+            ["wallet_type", "Amount"],
+            pivot_wallet.map { |w, amt| [w, amt.to_i] },
+            total_row: ["Total general", total_monto.to_i],
+            value_styles: [:text, :money],
+            total_styles: [:total, :total_money],
+          )
           s.finalize
         end
 
