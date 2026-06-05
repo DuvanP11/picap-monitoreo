@@ -70,6 +70,16 @@ Rails.application.routes.draw do
     end
     post "saldo_recaudos/enviar_email",   to: "saldo_recaudos#enviar_email"
 
+    # v3.3.29: Comisiones Recaudo (acceso restringido) — informe mensual 9 hojas.
+    namespace :comisiones_recaudo do
+      get  "estadisticas",         to: "/api/comisiones_recaudo#estadisticas"
+      get  "query_recaudos",       to: "/api/comisiones_recaudo#query_recaudos"
+      get  "query_comision",       to: "/api/comisiones_recaudo#query_comision"
+      get  "informe_general",      to: "/api/comisiones_recaudo#informe_general"
+      get  "job_status/:job_id",   to: "/api/comisiones_recaudo#job_status"
+    end
+    post "comisiones_recaudo/enviar_email",   to: "comisiones_recaudo#enviar_email"
+
     # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
     namespace :mintic do
       get  "detallado_query",        to: "/api/mintic#detallado_query"
