@@ -360,24 +360,26 @@ module Api
       last_day = Date.new(año.to_i, mes.to_i, -1).day rescue hasta.split("-")[2].to_i
       periodo_txt = "1 al #{last_day} #{meses_es[mes.to_i]} #{año}"
 
-      # Resumen Final (Hoja 5) — solo % > 0, excluir Cruz Verde
+      # Resumen Final (Hoja 5) — solo % > 0, excluir Cruz Verde.
+      # ⚠️ NO usar `comision` como nombre local dentro del block: pisa al
+      # parámetro de la función (Ruby reasigna en scope outer). Usar `com_calc`.
       resumen = cruce_company
         .reject { |h| h[:porcentaje] <= 0 }
         .reject { |h| h[:empresa].downcase.include?("cruz verde") }
         .map do |h|
           recaudo_real = resumen_user[h[:empresa]].to_f
-          comision     = recaudo_real * -h[:porcentaje]
-          anticipo     = -comision
-          pendiente    = anticipo + comision
+          com_calc     = recaudo_real * -h[:porcentaje]
+          anticipo     = -com_calc
+          pendiente    = anticipo + com_calc
           {
-            empresa:   h[:empresa],
-            recaudos:  recaudo_real.round(2),
+            empresa:    h[:empresa],
+            recaudos:   recaudo_real.round(2),
             porcentaje: h[:porcentaje],
-            comision:  comision.round(2),
-            periodo:   periodo_txt,
-            anticipo:  anticipo.round(2),
-            pendiente: pendiente.round(2),
-            estado:    pendiente.abs < 0.01 ? "Pagada" : "Pendiente",
+            comision:   com_calc.round(2),
+            periodo:    periodo_txt,
+            anticipo:   anticipo.round(2),
+            pendiente:  pendiente.round(2),
+            estado:     pendiente.abs < 0.01 ? "Pagada" : "Pendiente",
           }
         end
 
