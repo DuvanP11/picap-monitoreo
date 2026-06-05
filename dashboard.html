@@ -13645,7 +13645,7 @@ function exportarDispersiones(btn) {
   const params = new URLSearchParams({ desde, hasta });
   if (company) params.set('company', company);
   if (tipo)    params.set('tipo', tipo);
-  _descargarConToken(`${API}/api/exportar/dispersiones?${params}`, `Picap_Dispersiones_${desde}_${hasta}`);
+  _descargarConToken(`${API}/api/exportar/dispersiones?${params}`, `Picap_Dispersiones_${desde}_${hasta}`, btn);
 }
 
 function enviarDispersionesEmail(btn) {
@@ -13937,12 +13937,41 @@ function renderReporteOpsCv(data) {
   document.getElementById('rcv-table-container').innerHTML = filasHtml;
 }
 
-// v3.3.34: helper para descargar archivos del backend con el header X-Token.
+// v3.3.34/v3.3.35: helper para descargar archivos del backend con el header X-Token.
 // Reemplaza el uso de window.open() (que NO envia headers custom y disparaba
 // 401 "Sesion expirada o invalida" cuando el endpoint requiere auth).
 // Usa fetch + blob + click programatico en <a download> para que el archivo
 // se descargue manteniendo la sesion del usuario.
-async function _descargarConToken(url, filenameBase) {
+//
+// v3.3.35: muestra feedback visual en el boton mientras corre la query +
+// timer en segundos. Sin esto, el usuario presionaba el boton y como la
+// query CH puede tardar 2-3 min, parecia que no pasaba nada.
+async function _descargarConToken(url, filenameBase, btn) {
+  // Feedback visual
+  let originalHTML = null;
+  let timerInterval = null;
+  let secs = 0;
+  if (btn) {
+    originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.style.cursor = 'wait';
+    btn.innerHTML = `⏳ Descargando… 0s`;
+    timerInterval = setInterval(() => {
+      secs++;
+      btn.innerHTML = `⏳ Descargando… ${secs}s`;
+    }, 1000);
+  }
+  const restaurar = () => {
+    if (timerInterval) clearInterval(timerInterval);
+    if (btn && originalHTML !== null) {
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.style.cursor = '';
+      btn.innerHTML = originalHTML;
+    }
+  };
+
   try {
     const resp = await fetch(url, { headers: { 'X-Token': _sesionToken } });
     if (!resp.ok) {
@@ -13968,7 +13997,15 @@ async function _descargarConToken(url, filenameBase) {
     a.click();
     window.URL.revokeObjectURL(objurl);
     a.remove();
+
+    // Feedback de éxito (1s)
+    if (btn) {
+      if (timerInterval) clearInterval(timerInterval);
+      btn.innerHTML = `✅ Descargado (${Math.round(blob.size/1024)} KB)`;
+      setTimeout(restaurar, 1500);
+    }
   } catch (err) {
+    restaurar();
     alert('❌ Error descargando el archivo:\n\n' + (err.message || err));
   }
 }
@@ -13983,7 +14020,7 @@ function exportarReporteOpsCv(btn) {
   if (estado)  params.set('estado', estado);
   if (nextDay) params.set('next_day', nextDay);
   if (ciudad)  params.set('ciudad', ciudad);
-  _descargarConToken(`${API}/api/exportar/reporte_ops_cv?${params}`, `Picap_Reporte_OPS_CV_${desde}_${hasta}`);
+  _descargarConToken(`${API}/api/exportar/reporte_ops_cv?${params}`, `Picap_Reporte_OPS_CV_${desde}_${hasta}`, btn);
 }
 
 function enviarReporteOpsCvEmail(btn) {
@@ -14347,7 +14384,7 @@ function exportarBonosAyuda(btn) {
   if (walletType) params.set('wallet_type', walletType);
   if (pais)       params.set('pais', pais);
   if (q)          params.set('q', q);
-  _descargarConToken(`${API}/api/exportar/bonos_ayuda?${params}`, `Picap_Bonos_Ayuda_${desde}_${hasta}`);
+  _descargarConToken(`${API}/api/exportar/bonos_ayuda?${params}`, `Picap_Bonos_Ayuda_${desde}_${hasta}`, btn);
 }
 
 
