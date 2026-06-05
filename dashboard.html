@@ -3971,7 +3971,8 @@ window.fetch = function(url, opts) {
             <span class="inf-mini-label">Comisiones por Recaudo</span>
             <span class="inf-mini-arrow">›</span>
           </div>
-          <div class="inf-mini" onclick="informesProximamente('Estado de Cuenta Surtido')">
+          <!-- v3.3.31: mini-módulo "Estado de Cuenta Surtido" — informe mensual 3 hojas con logo Pibox. -->
+          <div class="inf-mini" onclick="switchView('estado_cuenta')">
             <span class="inf-mini-icon">📒</span>
             <span class="inf-mini-label">Estado de Cuenta Surtido</span>
             <span class="inf-mini-arrow">›</span>
@@ -4529,6 +4530,52 @@ window.fetch = function(url, opts) {
     </div>
   </div>
 
+  <!-- ══ VISTA: ESTADO DE CUENTA SURTITODO (admin / monitoreo / financiero) ══
+       v3.3.31: informe mensual de 3 hojas con logo Pibox. Replica la tabla
+       resumen exacta de la plantilla del usuario. -->
+  <div class="view" id="view-estado_cuenta">
+    <div class="wrap">
+
+      <!-- Header info -->
+      <div style="margin-top:10px;padding:12px 16px;background:linear-gradient(90deg,#f3e8ff,#e9d5ff);border-left:4px solid #5b21b6;border-radius:8px;display:flex;align-items:center;gap:14px">
+        <div style="font-size:24px">📒</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#3b0764">Estado de Cuenta SURTITODO</div>
+          <div style="font-size:11px;color:#5b21b6">Informe mensual: recaudos · pago servicios · comisión · ICA · cruce final</div>
+        </div>
+      </div>
+
+      <!-- Selector de mes -->
+      <div class="rec-search-bar" style="margin-top:12px">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap">Período:</label>
+        <select id="ec-mes" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <select id="ec-anio" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:#fff;cursor:pointer"></select>
+        <button class="search-btn" onclick="cargarEstadoCuenta()">↻ Cargar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('estado_cuenta')" style="background:#1e40af" title="Enviar Excel (3 hojas) por email">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarEstadoCuenta()" style="background:#5b21b6" title="Descargar Excel 3 hojas con logo">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Generar Excel
+        </button>
+      </div>
+
+      <!-- Estado -->
+      <div id="ec-estado" style="margin-top:14px;font-size:13px;color:var(--text3)">Seleccioná un mes y año, luego presioná <b>Cargar</b>.</div>
+
+      <!-- Tabla Resumen (replica el pantallazo del usuario) -->
+      <div id="ec-resumen" style="margin-top:18px"></div>
+
+    </div>
+  </div>
+
   <!-- v3.3.20: Modal genérico Enviar email — reutilizado por Estafa, Cédula, Pagos, etc. -->
   <div id="modal-email-generico" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
     <div style="background:#fff;width:90%;max-width:540px;max-height:90vh;overflow-y:auto;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.3)">
@@ -5030,6 +5077,7 @@ function switchView(view){
     'saldo_recaudos': 'Saldo Recaudos — Balance Mensual B2B',
     'comisiones_recaudo': 'Comisiones por Recaudo — Informe Mensual',
     'recaudos_dispersiones': 'Recaudos y Dispersiones — Informe Mensual',
+    'estado_cuenta':         'Estado de Cuenta SURTITODO — Informe Mensual',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -5106,6 +5154,10 @@ function switchView(view){
   if(view === 'recaudos_dispersiones'){
     // v3.3.30: Inicializar selector año
     _initRecaudosDispersionesAnios();
+  }
+  if(view === 'estado_cuenta'){
+    // v3.3.31: Inicializar selector año
+    _initEstadoCuentaAnios();
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -9908,6 +9960,16 @@ const ENVIAR_EMAIL_CONFIGS = {
     endpoint: '/api/recaudos_dispersiones/enviar_email',
     extraParams: () => {
       const r = _recaudosDispersionesRango();
+      return { desde: r.desde, hasta: r.hasta };
+    },
+  },
+  // v3.3.31: Estado de Cuenta SURTITODO — informe mensual 3 hojas con logo Pibox
+  estado_cuenta: {
+    titulo: '📒 Enviar Estado de Cuenta SURTITODO',
+    color: 'linear-gradient(90deg,#5b21b6 0%,#3b0764 100%)',
+    endpoint: '/api/estado_cuenta/enviar_email',
+    extraParams: () => {
+      const r = _estadoCuentaRango();
       return { desde: r.desde, hasta: r.hasta };
     },
   },
@@ -15675,6 +15737,232 @@ function _descargarRecaudosDispersionesExcel(job_id, r) {
       window.URL.revokeObjectURL(objurl); a.remove();
       estado.innerHTML = `✅ Excel descargado (7 hojas): Recaudos_y_Dispersiones_${r.desde}_a_${r.hasta}.xlsx`;
       estado.style.color = '#16a34a';
+    })
+    .catch(err => {
+      estado.innerHTML = `❌ Error descargando: ${err.message || err}`;
+      estado.style.color = '#dc2626';
+    });
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// v3.3.31: ESTADO DE CUENTA SURTITODO — informe mensual 3 hojas con logo
+// ══════════════════════════════════════════════════════════════════════════
+
+let _estadoCuentaJobId   = null;
+let _estadoCuentaData    = null;
+let _estadoCuentaPoller  = null;
+let _estadoCuentaRelaunched = false;
+
+function _estadoCuentaRango() {
+  const mes  = parseInt(document.getElementById('ec-mes')?.value || '4', 10);
+  const anio = parseInt(document.getElementById('ec-anio')?.value || new Date().getFullYear(), 10);
+  const dFirst = new Date(anio, mes - 1, 1);
+  const dLast  = new Date(anio, mes, 0);
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return { desde: fmt(dFirst), hasta: fmt(dLast), mes, anio };
+}
+
+function _initEstadoCuentaAnios() {
+  const sel = document.getElementById('ec-anio');
+  if (!sel || sel.options.length > 0) return;
+  const ahora = new Date();
+  const yMax = ahora.getFullYear() + 1;
+  for (let y = yMax; y >= 2024; y--) {
+    const o = document.createElement('option');
+    o.value = y; o.textContent = y;
+    if (y === ahora.getFullYear()) o.selected = true;
+    sel.appendChild(o);
+  }
+  const mesSel = document.getElementById('ec-mes');
+  if (mesSel) {
+    const mesPrev = ahora.getMonth() === 0 ? 12 : ahora.getMonth();
+    mesSel.value = String(mesPrev);
+  }
+}
+
+async function cargarEstadoCuenta(isRelaunch) {
+  _initEstadoCuentaAnios();
+  const r = _estadoCuentaRango();
+  const estado  = document.getElementById('ec-estado');
+  const resumen = document.getElementById('ec-resumen');
+
+  estado.innerHTML = `⏳ Ejecutando queries CH para ${r.desde} → ${r.hasta}… (puede tomar 1-3 min)`;
+  estado.style.color = '#5b21b6';
+  resumen.innerHTML = '';
+  if (!isRelaunch) _estadoCuentaRelaunched = false;
+
+  if (_estadoCuentaPoller) { clearInterval(_estadoCuentaPoller); _estadoCuentaPoller = null; }
+
+  try {
+    const url = `${API}/api/estado_cuenta/estadisticas?desde=${r.desde}&hasta=${r.hasta}`;
+    const resp = await fetch(url, { headers: { 'X-Token': _sesionToken }});
+    if (resp.status === 202) {
+      const j = await resp.json();
+      _estadoCuentaJobId = j.job_id;
+      _estadoCuentaPoller = setInterval(() => _polleaEstadoCuenta(j.job_id), 3000);
+      return;
+    }
+    const d = await resp.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+    _renderEstadoCuenta(d);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+async function _polleaEstadoCuenta(jobId) {
+  try {
+    const r = await fetch(`${API}/api/estado_cuenta/job_status/${jobId}`, { headers: { 'X-Token': _sesionToken }});
+    if (r.status === 202) {
+      const j = await r.json();
+      const est = document.getElementById('ec-estado');
+      if (est) est.innerHTML = `⏳ Ejecutando queries CH… (${j.elapsed_sec}s)`;
+      return;
+    }
+    if (r.status === 404 && !_estadoCuentaRelaunched) {
+      _estadoCuentaRelaunched = true;
+      clearInterval(_estadoCuentaPoller);
+      _estadoCuentaPoller = null;
+      const est = document.getElementById('ec-estado');
+      if (est) { est.innerHTML = '🔄 El job se perdió (pod reiniciado). Relanzando…'; est.style.color = '#d97706'; }
+      setTimeout(() => cargarEstadoCuenta(true), 500);
+      return;
+    }
+    clearInterval(_estadoCuentaPoller);
+    _estadoCuentaPoller = null;
+    const d = await r.json();
+    if (!d.ok) {
+      const est = document.getElementById('ec-estado');
+      est.innerHTML = `❌ Error: ${d.error || 'desconocido'}`;
+      est.style.color = '#dc2626';
+      return;
+    }
+    _renderEstadoCuenta(d);
+  } catch (err) {
+    clearInterval(_estadoCuentaPoller);
+    _estadoCuentaPoller = null;
+    const est = document.getElementById('ec-estado');
+    if (est) { est.innerHTML = `❌ Error de polling: ${err.message}`; est.style.color = '#dc2626'; }
+  }
+}
+
+function _fmtCopFirma(n) {
+  if (n === null || n === undefined || isNaN(n)) return '$ —';
+  const abs = Math.abs(n).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (n < 0) return `<span style="color:#dc2626">-$&nbsp;&nbsp;${abs}</span>`;
+  return `<span style="color:#16a34a">$&nbsp;&nbsp;${abs}</span>`;
+}
+
+function _renderEstadoCuenta(d) {
+  _estadoCuentaData = d;
+  const estado = document.getElementById('ec-estado');
+  const k = d.kpis;
+  estado.innerHTML = `✅ Datos cargados · <b>${k.total_transacciones_recaudos}</b> tx recaudos · <b>${k.total_transacciones_valor_mensajeria}</b> tx valor mensajería · período ${d.desde} → ${d.hasta}`;
+  estado.style.color = 'var(--text2)';
+
+  // Tabla resumen — réplica exacta del pantallazo del usuario
+  const r = d.resumen;
+  document.getElementById('ec-resumen').innerHTML = `
+    <div style="background:#fff;border:2px solid #5b21b6;border-radius:12px;overflow:hidden;max-width:540px;box-shadow:0 6px 20px rgba(91,33,182,0.15)">
+      <!-- Header SURTITODO (morado oscuro, italic) -->
+      <div style="background:#5b21b6;color:#fff;padding:14px 20px;text-align:center;font-weight:700;font-style:italic;font-size:18px;letter-spacing:1.5px">
+        SURTITODO
+      </div>
+      <!-- Período -->
+      <div style="background:#f3e8ff;color:#3b0764;padding:11px 20px;text-align:center;font-weight:700;font-size:13px;border-bottom:1px solid #c4b5fd">
+        ${d.periodo_txt}
+      </div>
+      <!-- Tabla resumen -->
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff">Recaudos</td>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${_fmtCopFirma(r.recaudos)}</td>
+        </tr>
+        <tr>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff">Pago Servicios</td>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${_fmtCopFirma(r.pago_servicios)}</td>
+        </tr>
+        <tr>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff">Comisión del 1%</td>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${_fmtCopFirma(r.comision_1pct)}</td>
+        </tr>
+        <tr>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff">ICA</td>
+          <td style="padding:13px 20px;border-bottom:1px solid #e9d5ff;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${_fmtCopFirma(r.ica)}</td>
+        </tr>
+        <tr style="background:#f3e8ff">
+          <td style="padding:14px 20px;font-weight:700;color:#3b0764">valor a pagar despues del cruce:</td>
+          <td style="padding:14px 20px;text-align:right;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums">${_fmtCopFirma(r.total_cruce)}</td>
+        </tr>
+      </table>
+    </div>
+  `;
+}
+
+async function exportarEstadoCuenta() {
+  const r = _estadoCuentaRango();
+  const estado = document.getElementById('ec-estado');
+  estado.innerHTML = `⏳ Generando Excel 3 hojas para ${r.desde} → ${r.hasta}… (1-3 min)`;
+  estado.style.color = '#5b21b6';
+
+  try {
+    const resp = await fetch(`${API}/api/estado_cuenta/informe_general?desde=${r.desde}&hasta=${r.hasta}`, {
+      headers: { 'X-Token': _sesionToken },
+    });
+    let job_id;
+    if (resp.status === 202) { const j = await resp.json(); job_id = j.job_id; }
+    else {
+      const j = await resp.json();
+      if (!j.ok) throw new Error(j.error || `HTTP ${resp.status}`);
+      job_id = j.job_id;
+      if (j.listo_para_descargar) { _descargarEstadoCuentaExcel(job_id, r); return; }
+    }
+
+    const start = Date.now();
+    const interval = setInterval(async () => {
+      try {
+        const ps = await fetch(`${API}/api/estado_cuenta/job_status/${job_id}`, { headers: { 'X-Token': _sesionToken }});
+        if (ps.status === 202) {
+          const jj = await ps.json();
+          estado.innerHTML = `⏳ Generando Excel… (${jj.elapsed_sec}s)`;
+          return;
+        }
+        const dj = await ps.json();
+        if (!dj.ok) throw new Error(dj.error || 'desconocido');
+        clearInterval(interval);
+        if (dj.listo_para_descargar) _descargarEstadoCuentaExcel(job_id, r);
+        if (Date.now() - start > 600000) {
+          estado.innerHTML = '⚠️ Timeout 10 min — probá de nuevo';
+          estado.style.color = '#d97706';
+        }
+      } catch (err) {
+        clearInterval(interval);
+        estado.innerHTML = `❌ Error: ${err.message || err}`;
+        estado.style.color = '#dc2626';
+      }
+    }, 3000);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+function _descargarEstadoCuentaExcel(job_id, r) {
+  const estado = document.getElementById('ec-estado');
+  const url = `${API}/api/estado_cuenta/informe_general?download=1&job_id=${job_id}&desde=${r.desde}&hasta=${r.hasta}`;
+  fetch(url, { headers: { 'X-Token': _sesionToken } })
+    .then(resp => { if (!resp.ok) throw new Error(`HTTP ${resp.status}`); return resp.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      const objurl = window.URL.createObjectURL(blob);
+      a.href = objurl;
+      a.download = `Estado_de_cuenta_SURTITODO_${r.desde}_a_${r.hasta}.xlsx`;
+      document.body.appendChild(a); a.click();
+      window.URL.revokeObjectURL(objurl); a.remove();
+      estado.innerHTML = `✅ Excel descargado (3 hojas): Estado_de_cuenta_SURTITODO_${r.desde}_a_${r.hasta}.xlsx`;
+      estado.style.color = '#5b21b6';
     })
     .catch(err => {
       estado.innerHTML = `❌ Error descargando: ${err.message || err}`;

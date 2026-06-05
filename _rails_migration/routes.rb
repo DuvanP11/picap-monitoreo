@@ -90,6 +90,16 @@ Rails.application.routes.draw do
     end
     post "recaudos_dispersiones/enviar_email",   to: "recaudos_dispersiones#enviar_email"
 
+    # v3.3.31: Estado de Cuenta SURTITODO (acceso restringido) — informe mensual 3 hojas con logo.
+    namespace :estado_cuenta do
+      get  "estadisticas",             to: "/api/estado_cuenta#estadisticas"
+      get  "query_recaudos",           to: "/api/estado_cuenta#query_recaudos"
+      get  "query_valor_mensajeria",   to: "/api/estado_cuenta#query_valor_mensajeria"
+      get  "informe_general",          to: "/api/estado_cuenta#informe_general"
+      get  "job_status/:job_id",       to: "/api/estado_cuenta#job_status"
+    end
+    post "estado_cuenta/enviar_email", to: "estado_cuenta#enviar_email"
+
     # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
     namespace :mintic do
       get  "detallado_query",        to: "/api/mintic#detallado_query"

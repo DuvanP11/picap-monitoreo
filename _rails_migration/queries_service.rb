@@ -3146,4 +3146,131 @@ module QueriesService
     LEFT JOIN picapmongoprod.vw_atr_driver_scoring_with_frauds AS sf FINAL ON sf.driver_id = qtf.driver_id
     ORDER BY Date_transaction ASC
   SQL
+
+  # ════════════════════════════════════════════════════════════════════════
+  # ESTADO DE CUENTA SURTITODO — informe mensual 3 hojas (con logo Pibox).
+  # Replica estado_cuenta_bi/generar_estado_cuenta.py (validado abril 2026).
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Query A: Recaudos (CounterDelivery filtrado por Surtitodo). 4 cols.
+  # Variables: %{fecha_desde}, %{fecha_hasta}
+  Q_ESTADO_CUENTA_RECAUDOS = <<~'SQL'
+    WITH
+    q_service_types AS (
+      SELECT
+        _id,
+        name_es AS name,
+        CASE
+          WHEN name_es IN (
+            'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor', 'Moto favor',
+            'Carga', 'Carga Carry', 'Carga Moto-Vagón', 'Carga NHR', 'Carga NKR', 'Carga NPR',
+            'Mensajería', 'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada'
+          ) THEN 'Pibox'
+          WHEN name_es IN (
+            'Moto', 'Mototaxi', 'Moto sin conductor', 'Subasta','Carro Subasta','Taxi', 'Carro',
+            'Carro sin conductor', 'Moto VIP', 'Moto Económica', 'Carro Queen','Rapidín','Espero tranqui',
+            'Moto lite', 'Moto Queen', 'Picap Carro', 'Picap Moto', 'Grúa Carro', 'Grúa Moto'
+          ) THEN 'Picap'
+          ELSE 'Other'
+        END AS type
+      FROM (SELECT * FROM picapmongoprod.service_types FINAL)
+    ),
+    q_wat_filtered AS (
+      SELECT
+        wat._id          AS transaction_id,
+        wat.booking_id   AS booking_id,
+        wat.amount       AS amount,
+        wat.created_at   AS created_at,
+        b.created_at     AS booking_created_at,
+        pck.reference    AS package_reference,
+        compp.name       AS company_name
+      FROM picapmongoprod.wallet_account_transactions AS wat FINAL
+      INNER JOIN picapmongoprod.packages       AS pck   FINAL ON pck._id   = wat.package_id
+      INNER JOIN picapmongoprod.bookings       AS b     FINAL ON b._id     = wat.booking_id
+      INNER JOIN picapmongoprod.wallet_accounts AS wa   FINAL ON wa._id    = wat.account_id
+      INNER JOIN picapmongoprod.passengers     AS p     FINAL ON p._id     = b.passenger_id
+      INNER JOIN picapmongoprod.countries      AS c     FINAL ON c._id     = b.country_id
+      INNER JOIN picapmongoprod.companies      AS compp FINAL ON compp._id = p.company_id
+      WHERE
+        JSONExtractString(c.name, 'es') = 'Colombia'
+        AND JSONExtractString(wat.amount, 'currency_iso') = 'COP'
+        AND pck.counter_delivery = 'true'
+        AND wat._type = 'WalletAccountCounterDeliveryPaymentTransaction'
+        AND lowerUTF8(compp.name) LIKE '%surtitodo%'
+        AND toDate(toTimeZone(wat.created_at, 'America/Bogota'))
+            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+    )
+    SELECT
+      qtf.transaction_id                                            AS ID_TRANSACCION,
+      toDate(toTimeZone(qtf.booking_created_at, 'America/Bogota'))  AS FECHA,
+      qtf.package_reference                                         AS DESCRIPCION,
+      toFloat64OrZero(JSONExtractString(qtf.amount, 'cents')) / 100 AS MONTO
+    FROM q_wat_filtered qtf
+    ORDER BY FECHA ASC
+  SQL
+
+  # Query B: Valor Mensajería (BookingCompanyCharge + Commission). 5 cols.
+  # Variables: %{fecha_desde}, %{fecha_hasta}
+  Q_ESTADO_CUENTA_VALOR_MENSAJERIA = <<~'SQL'
+    WITH q_service_types AS (
+      SELECT
+        _id,
+        any(name_es) AS name,
+        any(
+          multiIf(
+            name_es IN (
+              'Pibox (Mensajería)', 'Mensajería en bicicleta', 'Moto Favor',
+              'Moto favor', 'Carga', 'Carga Carry', 'Carga Moto-Vagón',
+              'Carga NHR', 'Carga NKR', 'Carga NPR', 'Mensajería',
+              'Carro Mensajeria', 'Carga Trailer', 'NHR Refrigerada'
+            ), 'Pibox',
+            name_es IN (
+              'Moto', 'Mototaxi', 'Moto sin conductor', 'Subasta', 'Taxi',
+              'Carro', 'Rapidín', 'Carro sin conductor', 'Moto VIP',
+              'Moto Económica', 'Carro Queen', 'Espero tranqui',
+              'Moto lite', 'Moto Queen', 'Picap Carro', 'Picap Moto',
+              'Grúa Carro', 'Grúa Moto'
+            ), 'Picap',
+            'Other'
+          )
+        ) AS type
+      FROM picapmongoprod.service_types
+      GROUP BY _id
+    ),
+    q_transactions_filtered AS (
+      SELECT
+        wat._id          AS _id,
+        wat.booking_id   AS booking_id,
+        wat._type        AS txt_type,
+        wat.created_at   AS created_at,
+        wat.amount       AS amount,
+        s.served_vehicle_type_id AS served_vehicle_type_id,
+        comp.name        AS company_name,
+        st.type          AS service_type
+      FROM picapmongoprod.wallet_account_transactions wat FINAL
+      ANY LEFT JOIN picapmongoprod.bookings        s    FINAL ON s._id    = wat.booking_id
+      ANY LEFT JOIN q_service_types                st         ON st._id   = s.requested_service_type_id
+      ANY LEFT JOIN picapmongoprod.wallet_accounts wa   FINAL ON wa._id   = wat.account_id
+      ANY LEFT JOIN picapmongoprod.companies       comp FINAL ON comp._id = s.company_id
+      WHERE
+        wat._type IN (
+          'WalletAccountTransactionBookingCompanyCharge',
+          'WalletAccountTransactionCommissionCompanyPayment'
+        )
+        AND JSONExtractString(wat.amount, 'currency_iso') = 'COP'
+        AND st.type = 'Pibox'
+        AND lowerUTF8(comp.name) LIKE '%surtitodo%'
+        AND toDate(toTimeZone(wat.created_at, 'America/Bogota'))
+            BETWEEN toDate('%{fecha_desde}') AND toDate('%{fecha_hasta}')
+    )
+    SELECT
+      qtf.booking_id                                                AS ID_SERVICIO,
+      toDate(toTimeZone(qtf.created_at, 'America/Bogota'))          AS FECHA,
+      qtf.company_name                                              AS EMPRESA,
+      JSONExtractString(vt.name, 'es')                              AS TIPO_VEHICULO,
+      toFloat64OrZero(JSONExtractString(qtf.amount, 'cents')) / 100 AS MONTO
+    FROM q_transactions_filtered qtf
+    LEFT JOIN picapmongoprod.vehicle_types AS vt FINAL ON vt._id = qtf.served_vehicle_type_id
+    ORDER BY FECHA ASC, qtf.booking_id
+  SQL
 end
