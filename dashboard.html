@@ -14010,15 +14010,20 @@ async function _descargarConToken(url, filenameBase, btn) {
   }
 }
 
-// v3.3.36: exportarReporteOpsCv async pattern.
+// v3.3.36/v3.3.37: exportarReporteOpsCv async pattern.
 // El endpoint anterior /api/exportar/reporte_ops_cv era SINCRONO: query CH
 // (2-3 min) + build XLSX + send_data, todo en el mismo request. Como el
 // Ingress NGINX corta a los ~60s, daba HTTP 502 con muchos servicios.
 //
 // Ahora usa: GET /api/reporte_ops_cv/exportar_async → job_id → polling cada
 // 3s a /export_status/:job_id → GET ?download=1&job_id=X.
-// Beneficio: funciona con cualquier rango sin importar cuántos servicios.
-async function exportarReporteOpsCv(btn) {
+//
+// v3.3.37: auto-relanzar UNA VEZ si el polling recibe HTTP 404 ("Job no
+// encontrado"). Eso pasa cuando el pod se reinicia entre el click del
+// usuario y el polling — los @@jobs son en memoria del proceso. Solo
+// se permite 1 auto-relanzar para evitar loops infinitos.
+let _exportOpsCvRelaunched = false;
+async function exportarReporteOpsCv(btn, isRelaunch) {
   const desde = _rcvDesde || daysAgo(15);
   const hasta = _rcvHasta || today();
   const estado  = document.getElementById('rcv-estado')?.value   || '';
@@ -14039,7 +14044,9 @@ async function exportarReporteOpsCv(btn) {
   };
   const restaurar = () => setBtn(origHTML, false);
 
-  setBtn('⏳ Iniciando…');
+  setBtn(isRelaunch ? '🔄 Relanzando…' : '⏳ Iniciando…');
+  // Reset flag SOLO si el user clickeó manualmente (no si es auto-relanzar)
+  if (!isRelaunch) _exportOpsCvRelaunched = false;
 
   try {
     // 1. Iniciar job (o cache hit)
@@ -14064,6 +14071,16 @@ async function exportarReporteOpsCv(btn) {
         const statusResp = await fetch(`${API}/api/reporte_ops_cv/export_status/${jobId}`, {
           headers: { 'X-Token': _sesionToken },
         });
+
+        // Auto-relanzar UNA VEZ si el job se perdió (pod reiniciado por deploy)
+        if (statusResp.status === 404 && !_exportOpsCvRelaunched) {
+          _exportOpsCvRelaunched = true;
+          clearInterval(polling);
+          setBtn('🔄 Job perdido (pod reiniciado). Relanzando…');
+          setTimeout(() => exportarReporteOpsCv(btn, true), 800);
+          return;
+        }
+
         const statusData = await statusResp.json();
 
         if (statusResp.status === 202) {
