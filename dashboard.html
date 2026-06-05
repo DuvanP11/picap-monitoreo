@@ -4463,11 +4463,8 @@ window.fetch = function(url, opts) {
       <!-- Tabla Cruce Company (resumen Hoja 3) -->
       <div id="cr-tabla-cruce" style="margin-top:18px"></div>
 
-      <!-- Tabla Resumen Final (Hoja 5) -->
+      <!-- Tabla Resumen Final (Hoja 5) + Pivote 1. Comisión Recaudo -->
       <div id="cr-tabla-resumen" style="margin-top:24px"></div>
-
-      <!-- Resumen Surtitodo -->
-      <div id="cr-resumen-surtitodo" style="margin-top:24px"></div>
 
     </div>
   </div>
@@ -14961,11 +14958,10 @@ async function cargarComisionesRecaudo(isRelaunch) {
   const kpis   = document.getElementById('cr-kpis');
   const tCruce = document.getElementById('cr-tabla-cruce');
   const tRes   = document.getElementById('cr-tabla-resumen');
-  const surti  = document.getElementById('cr-resumen-surtitodo');
 
   estado.innerHTML = `⏳ Ejecutando queries CH para ${r.desde} → ${r.hasta}… (puede tomar 2-3 min)`;
   estado.style.color = '#16a34a';
-  kpis.innerHTML = ''; tCruce.innerHTML = ''; tRes.innerHTML = ''; surti.innerHTML = '';
+  kpis.innerHTML = ''; tCruce.innerHTML = ''; tRes.innerHTML = '';
   // Reset flag SOLO si el user clickeó manualmente (no si es auto-relanzar)
   if (!isRelaunch) _comisionesRecaudoRelaunched = false;
 
@@ -15169,22 +15165,7 @@ function _renderComisionesRecaudo(d) {
       </div>`);
   }
 
-  // Resumen Surtitodo
-  if (d.surtitodo && (d.surtitodo.recaudos || d.surtitodo.servicios)) {
-    const s = d.surtitodo;
-    const mesNombre = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][parseInt((d.desde||'').slice(5,7),10) - 1] || '';
-    document.getElementById('cr-resumen-surtitodo').innerHTML = `
-      <div style="background:#fff;border:2px solid #5b2169;border-radius:12px;overflow:hidden;max-width:480px;box-shadow:0 4px 12px rgba(91,33,105,0.15)">
-        <div style="background:#5b2169;color:#fff;padding:14px 18px;text-align:center;font-weight:700;font-size:15px">🎯 Resumen Surtitodo · ${mesNombre} ${d.desde?.slice(0,4) || ''}</div>
-        <table style="width:100%;border-collapse:collapse;font-size:14px">
-          <tr><td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169">Recaudos</td><td style="padding:11px 16px;background:#FFFF00;text-align:right;font-weight:700">${_fmtCop2(s.recaudos)}</td></tr>
-          <tr><td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169">Servicios</td><td style="padding:11px 16px;background:#d4edda;text-align:right;font-weight:700">${_fmtCop2(s.servicios)}</td></tr>
-          <tr><td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169">Comisión <span style="font-weight:400">(1%)</span></td><td style="padding:11px 16px;text-align:right;color:#c00000">${_fmtCop2(s.comision)}</td></tr>
-          <tr><td style="padding:11px 16px;background:#e8d7f0;font-weight:700;color:#5b2169">ICA <span style="font-weight:400">(9.66/1000)</span></td><td style="padding:11px 16px;text-align:right">${_fmtCop2(s.ica)}</td></tr>
-          <tr><td style="padding:13px 16px;background:#5b2169;color:#fff;font-weight:700">Total</td><td style="padding:13px 16px;background:#5b2169;text-align:right;color:#fca5a5;font-weight:700;font-size:15px">${_fmtCop2(s.total)}</td></tr>
-        </table>
-      </div>`;
-  }
+  // (Resumen Surtitodo eliminado: pertenece al módulo Saldo Recaudos, no a Comisiones Recaudo)
 }
 
 async function exportarComisionesRecaudo() {
