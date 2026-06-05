@@ -55,6 +55,9 @@ Rails.application.routes.draw do
     # Reporte OPS CV — bookings Pibox Cruz Verde (acceso restringido)
     get  "reporte_ops_cv",                to: "reporte_ops_cv#index"
     post "reporte_ops_cv/enviar_email",   to: "reporte_ops_cv#enviar_email"
+    # v3.3.36: download async (soluciona 502 cuando hay > 5k servicios)
+    get  "reporte_ops_cv/exportar_async",        to: "reporte_ops_cv#exportar_async"
+    get  "reporte_ops_cv/export_status/:job_id", to: "reporte_ops_cv#export_status"
 
     # v3.3.23: Bonos de Ayuda Voluntaria (acceso restringido)
     get  "bonos_ayuda",                   to: "bonos_ayuda_voluntaria#index"

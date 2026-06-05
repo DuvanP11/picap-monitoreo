@@ -14010,7 +14010,15 @@ async function _descargarConToken(url, filenameBase, btn) {
   }
 }
 
-function exportarReporteOpsCv(btn) {
+// v3.3.36: exportarReporteOpsCv async pattern.
+// El endpoint anterior /api/exportar/reporte_ops_cv era SINCRONO: query CH
+// (2-3 min) + build XLSX + send_data, todo en el mismo request. Como el
+// Ingress NGINX corta a los ~60s, daba HTTP 502 con muchos servicios.
+//
+// Ahora usa: GET /api/reporte_ops_cv/exportar_async → job_id → polling cada
+// 3s a /export_status/:job_id → GET ?download=1&job_id=X.
+// Beneficio: funciona con cualquier rango sin importar cuántos servicios.
+async function exportarReporteOpsCv(btn) {
   const desde = _rcvDesde || daysAgo(15);
   const hasta = _rcvHasta || today();
   const estado  = document.getElementById('rcv-estado')?.value   || '';
@@ -14020,7 +14028,101 @@ function exportarReporteOpsCv(btn) {
   if (estado)  params.set('estado', estado);
   if (nextDay) params.set('next_day', nextDay);
   if (ciudad)  params.set('ciudad', ciudad);
-  _descargarConToken(`${API}/api/exportar/reporte_ops_cv?${params}`, `Picap_Reporte_OPS_CV_${desde}_${hasta}`, btn);
+
+  const origHTML = btn ? btn.innerHTML : null;
+  const setBtn = (html, disabled = true) => {
+    if (!btn) return;
+    btn.disabled = disabled;
+    btn.style.opacity = disabled ? '0.75' : '';
+    btn.style.cursor = disabled ? 'wait' : '';
+    btn.innerHTML = html;
+  };
+  const restaurar = () => setBtn(origHTML, false);
+
+  setBtn('⏳ Iniciando…');
+
+  try {
+    // 1. Iniciar job (o cache hit)
+    const initResp = await fetch(`${API}/api/reporte_ops_cv/exportar_async?${params}`, {
+      headers: { 'X-Token': _sesionToken },
+    });
+    const initData = await initResp.json();
+    if (!initData.ok) throw new Error(initData.error || `HTTP ${initResp.status}`);
+
+    let jobId = initData.job_id;
+
+    // 2. Si hubo cache hit, saltamos el polling
+    if (initData.listo_para_descargar) {
+      _descargarExportOpsCvBlob(jobId, params, btn, origHTML);
+      return;
+    }
+
+    // 3. Polling cada 3s
+    let secs = 0;
+    const polling = setInterval(async () => {
+      try {
+        const statusResp = await fetch(`${API}/api/reporte_ops_cv/export_status/${jobId}`, {
+          headers: { 'X-Token': _sesionToken },
+        });
+        const statusData = await statusResp.json();
+
+        if (statusResp.status === 202) {
+          // Aún corriendo
+          secs = statusData.elapsed_sec || (secs + 3);
+          setBtn(`⏳ Generando… ${secs}s`);
+          return;
+        }
+
+        clearInterval(polling);
+
+        if (!statusData.ok) throw new Error(statusData.error || 'desconocido');
+
+        if (statusData.listo_para_descargar) {
+          _descargarExportOpsCvBlob(jobId, params, btn, origHTML);
+        }
+      } catch (err) {
+        clearInterval(polling);
+        restaurar();
+        alert('❌ Error generando Excel: ' + (err.message || err));
+      }
+    }, 3000);
+  } catch (err) {
+    restaurar();
+    alert('❌ Error iniciando descarga: ' + (err.message || err));
+  }
+}
+
+// Descarga el blob desde el endpoint con download=1 + job_id.
+function _descargarExportOpsCvBlob(jobId, params, btn, origHTML) {
+  const setBtn = (html, disabled = true) => {
+    if (!btn) return;
+    btn.disabled = disabled;
+    btn.style.opacity = disabled ? '0.75' : '';
+    btn.style.cursor = disabled ? 'wait' : '';
+    btn.innerHTML = html;
+  };
+  const restaurar = () => setBtn(origHTML, false);
+  setBtn('⬇️ Descargando…');
+
+  const dlUrl = `${API}/api/reporte_ops_cv/exportar_async?download=1&job_id=${jobId}&${params}`;
+  fetch(dlUrl, { headers: { 'X-Token': _sesionToken } })
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      const objurl = window.URL.createObjectURL(blob);
+      a.href = objurl;
+      a.download = `Picap_Reporte_OPS_CV_${new Date().toISOString().slice(0,10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(objurl);
+      a.remove();
+      setBtn(`✅ Listo (${Math.round(blob.size/1024)} KB)`);
+      setTimeout(restaurar, 2000);
+    })
+    .catch(err => {
+      restaurar();
+      alert('❌ Error descargando: ' + (err.message || err));
+    });
 }
 
 function enviarReporteOpsCvEmail(btn) {

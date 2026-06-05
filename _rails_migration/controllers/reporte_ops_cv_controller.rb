@@ -102,7 +102,143 @@ module Api
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
+    # ──────────────────────────────────────────────────────────────────────
+    # v3.3.36: Export Excel async — soluciona el HTTP 502 (Ingress NGINX
+    # timeout ~60s) cuando hay > 5000 servicios. Patrón = mismo de
+    # MINTIC / Saldo Recaudos / Comisiones: Thread + @@jobs + polling.
+    #
+    # Flujo:
+    #   1. GET /exportar_async              → arranca job, devuelve job_id (HTTP 202)
+    #   2. GET /export_status/:job_id       → polling, HTTP 202 mientras corre,
+    #                                          HTTP 200 con listo_para_descargar=true
+    #                                          cuando termina.
+    #   3. GET /exportar_async?download=1&job_id=X → devuelve el xlsx binario.
+    # ──────────────────────────────────────────────────────────────────────
+
+    @@export_jobs = {}
+    @@export_jobs_mutex = Mutex.new
+    EXPORT_JOB_TTL_SEC = 1_800  # 30 min
+
+    def exportar_async
+      desde    = desde_param
+      hasta    = hasta_param
+      estado   = params[:estado].to_s.strip
+      next_day = params[:next_day].to_s.strip
+      ciudad   = params[:ciudad].to_s.strip
+
+      # Branch 3: descarga del Excel ya generado
+      if params[:download].to_s == "1" && params[:job_id].present?
+        return _descargar_export(params[:job_id].to_s)
+      end
+
+      # Buscar cache hit (mismo cache_key + status :done)
+      cache_key = "export_#{desde}_#{hasta}_#{estado}_#{next_day}_#{ciudad}"
+      hit = @@export_jobs_mutex.synchronize do
+        @@export_jobs.find { |_, j| j[:cache_key] == cache_key && j[:status] == :done }
+      end
+      if hit
+        return render json: {
+          ok: true, async: false, job_id: hit[0], status: "done",
+          listo_para_descargar: true,
+        }
+      end
+
+      # Lanzar job nuevo
+      job_id = SecureRandom.hex(16)
+      @@export_jobs_mutex.synchronize do
+        @@export_jobs[job_id] = {
+          status: :running, cache_key: cache_key,
+          desde: desde, hasta: hasta,
+          estado: estado, next_day: next_day, ciudad: ciudad,
+          t0: Time.now,
+        }
+      end
+      Thread.new do
+        begin
+          xlsx = Api::ExportarController.build_reporte_ops_cv_xlsx(
+            desde, hasta, ch,
+            estado: estado, next_day: next_day, ciudad: ciudad,
+          )
+          filename = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+          @@export_jobs_mutex.synchronize do
+            @@export_jobs[job_id][:status]       = :done
+            @@export_jobs[job_id][:excel_bytes]  = xlsx[:data]
+            @@export_jobs[job_id][:filename]     = filename
+            @@export_jobs[job_id][:t_elapsed]    = Time.now - @@export_jobs[job_id][:t0]
+          end
+          Rails.logger.info(
+            "[ReporteOpsCv export job #{job_id}] OK en " \
+            "#{@@export_jobs[job_id][:t_elapsed].round(1)}s, " \
+            "size=#{(xlsx[:data].bytesize.to_f/1024).round}KB"
+          )
+        rescue => e
+          Rails.logger.error("[ReporteOpsCv export job #{job_id}] #{e.class}: #{e.message}")
+          Rails.logger.error(e.backtrace.first(8).join("\n"))
+          @@export_jobs_mutex.synchronize do
+            @@export_jobs[job_id][:status] = :error
+            @@export_jobs[job_id][:error]  = e.message
+          end
+        end
+      end
+
+      render json: {
+        ok: true, async: true, job_id: job_id, status: "queued",
+      }, status: :accepted
+    rescue => e
+      Rails.logger.error("[ReporteOpsCvController#exportar_async] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    def export_status
+      job_id = params[:job_id].to_s
+      _cleanup_export_jobs
+      @@export_jobs_mutex.synchronize do
+        job = @@export_jobs[job_id]
+        return render(json: { ok: false, error: "Job no encontrado o expirado (>30 min)" },
+                      status: :not_found) if job.nil?
+        case job[:status]
+        when :done
+          render json: {
+            ok: true, status: "done", listo_para_descargar: true,
+            job_id: job_id,
+            size_kb: (job[:excel_bytes].bytesize.to_f / 1024).round,
+            t_elapsed: job[:t_elapsed].to_f.round(1),
+          }
+        when :error
+          render json: { ok: false, error: job[:error], job_id: job_id },
+                 status: :internal_server_error
+        else
+          elapsed = (Time.now - job[:t0]).round(1)
+          render json: {
+            ok: true, async: true, status: "running",
+            elapsed_sec: elapsed, job_id: job_id,
+          }, status: :accepted
+        end
+      end
+    end
+
     private
+
+    def _descargar_export(job_id)
+      _cleanup_export_jobs
+      job = @@export_jobs_mutex.synchronize { @@export_jobs[job_id] }
+      return render(json: { ok: false, error: "Job no encontrado o expirado" },
+                    status: :not_found) if job.nil?
+      return render(json: { ok: false, error: "Job aún corriendo o falló" },
+                    status: :unprocessable_entity) unless job[:status] == :done
+      send_data job[:excel_bytes],
+                filename: job[:filename],
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                disposition: "attachment"
+    end
+
+    def _cleanup_export_jobs
+      now = Time.now
+      @@export_jobs_mutex.synchronize do
+        @@export_jobs.delete_if { |_id, job| now - job[:t0] > EXPORT_JOB_TTL_SEC }
+      end
+    end
+
 
     def parse_email_list(val)
       return [] if val.nil?
