@@ -13645,7 +13645,7 @@ function exportarDispersiones(btn) {
   const params = new URLSearchParams({ desde, hasta });
   if (company) params.set('company', company);
   if (tipo)    params.set('tipo', tipo);
-  window.open(`${API}/api/exportar/dispersiones?${params}`, '_blank');
+  _descargarConToken(`${API}/api/exportar/dispersiones?${params}`, `Picap_Dispersiones_${desde}_${hasta}`);
 }
 
 function enviarDispersionesEmail(btn) {
@@ -13937,6 +13937,42 @@ function renderReporteOpsCv(data) {
   document.getElementById('rcv-table-container').innerHTML = filasHtml;
 }
 
+// v3.3.34: helper para descargar archivos del backend con el header X-Token.
+// Reemplaza el uso de window.open() (que NO envia headers custom y disparaba
+// 401 "Sesion expirada o invalida" cuando el endpoint requiere auth).
+// Usa fetch + blob + click programatico en <a download> para que el archivo
+// se descargue manteniendo la sesion del usuario.
+async function _descargarConToken(url, filenameBase) {
+  try {
+    const resp = await fetch(url, { headers: { 'X-Token': _sesionToken } });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    // Inferir extension del Content-Type o del filename del header
+    const ct = resp.headers.get('Content-Type') || '';
+    let ext = '.xlsx';
+    if (ct.includes('csv')) ext = '.csv';
+    else if (ct.includes('pdf')) ext = '.pdf';
+    const dispo = resp.headers.get('Content-Disposition') || '';
+    const m = dispo.match(/filename="?([^";]+)"?/);
+    const finalName = m ? m[1] : `${filenameBase}_${new Date().toISOString().slice(0,10)}${ext}`;
+
+    const a = document.createElement('a');
+    const objurl = window.URL.createObjectURL(blob);
+    a.href = objurl;
+    a.download = finalName;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(objurl);
+    a.remove();
+  } catch (err) {
+    alert('❌ Error descargando el archivo:\n\n' + (err.message || err));
+  }
+}
+
 function exportarReporteOpsCv(btn) {
   const desde = _rcvDesde || daysAgo(15);
   const hasta = _rcvHasta || today();
@@ -13947,7 +13983,7 @@ function exportarReporteOpsCv(btn) {
   if (estado)  params.set('estado', estado);
   if (nextDay) params.set('next_day', nextDay);
   if (ciudad)  params.set('ciudad', ciudad);
-  window.open(`${API}/api/exportar/reporte_ops_cv?${params}`, '_blank');
+  _descargarConToken(`${API}/api/exportar/reporte_ops_cv?${params}`, `Picap_Reporte_OPS_CV_${desde}_${hasta}`);
 }
 
 function enviarReporteOpsCvEmail(btn) {
@@ -14311,7 +14347,7 @@ function exportarBonosAyuda(btn) {
   if (walletType) params.set('wallet_type', walletType);
   if (pais)       params.set('pais', pais);
   if (q)          params.set('q', q);
-  window.open(`${API}/api/exportar/bonos_ayuda?${params}`, '_blank');
+  _descargarConToken(`${API}/api/exportar/bonos_ayuda?${params}`, `Picap_Bonos_Ayuda_${desde}_${hasta}`);
 }
 
 
