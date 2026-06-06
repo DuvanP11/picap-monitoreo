@@ -6,6 +6,10 @@
 # Endpoints:
 #   GET  /api/reporte_ops_cv               → lista + stats
 #   POST /api/reporte_ops_cv/enviar_email  → enviar xlsx adjunto vía Resend
+#   GET  /api/reporte_ops_cv/exportar_async       → arranca export async (v3.3.36+)
+#   GET  /api/reporte_ops_cv/export_status/:job_id → polling de estado (v3.3.36+)
+
+require "tempfile"
 
 module Api
   class ReporteOpsCvController < ApplicationController
@@ -155,21 +159,45 @@ module Api
       end
       Thread.new do
         begin
+          Rails.logger.info("[ReporteOpsCv export job #{job_id}] START desde=#{desde} hasta=#{hasta} estado=#{estado.inspect} ciudad=#{ciudad.inspect}")
+          t_build_start = Time.now
+
           xlsx = Api::ExportarController.build_reporte_ops_cv_xlsx(
             desde, hasta, ch,
             estado: estado, next_day: next_day, ciudad: ciudad,
           )
-          filename = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+          xlsx_bytes = xlsx[:data]
+          size_mb = (xlsx_bytes.bytesize.to_f / 1024 / 1024).round(2)
+          Rails.logger.info("[ReporteOpsCv export job #{job_id}] xlsx generado size=#{size_mb}MB (#{(Time.now - t_build_start).round(1)}s)")
+
+          # v3.3.39: guardar el xlsx en DISCO (Tempfile) en lugar de RAM
+          # para liberar memoria del pod inmediatamente. Si quedara en el hash
+          # @@export_jobs, 30-50MB se mantendrían en RAM por hasta 30 min
+          # → OOMKill del pod → NGINX "no available server".
+          filename  = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+          tmpfile   = Tempfile.new(["reporte_ops_cv_#{job_id}_", ".xlsx"], binmode: true)
+          tmpfile.write(xlsx_bytes)
+          tmpfile.flush
+          tmpfile.close
+          file_path = tmpfile.path
+
+          # Soltar referencia a los bytes para que GC libere ~30-50MB.
+          xlsx_bytes = nil
+          xlsx       = nil
+          GC.start
+          Rails.logger.info("[ReporteOpsCv export job #{job_id}] xlsx escrito a #{file_path}, RAM liberada")
+
           @@export_jobs_mutex.synchronize do
-            @@export_jobs[job_id][:status]       = :done
-            @@export_jobs[job_id][:excel_bytes]  = xlsx[:data]
-            @@export_jobs[job_id][:filename]     = filename
-            @@export_jobs[job_id][:t_elapsed]    = Time.now - @@export_jobs[job_id][:t0]
+            @@export_jobs[job_id][:status]    = :done
+            @@export_jobs[job_id][:file_path] = file_path
+            @@export_jobs[job_id][:size_mb]   = size_mb
+            @@export_jobs[job_id][:filename]  = filename
+            @@export_jobs[job_id][:t_elapsed] = Time.now - @@export_jobs[job_id][:t0]
           end
           Rails.logger.info(
-            "[ReporteOpsCv export job #{job_id}] OK en " \
-            "#{@@export_jobs[job_id][:t_elapsed].round(1)}s, " \
-            "size=#{(xlsx[:data].bytesize.to_f/1024).round}KB"
+            "[ReporteOpsCv export job #{job_id}] DONE en " \
+            "#{@@export_jobs[job_id][:t_elapsed].round(1)}s, size=#{size_mb}MB"
           )
         rescue => e
           Rails.logger.error("[ReporteOpsCv export job #{job_id}] #{e.class}: #{e.message}")
@@ -198,10 +226,11 @@ module Api
                       status: :not_found) if job.nil?
         case job[:status]
         when :done
+          # v3.3.39: size_mb viene del job (calculado al escribir el Tempfile)
           render json: {
             ok: true, status: "done", listo_para_descargar: true,
             job_id: job_id,
-            size_kb: (job[:excel_bytes].bytesize.to_f / 1024).round,
+            size_kb: (job[:size_mb].to_f * 1024).round,
             t_elapsed: job[:t_elapsed].to_f.round(1),
           }
         when :error
@@ -226,7 +255,16 @@ module Api
                     status: :not_found) if job.nil?
       return render(json: { ok: false, error: "Job aún corriendo o falló" },
                     status: :unprocessable_entity) unless job[:status] == :done
-      send_data job[:excel_bytes],
+
+      # v3.3.39: send_file streamea desde disco (kernel sendfile), sin cargar
+      # los bytes en RAM. Necesario para evitar pico de memoria al servir
+      # archivos de ~50MB.
+      file_path = job[:file_path]
+      unless file_path && File.exist?(file_path)
+        return render json: { ok: false, error: "Archivo temporal no disponible (job expirado o servidor reiniciado)" },
+                      status: :gone
+      end
+      send_file file_path,
                 filename: job[:filename],
                 type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 disposition: "attachment"
@@ -235,7 +273,19 @@ module Api
     def _cleanup_export_jobs
       now = Time.now
       @@export_jobs_mutex.synchronize do
-        @@export_jobs.delete_if { |_id, job| now - job[:t0] > EXPORT_JOB_TTL_SEC }
+        @@export_jobs.delete_if do |_id, job|
+          expired = (now - job[:t0]) > EXPORT_JOB_TTL_SEC
+          # v3.3.39: borrar el Tempfile en disco cuando el job expira
+          if expired && job[:file_path] && File.exist?(job[:file_path])
+            begin
+              File.delete(job[:file_path])
+              Rails.logger.info("[ReporteOpsCv export cleanup] deleted #{job[:file_path]}")
+            rescue => e
+              Rails.logger.warn("[ReporteOpsCv export cleanup] could not delete #{job[:file_path]}: #{e.message}")
+            end
+          end
+          expired
+        end
       end
     end
 
