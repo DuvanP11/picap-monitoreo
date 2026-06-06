@@ -19,6 +19,8 @@ module Api
     ROLES_PERMITIDOS = %w[admin monitoreo financiero].freeze
 
     # GET /api/reporte_ops_cv?desde=&hasta=&estado=&next_day=&ciudad=
+    # v3.3.43: SYNC kept for backwards compat. Frontend ahora usa cargar_async
+    # (ver abajo) porque query CH con 27k filas excede timeout NGINX 60s.
     def index
       desde    = desde_param
       hasta    = hasta_param
@@ -40,6 +42,134 @@ module Api
       Rails.logger.error("[ReporteOpsCvController#index] #{e.class}: #{e.message}")
       Rails.logger.error(e.backtrace.first(8).join("\n"))
       render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # ──────────────────────────────────────────────────────────────────────
+    # v3.3.43: LOAD async — soluciona "Failed to fetch" / 502 cuando
+    # Q_REPORTE_OPS_CV tarda > 60s (NGINX timeout). Mismo patrón que
+    # exportar_async / MINTIC / Saldo Recaudos / Comisiones / etc.
+    #
+    # Flujo:
+    #   1. GET /cargar_async                → arranca job, devuelve job_id (202)
+    #   2. GET /cargar_status/:job_id       → polling: 202 con elapsed_sec
+    #                                          mientras corre, 200 con datos
+    #                                          cuando termina.
+    # ──────────────────────────────────────────────────────────────────────
+    @@load_jobs       = {}
+    @@load_jobs_mutex = Mutex.new
+    LOAD_JOB_TTL_SEC  = 600  # 10 min (más corto que export porque tabla 5k filas es ~10MB)
+
+    # GET /api/reporte_ops_cv/cargar_async?desde=&hasta=&estado=&next_day=&ciudad=
+    def cargar_async
+      desde    = desde_param
+      hasta    = hasta_param
+      estado   = params[:estado].to_s.strip
+      next_day = params[:next_day].to_s.strip
+      ciudad   = params[:ciudad].to_s.strip
+
+      # Cache hit: si alguien (o este mismo user) ya cargó este rango
+      # recientemente, devolver los datos directos sin re-ejecutar query.
+      cache_key = "load_#{desde}_#{hasta}_#{estado}_#{next_day}_#{ciudad}"
+      hit = @@load_jobs_mutex.synchronize do
+        @@load_jobs.find { |_, j| j[:cache_key] == cache_key && j[:status] == :done }
+      end
+      if hit
+        job_id, job = hit
+        result = job[:result]
+        return render(json: limpiar({
+          ok: true, async: false, status: "done", job_id: job_id,
+          desde: desde, hasta: hasta,
+          total: result[:total],
+          stats: result[:stats],
+          filas: result[:filas],
+          t_elapsed: job[:t_elapsed].to_f.round(1),
+          cached: true,
+        }))
+      end
+
+      job_id = SecureRandom.hex(16)
+      @@load_jobs_mutex.synchronize do
+        @@load_jobs[job_id] = {
+          status: :running, cache_key: cache_key,
+          desde: desde, hasta: hasta,
+          estado: estado, next_day: next_day, ciudad: ciudad,
+          t0: Time.now,
+        }
+      end
+
+      Thread.new do
+        begin
+          Rails.logger.info(
+            "[ReporteOpsCv load job #{job_id}] START " \
+            "desde=#{desde} hasta=#{hasta} estado=#{estado.inspect} ciudad=#{ciudad.inspect}"
+          )
+          t_start = Time.now
+          rows = cargar_filas(desde: desde, hasta: hasta,
+                              estado: estado, next_day: next_day, ciudad: ciudad)
+          Rails.logger.info(
+            "[ReporteOpsCv load job #{job_id}] CH query OK " \
+            "(#{rows.size} filas, #{(Time.now - t_start).round(1)}s)"
+          )
+
+          result = {
+            total: rows.size,
+            stats: calcular_stats(rows),
+            filas: rows.first(5_000),
+          }
+          @@load_jobs_mutex.synchronize do
+            @@load_jobs[job_id][:status]    = :done
+            @@load_jobs[job_id][:result]    = result
+            @@load_jobs[job_id][:t_elapsed] = Time.now - @@load_jobs[job_id][:t0]
+          end
+          Rails.logger.info(
+            "[ReporteOpsCv load job #{job_id}] DONE en " \
+            "#{@@load_jobs[job_id][:t_elapsed].round(1)}s"
+          )
+        rescue => e
+          Rails.logger.error("[ReporteOpsCv load job #{job_id}] #{e.class}: #{e.message}")
+          Rails.logger.error(e.backtrace.first(8).join("\n"))
+          @@load_jobs_mutex.synchronize do
+            @@load_jobs[job_id][:status] = :error
+            @@load_jobs[job_id][:error]  = e.message
+          end
+        end
+      end
+
+      render json: { ok: true, async: true, status: "queued", job_id: job_id },
+             status: :accepted
+    rescue => e
+      Rails.logger.error("[ReporteOpsCvController#cargar_async] #{e.class}: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # GET /api/reporte_ops_cv/cargar_status/:job_id
+    def cargar_status
+      job_id = params[:job_id].to_s
+      _cleanup_load_jobs
+      @@load_jobs_mutex.synchronize do
+        job = @@load_jobs[job_id]
+        return render(json: { ok: false, error: "Job no encontrado o expirado (>10 min)" },
+                      status: :not_found) if job.nil?
+        case job[:status]
+        when :done
+          result = job[:result]
+          render json: limpiar({
+            ok: true, status: "done",
+            desde: job[:desde], hasta: job[:hasta],
+            total: result[:total],
+            stats: result[:stats],
+            filas: result[:filas],
+            t_elapsed: job[:t_elapsed].to_f.round(1),
+          })
+        when :error
+          render json: { ok: false, status: "error", error: job[:error], job_id: job_id },
+                 status: :internal_server_error
+        else
+          elapsed = (Time.now - job[:t0]).round(1)
+          render json: { ok: true, status: "running", elapsed_sec: elapsed, job_id: job_id },
+                 status: :accepted
+        end
+      end
     end
 
     # POST /api/reporte_ops_cv/enviar_email
@@ -286,6 +416,14 @@ module Api
           end
           expired
         end
+      end
+    end
+
+    # v3.3.43: cleanup de @@load_jobs
+    def _cleanup_load_jobs
+      now = Time.now
+      @@load_jobs_mutex.synchronize do
+        @@load_jobs.delete_if { |_id, job| (now - job[:t0]) > LOAD_JOB_TTL_SEC }
       end
     end
 

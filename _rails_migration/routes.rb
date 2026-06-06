@@ -58,6 +58,9 @@ Rails.application.routes.draw do
     # v3.3.36: download async (soluciona 502 cuando hay > 5k servicios)
     get  "reporte_ops_cv/exportar_async",        to: "reporte_ops_cv#exportar_async"
     get  "reporte_ops_cv/export_status/:job_id", to: "reporte_ops_cv#export_status"
+    # v3.3.43: load async (soluciona "Failed to fetch" / 502 cuando query CH > 60s)
+    get  "reporte_ops_cv/cargar_async",          to: "reporte_ops_cv#cargar_async"
+    get  "reporte_ops_cv/cargar_status/:job_id", to: "reporte_ops_cv#cargar_status"
 
     # v3.3.23: Bonos de Ayuda Voluntaria (acceso restringido)
     get  "bonos_ayuda",                   to: "bonos_ayuda_voluntaria#index"

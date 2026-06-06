@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.42-OPSCV-LOAD-RETRY-20260605</title>
+<title>Picap · Monitoreo · v3.3.43-OPSCV-LOAD-ASYNC-20260605</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -13754,6 +13754,14 @@ function initRcvAnioSelect() {
   for (let i = y; i >= y - 4; i--) sel.innerHTML += `<option value="${i}">${i}</option>`;
 }
 
+// v3.3.43: cargarReporteOpsCv FIX DE RAÍZ — async pattern.
+// El endpoint sincrono /api/reporte_ops_cv ejecuta una query CH que para
+// 27k+ servicios tarda 60-90s. NGINX corta TCP a los 60s → "Failed to fetch"
+// crónico que ningún retry frontend puede solucionar.
+//
+// Ahora usa async: cargar_async (job_id en ms) + polling cargar_status/:job_id
+// (cada uno responde rápido sin importar cuánto tarda la query).
+let _rcvLoadAbortController = null;
 async function cargarReporteOpsCv() {
   initRcvAnioSelect();
   if (!_rcvDesde) { _rcvDesde = daysAgo(15); document.getElementById('rcv-desde').value = _rcvDesde; }
@@ -13768,61 +13776,129 @@ async function cargarReporteOpsCv() {
   const ciudad   = document.getElementById('rcv-ciudad')?.value.trim() || '';
 
   const kpisEl = document.getElementById('rcv-kpis');
-  kpisEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando… (query CH puede tardar 30-90s con muchos servicios)</div>';
+  kpisEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Iniciando carga…</div>';
   document.getElementById('rcv-table-container').innerHTML = '';
   document.getElementById('rcv-analysis').innerHTML = '';
+
+  // Cancelar carga anterior si todavia esta corriendo (user cambio mes mientras esperaba)
+  if (_rcvLoadAbortController) {
+    try { _rcvLoadAbortController.abort(); } catch (e) {}
+  }
+  _rcvLoadAbortController = new AbortController();
+  const signal = _rcvLoadAbortController.signal;
 
   const params = new URLSearchParams({ desde: _rcvDesde, hasta: _rcvHasta });
   if (estado)  params.set('estado', estado);
   if (nextDay) params.set('next_day', nextDay);
   if (ciudad)  params.set('ciudad', ciudad);
 
-  // v3.3.42: retry tolerante a 'Failed to fetch' (NGINX cierra TCP por
-  // query CH muy lenta) y HTTP 5xx (pod saturado por otro job en curso).
-  const MAX_RETRIES = 3;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    let r = null;
-    let netErr = null;
-    try {
-      r = await fetch(`${API}/api/reporte_ops_cv?${params}`, { headers: { 'X-Token': _sesionToken } });
-    } catch (e) {
-      netErr = e;
+  try {
+    // 1. INIT: arrancar job (responde en ms con job_id) — retry tolerante
+    let initData = null;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      let r = null, netErr = null;
+      try {
+        r = await fetch(`${API}/api/reporte_ops_cv/cargar_async?${params}`, {
+          headers: { 'X-Token': _sesionToken }, signal,
+        });
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        netErr = e;
+      }
+      if (netErr) {
+        if (attempt < 5) {
+          kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Red lenta, reintentando ${attempt}/5…</div>`;
+          await new Promise(res => setTimeout(res, 2000 * attempt));
+          continue;
+        }
+        throw new Error(`Sin conexión al servidor tras 5 intentos`);
+      }
+      if (r.status >= 500 && r.status < 600) {
+        if (attempt < 5) {
+          kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Servidor ocupado (HTTP ${r.status}), reintentando ${attempt}/5…</div>`;
+          await new Promise(res => setTimeout(res, 2000 * attempt));
+          continue;
+        }
+        throw new Error(`Servidor saturado (HTTP ${r.status}) tras 5 intentos`);
+      }
+      try { initData = await r.json(); }
+      catch (e) { throw new Error(`Respuesta inválida del servidor (HTTP ${r.status})`); }
+      break;
+    }
+    if (!initData.ok) throw new Error(initData.error || 'Error iniciando carga');
+
+    // Cache hit: el servidor ya tenía estos datos cacheados, viene el resultado al toque
+    if (initData.status === 'done') {
+      renderReporteOpsCv(initData);
+      return;
     }
 
-    // Network error (Failed to fetch) → reintentar
-    if (netErr) {
-      if (attempt < MAX_RETRIES) {
-        kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Red lenta o servidor ocupado, reintentando ${attempt}/${MAX_RETRIES}…</div>`;
-        await new Promise(res => setTimeout(res, 3000 * attempt));
+    const jobId = initData.job_id;
+
+    // 2. POLLING cada 3s — tolerante a 5xx y network errors
+    let secs = 0;
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 15;  // 15 × 3s = 45s tolerados
+    kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Ejecutando query… 0s</div>`;
+
+    while (true) {
+      await new Promise(res => setTimeout(res, 3000));
+      if (signal.aborted) return;
+
+      let r = null, netErr = null;
+      try {
+        r = await fetch(`${API}/api/reporte_ops_cv/cargar_status/${jobId}`, {
+          headers: { 'X-Token': _sesionToken }, signal,
+        });
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        netErr = e;
+      }
+
+      const is5xx = r && r.status >= 500 && r.status < 600;
+      if (netErr || is5xx) {
+        consecutiveErrors++;
+        secs += 3;
+        if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
+          const detail = netErr ? `network (${netErr.message})` : `HTTP ${r.status}`;
+          throw new Error(`Polling falló: ${detail} × ${consecutiveErrors} intentos. El job sigue corriendo — reintentá en 1 min.`);
+        }
+        kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Ejecutando query… ${secs}s (server hiccup ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})</div>`;
         continue;
       }
-      kpisEl.innerHTML =
-        `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ Servidor no responde (${netErr.message}) tras ${MAX_RETRIES} intentos.<br><span style="font-size:12px;color:#7c2d12">Sugerencia: filtrá por menos días (7 días) o ciudad específica para una query más rápida.</span></div>`;
-      return;
-    }
 
-    // HTTP 5xx → reintentar
-    if (r.status >= 500 && r.status < 600) {
-      if (attempt < MAX_RETRIES) {
-        kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Servidor ocupado (HTTP ${r.status}), reintentando ${attempt}/${MAX_RETRIES}…</div>`;
-        await new Promise(res => setTimeout(res, 3000 * attempt));
+      consecutiveErrors = 0;
+
+      if (r.status === 404) {
+        // Job perdido (pod reiniciado). Reintentamos UNA vez.
+        kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Reintentando carga (job perdido)…</div>`;
+        await new Promise(res => setTimeout(res, 800));
+        return cargarReporteOpsCv();
+      }
+
+      let statusData = null;
+      try { statusData = await r.json(); }
+      catch (e) { throw new Error(`Respuesta inválida del polling (HTTP ${r.status})`); }
+
+      if (statusData.status === 'running') {
+        secs = statusData.elapsed_sec || (secs + 3);
+        kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Ejecutando query… ${secs}s</div>`;
         continue;
       }
-      kpisEl.innerHTML =
-        `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ Servidor saturado (HTTP ${r.status}) tras ${MAX_RETRIES} intentos.<br><span style="font-size:12px;color:#7c2d12">Esperá 30s y reintentá. Si seguís Excel exportando, esperá a que termine.</span></div>`;
-      return;
-    }
 
-    try {
-      const d = await r.json();
-      if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      renderReporteOpsCv(d);
-      return;
-    } catch (err) {
-      kpisEl.innerHTML =
-        `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}</div>`;
-      return;
+      if (statusData.status === 'error' || !statusData.ok) {
+        throw new Error(statusData.error || 'Error en el servidor');
+      }
+
+      if (statusData.status === 'done') {
+        renderReporteOpsCv(statusData);
+        return;
+      }
     }
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    kpisEl.innerHTML =
+      `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}<br><span style="font-size:12px;color:#7c2d12">Sugerencia: probá con menos días (7) o filtrá por ciudad.</span></div>`;
   }
 }
 
