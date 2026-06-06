@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.40-OPSCV-RETRY-5XX-20260605</title>
+<title>Picap · Monitoreo · v3.3.41-OPSCV-RETRY-NET-20260605</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -14049,22 +14049,33 @@ async function exportarReporteOpsCv(btn, isRelaunch) {
   if (!isRelaunch) _exportOpsCvRelaunched = false;
 
   try {
-    // 1. Iniciar job (o cache hit) — con retry si 5xx (v3.3.40)
-    // Si el pod estaba haciendo otro job pesado, el init puede dar 502.
-    // Reintentar 3 veces con backoff antes de fallar.
+    // 1. Iniciar job (o cache hit) — con retry si 5xx O network error (v3.3.41)
     let initData = null;
     let initResp = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      initResp = await fetch(`${API}/api/reporte_ops_cv/exportar_async?${params}`, {
-        headers: { 'X-Token': _sesionToken },
-      });
-      if (initResp.status >= 500 && initResp.status < 600) {
-        if (attempt < 3) {
-          setBtn(`⏳ Server hiccup (HTTP ${initResp.status}), reintentando ${attempt}/3…`);
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      let netErr = null;
+      try {
+        initResp = await fetch(`${API}/api/reporte_ops_cv/exportar_async?${params}`, {
+          headers: { 'X-Token': _sesionToken },
+        });
+      } catch (e) {
+        netErr = e;
+      }
+      if (netErr) {
+        if (attempt < 5) {
+          setBtn(`⏳ Red lenta, reintentando ${attempt}/5…`);
           await new Promise(res => setTimeout(res, 2000 * attempt));
           continue;
         }
-        throw new Error(`HTTP ${initResp.status} tras 3 intentos. El servidor no responde — reintentá en 1 min.`);
+        throw new Error(`Network error tras 5 intentos: ${netErr.message}`);
+      }
+      if (initResp.status >= 500 && initResp.status < 600) {
+        if (attempt < 5) {
+          setBtn(`⏳ Server hiccup (HTTP ${initResp.status}), reintentando ${attempt}/5…`);
+          await new Promise(res => setTimeout(res, 2000 * attempt));
+          continue;
+        }
+        throw new Error(`HTTP ${initResp.status} tras 5 intentos. El servidor no responde — reintentá en 1 min.`);
       }
       try {
         initData = await initResp.json();
@@ -14083,20 +14094,49 @@ async function exportarReporteOpsCv(btn, isRelaunch) {
       return;
     }
 
-    // 3. Polling cada 3s — tolerante a 5xx esporádicos (v3.3.40)
+    // 3. Polling cada 3s — tolerante a 5xx y network errors (v3.3.41)
     // El thread del export puede saturar el pod brevemente (construcción
     // de xlsx con caxlsx + 27k filas usa CPU intenso). Durante esos
-    // segundos NGINX puede devolver 502/503/504. NO debemos abortar el
-    // polling al primer hiccup — el job sigue corriendo en el backend.
+    // segundos NGINX puede devolver 502/503/504 O cerrar la conexión TCP
+    // (que se ve como TypeError "Failed to fetch" en el browser).
+    // NO debemos abortar el polling al primer hiccup — el job sigue
+    // corriendo en el backend.
     let secs = 0;
-    let consecutive5xx = 0;
-    const MAX_CONSECUTIVE_5XX = 8;  // 8 × 3s = 24s tolerados
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 12;  // 12 × 3s = 36s tolerados
     const polling = setInterval(async () => {
+      let statusResp = null;
+      let netErr = null;
+
+      // Capa 1: fetch puede lanzar TypeError "Failed to fetch" si el server
+      // cierra la conexión. NO debe matar el polling — solo contar y reintentar.
       try {
-        const statusResp = await fetch(`${API}/api/reporte_ops_cv/export_status/${jobId}`, {
+        statusResp = await fetch(`${API}/api/reporte_ops_cv/export_status/${jobId}`, {
           headers: { 'X-Token': _sesionToken },
         });
+      } catch (e) {
+        netErr = e;
+      }
 
+      // Capa 2: si hubo network error O 5xx, contar como hiccup y seguir polling.
+      const is5xx = statusResp && statusResp.status >= 500 && statusResp.status < 600;
+      if (netErr || is5xx) {
+        consecutiveErrors++;
+        secs += 3;
+        if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
+          clearInterval(polling);
+          restaurar();
+          const detail = netErr ? `Network error: ${netErr.message}` : `HTTP ${statusResp.status}`;
+          alert(`❌ Servidor no responde (${detail} × ${consecutiveErrors} intentos). El job puede seguir corriendo — reintentá en 1 min y si vuelve a fallar reportame.`);
+          return;
+        }
+        const tipo = netErr ? 'network' : `HTTP ${statusResp.status}`;
+        setBtn(`⏳ Generando… ${secs}s (${tipo} ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`);
+        return;  // sigue polling
+      }
+
+      // A partir de acá tenemos un statusResp válido (no 5xx, no network err).
+      try {
         // Auto-relanzar UNA VEZ si el job se perdió (pod reiniciado por deploy)
         if (statusResp.status === 404 && !_exportOpsCvRelaunched) {
           _exportOpsCvRelaunched = true;
@@ -14106,20 +14146,8 @@ async function exportarReporteOpsCv(btn, isRelaunch) {
           return;
         }
 
-        // v3.3.40: Tolerar 5xx esporádicos (502 Bad Gateway, 503, 504).
-        // El job sigue corriendo en el backend; solo NGINX no respondió.
-        if (statusResp.status >= 500 && statusResp.status < 600) {
-          consecutive5xx++;
-          secs += 3;
-          if (consecutive5xx > MAX_CONSECUTIVE_5XX) {
-            throw new Error(`Servidor no responde (HTTP ${statusResp.status} × ${consecutive5xx} intentos). Job sigue corriendo en backend; reintentá en 1 min.`);
-          }
-          setBtn(`⏳ Generando… ${secs}s (server hiccup ${consecutive5xx}/${MAX_CONSECUTIVE_5XX})`);
-          return;  // sigue polling
-        }
-
-        // Reset contador 5xx cuando hay respuesta OK
-        consecutive5xx = 0;
+        // Reset contador cuando recibimos respuesta OK
+        consecutiveErrors = 0;
 
         const statusData = await statusResp.json();
 
@@ -14150,7 +14178,7 @@ async function exportarReporteOpsCv(btn, isRelaunch) {
 }
 
 // Descarga el blob desde el endpoint con download=1 + job_id.
-// v3.3.40: reintento automático ante 5xx transitorios (hasta 3 veces, backoff 2s).
+// v3.3.41: reintento ante 5xx Y network errors (hasta 5 veces, backoff exponencial).
 async function _descargarExportOpsCvBlob(jobId, params, btn, origHTML) {
   const setBtn = (html, disabled = true) => {
     if (!btn) return;
@@ -14163,24 +14191,47 @@ async function _descargarExportOpsCvBlob(jobId, params, btn, origHTML) {
   setBtn('⬇️ Descargando…');
 
   const dlUrl = `${API}/api/reporte_ops_cv/exportar_async?download=1&job_id=${jobId}&${params}`;
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let r = null;
+    let netErr = null;
+
     try {
-      const r = await fetch(dlUrl, { headers: { 'X-Token': _sesionToken } });
+      r = await fetch(dlUrl, { headers: { 'X-Token': _sesionToken } });
+    } catch (e) {
+      netErr = e;
+    }
 
-      // 5xx → reintentar con backoff
-      if (r.status >= 500 && r.status < 600) {
-        if (attempt < MAX_RETRIES) {
-          setBtn(`⬇️ Server hiccup (HTTP ${r.status}), reintentando ${attempt}/${MAX_RETRIES}…`);
-          await new Promise(res => setTimeout(res, 2000 * attempt));
-          continue;
-        }
-        throw new Error(`HTTP ${r.status} tras ${MAX_RETRIES} intentos`);
+    if (netErr) {
+      if (attempt < MAX_RETRIES) {
+        setBtn(`⬇️ Red lenta (intento ${attempt}/${MAX_RETRIES})…`);
+        await new Promise(res => setTimeout(res, 2000 * attempt));
+        continue;
       }
+      restaurar();
+      alert(`❌ Error descargando: ${netErr.message} tras ${MAX_RETRIES} intentos`);
+      return;
+    }
 
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (r.status >= 500 && r.status < 600) {
+      if (attempt < MAX_RETRIES) {
+        setBtn(`⬇️ Server hiccup (HTTP ${r.status}), reintentando ${attempt}/${MAX_RETRIES}…`);
+        await new Promise(res => setTimeout(res, 2000 * attempt));
+        continue;
+      }
+      restaurar();
+      alert(`❌ Servidor no responde (HTTP ${r.status} × ${MAX_RETRIES}). El archivo está en cache 30 min — reintentá click en Exportar.`);
+      return;
+    }
 
+    if (!r.ok) {
+      restaurar();
+      alert(`❌ Error descargando: HTTP ${r.status}`);
+      return;
+    }
+
+    try {
       const blob = await r.blob();
       const a = document.createElement('a');
       const objurl = window.URL.createObjectURL(blob);
@@ -14194,14 +14245,9 @@ async function _descargarExportOpsCvBlob(jobId, params, btn, origHTML) {
       setTimeout(restaurar, 2000);
       return;
     } catch (err) {
-      if (attempt >= MAX_RETRIES) {
-        restaurar();
-        alert('❌ Error descargando: ' + (err.message || err));
-        return;
-      }
-      // Si es error de red o similar, reintentar
-      setBtn(`⬇️ Error de red, reintentando ${attempt}/${MAX_RETRIES}…`);
-      await new Promise(res => setTimeout(res, 2000 * attempt));
+      restaurar();
+      alert('❌ Error procesando descarga: ' + (err.message || err));
+      return;
     }
   }
 }
