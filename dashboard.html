@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.41-OPSCV-RETRY-NET-20260605</title>
+<title>Picap · Monitoreo · v3.3.42-OPSCV-LOAD-RETRY-20260605</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -13767,22 +13767,62 @@ async function cargarReporteOpsCv() {
   const nextDay  = document.getElementById('rcv-next-day')?.value || '';
   const ciudad   = document.getElementById('rcv-ciudad')?.value.trim() || '';
 
-  document.getElementById('rcv-kpis').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando… (esta query puede tardar 30-60s)</div>';
+  const kpisEl = document.getElementById('rcv-kpis');
+  kpisEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Cargando… (query CH puede tardar 30-90s con muchos servicios)</div>';
   document.getElementById('rcv-table-container').innerHTML = '';
   document.getElementById('rcv-analysis').innerHTML = '';
 
-  try {
-    const params = new URLSearchParams({ desde: _rcvDesde, hasta: _rcvHasta });
-    if (estado)  params.set('estado', estado);
-    if (nextDay) params.set('next_day', nextDay);
-    if (ciudad)  params.set('ciudad', ciudad);
-    const r = await fetch(`${API}/api/reporte_ops_cv?${params}`, { headers: { 'X-Token': _sesionToken } });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
-    renderReporteOpsCv(d);
-  } catch(err) {
-    document.getElementById('rcv-kpis').innerHTML =
-      `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}</div>`;
+  const params = new URLSearchParams({ desde: _rcvDesde, hasta: _rcvHasta });
+  if (estado)  params.set('estado', estado);
+  if (nextDay) params.set('next_day', nextDay);
+  if (ciudad)  params.set('ciudad', ciudad);
+
+  // v3.3.42: retry tolerante a 'Failed to fetch' (NGINX cierra TCP por
+  // query CH muy lenta) y HTTP 5xx (pod saturado por otro job en curso).
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let r = null;
+    let netErr = null;
+    try {
+      r = await fetch(`${API}/api/reporte_ops_cv?${params}`, { headers: { 'X-Token': _sesionToken } });
+    } catch (e) {
+      netErr = e;
+    }
+
+    // Network error (Failed to fetch) → reintentar
+    if (netErr) {
+      if (attempt < MAX_RETRIES) {
+        kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Red lenta o servidor ocupado, reintentando ${attempt}/${MAX_RETRIES}…</div>`;
+        await new Promise(res => setTimeout(res, 3000 * attempt));
+        continue;
+      }
+      kpisEl.innerHTML =
+        `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ Servidor no responde (${netErr.message}) tras ${MAX_RETRIES} intentos.<br><span style="font-size:12px;color:#7c2d12">Sugerencia: filtrá por menos días (7 días) o ciudad específica para una query más rápida.</span></div>`;
+      return;
+    }
+
+    // HTTP 5xx → reintentar
+    if (r.status >= 500 && r.status < 600) {
+      if (attempt < MAX_RETRIES) {
+        kpisEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3)">⏳ Servidor ocupado (HTTP ${r.status}), reintentando ${attempt}/${MAX_RETRIES}…</div>`;
+        await new Promise(res => setTimeout(res, 3000 * attempt));
+        continue;
+      }
+      kpisEl.innerHTML =
+        `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ Servidor saturado (HTTP ${r.status}) tras ${MAX_RETRIES} intentos.<br><span style="font-size:12px;color:#7c2d12">Esperá 30s y reintentá. Si seguís Excel exportando, esperá a que termine.</span></div>`;
+      return;
+    }
+
+    try {
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      renderReporteOpsCv(d);
+      return;
+    } catch (err) {
+      kpisEl.innerHTML =
+        `<div style="padding:24px;text-align:center;color:#ef4444;background:#fee2e2;border-radius:8px">❌ ${err.message || 'Error al cargar'}</div>`;
+      return;
+    }
   }
 }
 
