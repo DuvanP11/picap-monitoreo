@@ -77,6 +77,8 @@ Rails.application.routes.draw do
       get  "job_status/:job_id",   to: "/api/saldo_recaudos#job_status"
     end
     post "saldo_recaudos/enviar_email",   to: "saldo_recaudos#enviar_email"
+    # v3.3.48: email status polling
+    get  "saldo_recaudos/enviar_email_status/:job_id", to: "saldo_recaudos#enviar_email_status"
 
     # v3.3.29: Comisiones Recaudo (acceso restringido) — informe mensual 9 hojas.
     namespace :comisiones_recaudo do

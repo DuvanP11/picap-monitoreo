@@ -209,11 +209,17 @@ module Api
         return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
-      BackgroundMailerHelper.run("SaldoRecaudos") do
-        recaudos      = ejecutar_query_recaudos(desde, hasta)
-        transacciones = ejecutar_query_transacciones(desde, hasta)
+      # v3.3.48: BackgroundEmailJobsHelper con tracking — frontend hace polling.
+      # auto_zip:true comprime adjuntos > 20MB para que entren en límite Resend.
+      controller = self
+      job_id = BackgroundEmailJobsHelper.start(label: "SaldoRecaudos", to: to_list) do |progress|
+        progress.call("cargando_datos")
+        recaudos      = controller.send(:ejecutar_query_recaudos, desde, hasta)
+        transacciones = controller.send(:ejecutar_query_transacciones, desde, hasta)
         company_ids   = transacciones.map { |r| r["company_id"].to_s }.reject(&:empty?).uniq
-        comisiones    = ejecutar_query_comisiones(company_ids)
+        comisiones    = controller.send(:ejecutar_query_comisiones, company_ids)
+
+        progress.call("construyendo_excel")
         excel = SaldoRecaudosExcelBuilder.build(
           desde:         desde,
           hasta:         hasta,
@@ -223,7 +229,7 @@ module Api
         )
 
         subject_default = "Saldo Recaudos · #{desde} → #{hasta}"
-        html = construir_html_email(desde, hasta, recaudos, transacciones, mensaje, usuario)
+        html = controller.send(:construir_html_email, desde, hasta, recaudos, transacciones, mensaje, usuario)
 
         ResendMailerService.send_email(
           to:                  to_list,
@@ -233,20 +239,33 @@ module Api
           html:                html,
           attachment_bytes:    excel[:data],
           attachment_filename: excel[:filename],
+          auto_zip:            true,
+          progress:            progress,
         )
       end
 
       render json: {
         ok: true,
         queued: true,
+        job_id: job_id,
         destinatarios: to_list,
         cc: cc_list,
         bcc: bcc_list,
-        mensaje: "Reporte en proceso. El email con el Excel adjunto llegará en unos minutos.",
+        mensaje: "Reporte en proceso. Polling a /enviar_email_status/:job_id.",
       }, status: :accepted
     rescue => e
       Rails.logger.error("[SaldoRecaudosController#enviar_email] #{e.class}: #{e.message}")
       render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # v3.3.48: GET /api/saldo_recaudos/enviar_email_status/:job_id
+    def enviar_email_status
+      job = BackgroundEmailJobsHelper.get_status(params[:job_id].to_s)
+      if job.nil?
+        return render(json: { ok: false, error: "Job no encontrado o expirado" },
+                      status: :not_found)
+      end
+      render json: BackgroundEmailJobsHelper.serialize(job)
     end
 
     private
