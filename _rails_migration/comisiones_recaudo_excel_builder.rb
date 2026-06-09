@@ -255,6 +255,12 @@ class ComisionesRecaudoExcelBuilder
   # ──────────────────────────────────────────────────────────────────────
 
   def write_hoja3(wb)
+    # v3.3.46: refactor — antes había un add_worksheet preliminar + intento de
+    # borrarlo con wb.worksheets.delete_if (que NO existe en Axlsx 3.x →
+    # NoMethodError silenciada por BackgroundMailerHelper.run pre-v3.3.44).
+    # Ahora calculamos pivotes y cruce_company_data SIN crear hoja preliminar,
+    # y _hoja3_regenerate crea la hoja UNA SOLA VEZ con datos completos.
+
     # Pivote Hoja 2 (Recaudos)
     sumas_rec = Hash.new(0.0)
     company_id_por_name = {}
@@ -275,90 +281,24 @@ class ComisionesRecaudoExcelBuilder
     end
     sorted_com = sumas_com.sort_by { |emp, _| emp.downcase }
 
+    # cruce_company_data se calcula puro (sin generar hoja)
     cruce_company_data = {}
-
-    wb.add_worksheet(name: "3. Cruce company") do |ws|
-      # Fila 2: títulos
-      ws.add_row([])
-      ws.add_row(["Query 2 Recaudos", nil, nil, nil, nil, nil, nil, nil, "1. Comisión Recaudo"],
-                 style: [@styles[:bold], nil, nil, nil, nil, nil, nil, nil, @styles[:bold]])
-
-      # Fila 3: headers
-      hdrs_left  = ["CLIENTE", "Suma de VAL_AMOUNT", "Porcentaje Real", "Comisión Real",
-                    "Comisión Trump", "Dif", "id company"]
-      hdrs_right = ["Etiquetas de fila", "Suma de VAL_AMOUNT"]
-      row3 = hdrs_left + [nil] + hdrs_right
-      row3_styles = Array.new(row3.size, nil)
-      hdrs_left.size.times { |i| row3_styles[i] = @styles[:pivot_hdr] }
-      row3_styles[8] = @styles[:pivot_hdr]
-      row3_styles[9] = @styles[:pivot_hdr]
-      ws.add_row(row3, style: row3_styles)
-
-      # Data izquierda (fila 4 en adelante)
-      sorted_rec.each_with_index do |(emp, monto), i|
-        r = i + 4
-        cid = company_id_por_name[emp].to_s
-        pct = @fees[cid].to_f
-
-        values = [emp, monto.round(2), pct,
-                  "=B#{r}*C#{r}",                        # Comisión Real
-                  "=IFERROR(VLOOKUP(A#{r},I:J,2,0),0)",  # Comisión Trump
-                  "=E#{r}-D#{r}",                        # Dif
-                  cid]
-        styles = [@styles[:bordered], @styles[:int], @styles[:pct],
-                  @styles[:dec], @styles[:dec], @styles[:dec], @styles[:bordered]]
-        ws.add_row(values, style: styles)
-
-        cruce_company_data[emp] = {
-          recaudos: monto.round(2),
-          pct: pct,
-          company_id: cid,
-        }
-      end
-
-      total_left_row = 4 + sorted_rec.size
-      total_row_left = ["Total general",
-                       "=SUM(B4:B#{total_left_row - 1})",
-                       nil,
-                       "=SUM(D4:D#{total_left_row - 1})",
-                       "=SUM(E4:E#{total_left_row - 1})",
-                       "=SUM(F4:F#{total_left_row - 1})",
-                       nil]
-      total_styles = [@styles[:pivot_total_label],
-                      @styles[:pivot_total], nil,
-                      @styles[:pivot_total], @styles[:pivot_total],
-                      @styles[:pivot_total], nil]
-      ws.add_row(total_row_left, style: total_styles)
-
-      # v3.3.45 FIX: bloque dead-code eliminado. Tiraba undefined method `[]=`
-      # for Axlsx::Worksheet (axlsx solo soporta lectura `[]`, no escritura `[]=`).
-      # El check `if ws.respond_to?(:[])` daba true pero la asignación fallaba.
-      # Hasta v3.3.43 el error iba a Rails.logger y el usuario no se enteraba
-      # (BackgroundMailerHelper.run silent failure). Con v3.3.44 polling el
-      # error es visible al usuario. La hoja "3. Cruce company" se regenera
-      # correctamente abajo en _hoja3_regenerate (ver línea ~353), así que
-      # este bloque solo era ruido.
-
-      # Workaround: caxlsx no permite asignar celdas individuales después. Vamos a
-      # reescribir las hojas con un approach distinto: usar add_row con cols nil
-      # y luego pasar el array completo.
-      ws.column_widths(35, 18, 14, 18, 18, 18, 24, 4, 35, 18)
+    sorted_rec.each do |emp, monto|
+      cid = company_id_por_name[emp].to_s
+      cruce_company_data[emp] = {
+        recaudos: monto.round(2),
+        pct: @fees[cid].to_f,
+        company_id: cid,
+      }
     end
 
-    # caxlsx no soporta bien edición de celdas post-add_row.
-    # Estrategia: reescribir esta hoja con un array de filas combinado.
-    wb.sheet_by_name("3. Cruce company")&.tap { |old| }
-    # OK, en lugar de eso, regeneramos correctamente abajo:
     _hoja3_regenerate(wb, sorted_rec, sorted_com, cruce_company_data, company_id_por_name)
-
     cruce_company_data
   end
 
-  # Regeneración limpia de Hoja 3 (caxlsx requiere armar todas las filas a la vez).
+  # Crea la Hoja 3 con los pivotes lado a lado.
+  # v3.3.46: ya no intenta borrar versión preliminar (no existe).
   def _hoja3_regenerate(wb, sorted_rec, sorted_com, cruce_company_data, company_id_por_name)
-    # Borrar la versión preliminar
-    wb.worksheets.delete_if { |w| w.name == "3. Cruce company" }
-
     wb.add_worksheet(name: "3. Cruce company") do |ws|
       # Fila 1: vacía
       ws.add_row([])
