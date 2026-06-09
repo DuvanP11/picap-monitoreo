@@ -61,6 +61,8 @@ Rails.application.routes.draw do
     # v3.3.43: load async (soluciona "Failed to fetch" / 502 cuando query CH > 60s)
     get  "reporte_ops_cv/cargar_async",          to: "reporte_ops_cv#cargar_async"
     get  "reporte_ops_cv/cargar_status/:job_id", to: "reporte_ops_cv#cargar_status"
+    # v3.3.44: email status polling (soluciona silent failure en enviar_email)
+    get  "reporte_ops_cv/enviar_email_status/:job_id", to: "reporte_ops_cv#enviar_email_status"
 
     # v3.3.23: Bonos de Ayuda Voluntaria (acceso restringido)
     get  "bonos_ayuda",                   to: "bonos_ayuda_voluntaria#index"
@@ -85,6 +87,8 @@ Rails.application.routes.draw do
       get  "job_status/:job_id",   to: "/api/comisiones_recaudo#job_status"
     end
     post "comisiones_recaudo/enviar_email",   to: "comisiones_recaudo#enviar_email"
+    # v3.3.44: email status polling
+    get  "comisiones_recaudo/enviar_email_status/:job_id", to: "comisiones_recaudo#enviar_email_status"
 
     # v3.3.30: Recaudos y Dispersiones (acceso restringido) — informe mensual 7 hojas.
     namespace :recaudos_dispersiones do

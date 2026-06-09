@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.43-OPSCV-LOAD-ASYNC-20260605</title>
+<title>Picap · Monitoreo · v3.3.44-EMAIL-POLLING-ZIP-20260609</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -10025,7 +10025,7 @@ async function ejecutarEnviarEmailGenerico() {
 
   const btn = document.getElementById('meg-enviar-btn');
   const txtOrig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '⏳ Programando...';
+  btn.disabled = true; btn.innerHTML = '⏳ Iniciando…';
   try {
     const extra = cfg.extraParams() || {};
     const body = Object.assign({}, extra, {
@@ -10047,13 +10047,57 @@ async function ejecutarEnviarEmailGenerico() {
     const destL = (d.destinatarios || to).join(', ');
     const ccL   = (d.cc  || cc).length  ? `\nCC: ${(d.cc  || cc).join(', ')}`   : '';
     const bccL  = (d.bcc || bcc).length ? `\nCCO: ${(d.bcc || bcc).join(', ')}` : '';
-    const msg = d.queued
-      ? `📨 Reporte programado\nPara: ${destL}${ccL}${bccL}\n\n${d.mensaje || 'El email llegará en unos minutos.'}\nPuedes cerrar esta ventana.`
-      : `✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}`;
-    alert(msg);
-    cerrarModalEnviarEmailGenerico();
+
+    // v3.3.44: polling del estado si el módulo soporta job_id.
+    // Endpoint sigue patrón: /api/<modulo>/enviar_email → /enviar_email_status/:job_id
+    if (d.job_id) {
+      const statusUrl = cfg.endpoint + '_status/' + d.job_id;
+      let secs = 0;
+      let consecutiveErrors = 0;
+      while (true) {
+        await new Promise(res => setTimeout(res, 3000));
+        secs += 3;
+
+        let s = null, netErr = null;
+        try {
+          s = await fetch(`${API}${statusUrl}`, { headers: { 'X-Token': _sesionToken } });
+        } catch (e) { netErr = e; }
+
+        if (netErr || (s && s.status >= 500 && s.status < 600)) {
+          consecutiveErrors++;
+          if (consecutiveErrors > 12) {
+            throw new Error(`Polling falló ${consecutiveErrors} veces. El envío puede estar OK — revisá tu bandeja en 5 min.`);
+          }
+          btn.innerHTML = `⏳ ${secs}s (server hiccup ${consecutiveErrors}/12)`;
+          continue;
+        }
+        consecutiveErrors = 0;
+
+        if (s.status === 404) {
+          throw new Error('Job perdido (pod reiniciado durante envío). Reintentá.');
+        }
+        const sd = await s.json();
+        if (sd.status === 'error') {
+          throw new Error(`${sd.step_label || sd.step}: ${sd.error}`);
+        }
+        if (sd.status === 'done') {
+          const tiempo = sd.t_elapsed ? `${sd.t_elapsed}s` : `${secs}s`;
+          alert(`✅ Email entregado a Resend en ${tiempo}\nPara: ${destL}${ccL}${bccL}\nMessage ID: ${sd.resend_id || '(sin id)'}\n\nVerificá tu bandeja en 1-2 min. Si el Excel pesa >25MB viene como .zip.`);
+          cerrarModalEnviarEmailGenerico();
+          return;
+        }
+        btn.innerHTML = `⏳ ${sd.step_label || sd.step} (${secs}s)`;
+      }
+    } else {
+      // Módulo todavía no migrado a polling (fallback al comportamiento viejo)
+      const msg = d.queued
+        ? `📨 Reporte programado\nPara: ${destL}${ccL}${bccL}\n\n${d.mensaje || 'El email llegará en unos minutos.'}\nPuedes cerrar esta ventana.`
+        : `✅ Reporte enviado\nPara: ${destL}${ccL}${bccL}`;
+      alert(msg);
+      cerrarModalEnviarEmailGenerico();
+    }
   } catch (err) {
-    alert('Error al enviar email: ' + (err.message || err));
+    alert('❌ Error al enviar email: ' + (err.message || err));
   } finally {
     btn.disabled = false; btn.innerHTML = txtOrig;
   }
@@ -14404,7 +14448,7 @@ async function ejecutarEnviarRcvEmail() {
 
   const btn = document.getElementById('rcv-email-enviar-btn');
   const txtOrig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '⏳ Programando...';
+  btn.disabled = true; btn.innerHTML = '⏳ Iniciando…';
   try {
     const body = { email: to.join(','), desde, hasta, mensaje };
     if (cc.length)   body.cc       = cc.join(',');
@@ -14420,15 +14464,59 @@ async function ejecutarEnviarRcvEmail() {
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
-    // v3.3.12: el backend ahora responde 202 inmediato (queued). El reporte
-    // se construye en background porque la query CH tarda ~2m + xlsx + Resend.
+    const jobId = d.job_id;
+
+    // v3.3.44: polling para ver el progreso real del envío (NO silent failure).
+    // El backend trackea: cargando_datos → construyendo_excel → comprimiendo (si > 20MB)
+    // → enviando_a_resend → delivered. Si algo falla, se muestra el error.
     const destL = (d.destinatarios || []).join(', ');
-    const ccL   = (d.cc  || []).length ? `\nCC: ${d.cc.join(', ')}`   : '';
-    const bccL  = (d.bcc || []).length ? `\nCCO: ${d.bcc.join(', ')}` : '';
-    alert(`📨 Reporte programado\nPara: ${destL}${ccL}${bccL}\n\nEl email con el adjunto Excel llegará en 2-4 minutos.\nPuedes cerrar esta ventana.`);
-    cerrarModalRcvEmail();
+    btn.innerHTML = '⏳ Procesando…';
+
+    let secs = 0;
+    let consecutiveErrors = 0;
+    while (true) {
+      await new Promise(res => setTimeout(res, 3000));
+      secs += 3;
+
+      let s = null, netErr = null;
+      try {
+        s = await fetch(`${API}/api/reporte_ops_cv/enviar_email_status/${jobId}`, {
+          headers: { 'X-Token': _sesionToken },
+        });
+      } catch (e) {
+        netErr = e;
+      }
+
+      if (netErr || (s && s.status >= 500 && s.status < 600)) {
+        consecutiveErrors++;
+        if (consecutiveErrors > 12) {
+          throw new Error(`Polling falló ${consecutiveErrors} veces seguidas (network/5xx). El envío puede haber completado igual — revisá tu bandeja en 5 min.`);
+        }
+        btn.innerHTML = `⏳ ${secs}s (server hiccup ${consecutiveErrors}/12)`;
+        continue;
+      }
+
+      consecutiveErrors = 0;
+
+      if (s.status === 404) {
+        throw new Error('Job perdido (pod reiniciado durante envío). Reintentá.');
+      }
+
+      const sd = await s.json();
+      if (sd.status === 'error') {
+        throw new Error(`${sd.step_label || sd.step}: ${sd.error}`);
+      }
+      if (sd.status === 'done') {
+        const tiempo = sd.t_elapsed ? `${sd.t_elapsed}s` : `${secs}s`;
+        alert(`✅ Email enviado a Resend en ${tiempo}\nPara: ${destL}\nMessage ID: ${sd.resend_id || '(sin id)'}\n\nVerificá tu bandeja en 1-2 min. Si pesa >25MB el adjunto vendrá como .zip.`);
+        cerrarModalRcvEmail();
+        return;
+      }
+      // status === 'running' → mostrar progreso
+      btn.innerHTML = `⏳ ${sd.step_label || sd.step} (${secs}s)`;
+    }
   } catch(err) {
-    alert('Error al enviar email: ' + (err.message || err));
+    alert('❌ Error al enviar email: ' + (err.message || err));
   } finally {
     btn.disabled = false; btn.innerHTML = txtOrig;
   }

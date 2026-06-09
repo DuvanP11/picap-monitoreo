@@ -221,11 +221,16 @@ module Api
         return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
-      BackgroundMailerHelper.run("ComisionesRecaudo") do
-        recaudos      = ejecutar_query_recaudos(desde, hasta)
-        comision      = ejecutar_query_comision(desde, hasta)
-        fees          = ejecutar_query_fees
-        resumen_user  = ejecutar_query_resumen(desde, hasta)
+      # v3.3.44: BackgroundEmailJobsHelper con tracking — frontend hace polling.
+      controller = self
+      job_id = BackgroundEmailJobsHelper.start(label: "ComisionesRecaudo", to: to_list) do |progress|
+        progress.call("cargando_datos")
+        recaudos      = controller.send(:ejecutar_query_recaudos, desde, hasta)
+        comision      = controller.send(:ejecutar_query_comision, desde, hasta)
+        fees          = controller.send(:ejecutar_query_fees)
+        resumen_user  = controller.send(:ejecutar_query_resumen, desde, hasta)
+
+        progress.call("construyendo_excel")
         excel = ComisionesRecaudoExcelBuilder.build(
           desde:        desde,
           hasta:        hasta,
@@ -236,7 +241,7 @@ module Api
         )
 
         subject_default = "Comisiones Recaudo · #{desde} → #{hasta}"
-        html = construir_html_email(desde, hasta, recaudos, comision, fees, resumen_user, mensaje, usuario)
+        html = controller.send(:construir_html_email, desde, hasta, recaudos, comision, fees, resumen_user, mensaje, usuario)
 
         ResendMailerService.send_email(
           to:                  to_list,
@@ -246,20 +251,33 @@ module Api
           html:                html,
           attachment_bytes:    excel[:data],
           attachment_filename: excel[:filename],
+          auto_zip:            true,
+          progress:            progress,
         )
       end
 
       render json: {
         ok: true,
         queued: true,
+        job_id: job_id,
         destinatarios: to_list,
         cc: cc_list,
         bcc: bcc_list,
-        mensaje: "Reporte en proceso. El email con el Excel (9 hojas) llegará en unos minutos.",
+        mensaje: "Reporte en proceso. Polling a /enviar_email_status/:job_id.",
       }, status: :accepted
     rescue => e
       Rails.logger.error("[ComisionesRecaudoController#enviar_email] #{e.class}: #{e.message}")
       render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # v3.3.44: GET /api/comisiones_recaudo/enviar_email_status/:job_id
+    def enviar_email_status
+      job = BackgroundEmailJobsHelper.get_status(params[:job_id].to_s)
+      if job.nil?
+        return render(json: { ok: false, error: "Job no encontrado o expirado" },
+                      status: :not_found)
+      end
+      render json: BackgroundEmailJobsHelper.serialize(job)
     end
 
     private

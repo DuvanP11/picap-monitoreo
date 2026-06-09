@@ -199,18 +199,31 @@ module Api
         return render(json: { ok: false, error: "Email(s) inválido(s): #{invalid.join(', ')}" }, status: :bad_request)
       end
 
-      # v3.3.20: usa BackgroundMailerHelper (helper común).
-      BackgroundMailerHelper.run("ReporteOpsCV") do
-        rows = cargar_filas(desde: desde, hasta: hasta,
-                            estado: estado, next_day: next_day, ciudad: ciudad)
+      # v3.3.44: usa BackgroundEmailJobsHelper con tracking — el frontend
+      # hace polling y ve el progreso ("cargando_datos" → "construyendo_excel"
+      # → "comprimiendo" → "enviando_a_resend" → "delivered"). Si algo falla,
+      # el error es visible (no silent failure como con BackgroundMailerHelper).
+      # auto_zip:true comprime el adjunto si > 20 MB para que entre en límite Resend.
+      #
+      # Capturamos `self` del controller en una local porque el Thread.new
+      # corre fuera del ciclo del request — Rails recicla el controller
+      # cuando llega el render. Para acceder a cargar_filas, construir_html_email
+      # y ch desde el thread tenemos que usar el closure del controller actual.
+      controller = self
+      job_id = BackgroundEmailJobsHelper.start(label: "ReporteOpsCV", to: to_list) do |progress|
+        progress.call("cargando_datos")
+        rows = controller.send(:cargar_filas, desde: desde, hasta: hasta,
+                               estado: estado, next_day: next_day, ciudad: ciudad)
+
+        progress.call("construyendo_excel")
         xlsx = Api::ExportarController.build_reporte_ops_cv_xlsx(
-          desde, hasta, ch,
+          desde, hasta, ClickhouseClient,
           estado: estado, next_day: next_day, ciudad: ciudad,
           preloaded_rows: rows,
         )
         filename = "Picap_Reporte_OPS_CV_#{desde}_#{hasta}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.xlsx"
         subject_default = "Reporte OPS CV · #{desde} → #{hasta} (#{rows.size} servicios)"
-        html = construir_html_email(desde, hasta, rows, mensaje, usuario)
+        html = controller.send(:construir_html_email, desde, hasta, rows, mensaje, usuario)
         ResendMailerService.send_email(
           to:                  to_list,
           cc:                  cc_list,
@@ -219,21 +232,35 @@ module Api
           html:                html,
           attachment_bytes:    xlsx[:data],
           attachment_filename: filename,
+          auto_zip:            true,
+          progress:            progress,
         )
       end
 
       render json: {
         ok: true,
         queued: true,
+        job_id: job_id,
         destinatarios: to_list,
         cc: cc_list,
         bcc: bcc_list,
-        mensaje: "Reporte en proceso. El email con el adjunto Excel llegará en 2-4 minutos.",
+        mensaje: "Reporte en proceso. Hacé polling a /enviar_email_status/:job_id para ver el progreso.",
       }, status: :accepted
     rescue => e
       Rails.logger.error("[ReporteOpsCvController#enviar_email] #{e.class}: #{e.message}")
       Rails.logger.error(e.backtrace.first(8).join("\n"))
       render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # v3.3.44: GET /api/reporte_ops_cv/enviar_email_status/:job_id
+    # Polling para que el frontend muestre el progreso del envío.
+    def enviar_email_status
+      job = BackgroundEmailJobsHelper.get_status(params[:job_id].to_s)
+      if job.nil?
+        return render(json: { ok: false, error: "Job no encontrado o expirado (>30 min)" },
+                      status: :not_found)
+      end
+      render json: BackgroundEmailJobsHelper.serialize(job)
     end
 
     # ──────────────────────────────────────────────────────────────────────

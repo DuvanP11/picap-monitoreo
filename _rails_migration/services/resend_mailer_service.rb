@@ -18,11 +18,18 @@ require "net/http"
 require "uri"
 require "json"
 require "base64"
+require "zip"
 
 class ResendMailerService
   API_URL          = "https://api.resend.com/emails".freeze
   DEFAULT_FROM     = "Picap Monitoreo <onboarding@resend.dev>".freeze
   TIMEOUT_SECONDS  = 30
+  # v3.3.44: Si el adjunto raw > 20 MB lo comprimimos a ZIP automáticamente.
+  # Excel típicamente baja al 30-50% del tamaño original — para Reporte OPS CV
+  # con 27k servicios (~35-50 MB raw) eso lo deja en ~15-25 MB, dentro del
+  # límite de Resend. Activar con `auto_zip: true` en send_email.
+  AUTO_ZIP_THRESHOLD_MB = 20.0
+  MAX_ATTACHMENT_MB     = 25.0
 
   # Errores tipados — el controller los rescue para devolver mensajes específicos.
   class ConfigError       < StandardError; end  # RESEND_API_KEY vacía
@@ -42,8 +49,12 @@ class ResendMailerService
   # @param attachment_filename [String, nil] nombre del adjunto (ej. "Reporte.xlsx")
   # @return [Hash] { id: "<resend-message-id>" } en éxito
   # @raise [ConfigError, AuthError, ValidationError, NetworkError]
+  # @param auto_zip [Boolean] si true (default) y el attachment > AUTO_ZIP_THRESHOLD_MB,
+  #                            lo comprimimos a ZIP antes de enviarlo. v3.3.44.
+  # @param progress [Proc, nil] optional callback que recibe un step string (para BackgroundEmailJobsHelper).
   def self.send_email(to:, subject:, html:, from: nil, cc: nil, bcc: nil,
-                       attachment_bytes: nil, attachment_filename: nil)
+                       attachment_bytes: nil, attachment_filename: nil,
+                       auto_zip: true, progress: nil)
     api_key = ENV["RESEND_API_KEY"].to_s.strip
     if api_key.empty?
       raise ConfigError, "RESEND_API_KEY no configurada. Generá una key en https://resend.com → API Keys y agregala como envvar en el panel de Render/AWS."
@@ -62,40 +73,68 @@ class ResendMailerService
     payload[:bcc] = bcc_list if bcc_list.any?
 
     if attachment_bytes && !attachment_bytes.empty?
-      # ── v3.3.33: validar tamaño antes de enviar ──
-      # Resend rechaza payloads > ~40MB (base64 incluido). Como base64 incrementa
-      # el tamaño ~33%, si los bytes raw superan ~25MB el envío falla con HTTP
-      # 400/422 que NO siempre da un mensaje claro. Hacemos pre-validación
-      # explícita para fail-rápido + logging útil que permita al admin/operador
-      # diagnosticar por qué un email "no llegó".
       raw_size_mb = (attachment_bytes.bytesize.to_f / 1024 / 1024).round(2)
-      max_mb = 25.0
-      if raw_size_mb > max_mb
-        msg = "Adjunto demasiado grande para Resend: #{raw_size_mb} MB (límite #{max_mb} MB). " \
-              "Reducí el rango de fechas o filtrá por ciudad/estado para que el Excel sea más chico. " \
-              "Archivo: #{attachment_filename || '(sin nombre)'}"
+      final_bytes = attachment_bytes
+      final_filename = attachment_filename || "adjunto.xlsx"
+
+      # ── v3.3.44: auto-comprimir si > 20 MB ──
+      # Resend acepta payloads hasta ~40 MB (base64 incluido). Base64 incrementa
+      # el tamaño ~33%, así que el límite raw es ~25 MB. Para Reporte OPS CV con
+      # 27k servicios el Excel raw es 35-50 MB → no entra. ZIP típicamente reduce
+      # 50-70% (Excel ya está parcialmente comprimido pero hay padding XML).
+      if auto_zip && raw_size_mb > AUTO_ZIP_THRESHOLD_MB
+        progress&.call("comprimiendo")
+        Rails.logger.info("[ResendMailerService] adjunto raw=#{raw_size_mb} MB > #{AUTO_ZIP_THRESHOLD_MB} MB, comprimiendo a ZIP…") if defined?(Rails)
+        final_bytes = compress_to_zip(attachment_bytes, final_filename)
+        final_filename = final_filename.sub(/\.[^.]+\z/, "") + ".zip"
+        zip_size_mb = (final_bytes.bytesize.to_f / 1024 / 1024).round(2)
+        ratio = ((1 - (final_bytes.bytesize.to_f / attachment_bytes.bytesize)) * 100).round(1)
+        Rails.logger.info("[ResendMailerService] ZIP listo: #{zip_size_mb} MB (#{ratio}% reducción)") if defined?(Rails)
+      end
+
+      final_size_mb = (final_bytes.bytesize.to_f / 1024 / 1024).round(2)
+      if final_size_mb > MAX_ATTACHMENT_MB
+        msg = "Adjunto demasiado grande para Resend: #{final_size_mb} MB " \
+              "(raw original: #{raw_size_mb} MB · límite Resend: #{MAX_ATTACHMENT_MB} MB). " \
+              "Aun comprimido a ZIP no entra. Reducí el rango de fechas (probá con 7-15 días) " \
+              "o filtrá por ciudad para que el Excel sea más chico. " \
+              "Archivo: #{final_filename}"
         Rails.logger.error("[ResendMailerService] #{msg}") if defined?(Rails)
         raise ValidationError, msg
       end
 
+      progress&.call("enviando_a_resend")
       payload[:attachments] = [{
-        filename: attachment_filename || "adjunto.xlsx",
-        content:  Base64.strict_encode64(attachment_bytes),
+        filename: final_filename,
+        content:  Base64.strict_encode64(final_bytes),
       }]
 
-      # Logging útil para diagnosticar envíos lentos / pesados.
       Rails.logger.info(
         "[ResendMailerService] enviando email " \
         "(to=#{Array(to).size}, cc=#{Array(cc).size}, bcc=#{Array(bcc).size}, " \
         "subject=#{subject.to_s.first(80).inspect}, " \
-        "attachment=#{attachment_filename.inspect}, size=#{raw_size_mb} MB)"
+        "attachment=#{final_filename.inspect}, size=#{final_size_mb} MB)"
       ) if defined?(Rails)
+    else
+      progress&.call("enviando_a_resend")
     end
 
     response = post_json(API_URL, payload, api_key)
     interpret_response(response)
   rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNREFUSED, Errno::ETIMEDOUT => e
     raise NetworkError, "No se pudo conectar a Resend (#{e.class}): #{e.message}"
+  end
+
+  # Comprime un archivo individual a ZIP usando rubyzip.
+  # Útil para que adjuntos > 25 MB entren en el límite de Resend.
+  def self.compress_to_zip(file_bytes, filename_inside_zip)
+    buffer = StringIO.new("".b)
+    buffer.set_encoding(Encoding::ASCII_8BIT)
+    Zip::OutputStream.write_buffer(buffer) do |zos|
+      zos.put_next_entry(filename_inside_zip)
+      zos.write(file_bytes)
+    end
+    buffer.string
   end
 
   # POST con headers de auth + JSON, manejando https.
