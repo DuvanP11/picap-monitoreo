@@ -330,15 +330,14 @@ class ComisionesRecaudoExcelBuilder
                       @styles[:pivot_total], nil]
       ws.add_row(total_row_left, style: total_styles)
 
-      # Data derecha — fila 4 en adelante en cols I:J
-      sorted_com.each_with_index do |(emp, monto), i|
-        r = i + 4
-        if r <= ws.rows.size
-          row_obj = ws.rows[r - 1]
-          # Asignar valor a I y J via rangos manuales
-          ws[r - 1, 8] = emp if ws.respond_to?(:[])
-        end
-      end
+      # v3.3.45 FIX: bloque dead-code eliminado. Tiraba undefined method `[]=`
+      # for Axlsx::Worksheet (axlsx solo soporta lectura `[]`, no escritura `[]=`).
+      # El check `if ws.respond_to?(:[])` daba true pero la asignación fallaba.
+      # Hasta v3.3.43 el error iba a Rails.logger y el usuario no se enteraba
+      # (BackgroundMailerHelper.run silent failure). Con v3.3.44 polling el
+      # error es visible al usuario. La hoja "3. Cruce company" se regenera
+      # correctamente abajo en _hoja3_regenerate (ver línea ~353), así que
+      # este bloque solo era ruido.
 
       # Workaround: caxlsx no permite asignar celdas individuales después. Vamos a
       # reescribir las hojas con un approach distinto: usar add_row con cols nil
