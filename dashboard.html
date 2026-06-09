@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.51-ESTADOCUENTA-FORMULAS-CORREGIDAS-20260609</title>
+<title>Picap · Monitoreo · v3.3.52-VALIDADOR-DISPERSIONES-20260609</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -1704,16 +1704,18 @@ window.fetch = function(url, opts) {
       <div class="fly-link" id="nav-pibox-stats" onclick="switchView('pibox-stats')"><span>📊</span> Estadísticas</div>
     </div>
   </div>
-  <div class="sb2-item sb2-disabled" id="sbg-cashout">
+  <!-- v3.3.52: Cash Out habilitado con submódulo Validador de Dispersiones -->
+  <div class="sb2-item" id="sbg-cashout">
     <div class="sb2-icon" title="Cash Out">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 10h12M10 4l6 6-6 6" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="sb2-label">Cash Out</span>
     </div>
     <div class="sb2-flyout">
       <div class="fly-title">Cash Out</div>
-  <div class="fly-link fly-disabled"><span>🇨🇴</span> Colombia</div>
-  <div class="fly-link fly-disabled"><span>🇲🇽</span> México</div>
-  <div class="fly-link fly-disabled"><span>🇳🇮</span> Nicaragua</div>
+      <div class="fly-link" id="nav-validador-dispersiones" onclick="switchView('validador_dispersiones')"><span>🧾</span> Validador de Dispersiones</div>
+      <div class="fly-link fly-disabled"><span>🇨🇴</span> Colombia (pronto)</div>
+      <div class="fly-link fly-disabled"><span>🇲🇽</span> México (pronto)</div>
+      <div class="fly-link fly-disabled"><span>🇳🇮</span> Nicaragua (pronto)</div>
     </div>
   </div>
 
@@ -4576,6 +4578,86 @@ window.fetch = function(url, opts) {
     </div>
   </div>
 
+  <!-- ════════════════════════════════════════════════════════════════════
+       v3.3.52: Validador de Dispersiones (submódulo Cash Out)
+       ════════════════════════════════════════════════════════════════════ -->
+  <div class="view" id="view-validador_dispersiones">
+    <div class="wrap">
+      <!-- Header info -->
+      <div style="margin-top:10px;padding:12px 16px;background:linear-gradient(90deg,#ede9f5,#d8b4fe);border-left:4px solid #6b21a8;border-radius:8px;display:flex;align-items:center;gap:14px">
+        <div style="font-size:24px">🧾</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#3b0764">Validador de Dispersiones</div>
+          <div style="font-size:11px;color:#6b21a8">Estado de transacciones de wallet · Pago exitoso · Aprobado · Reembolso · Pendiente</div>
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div style="margin-top:14px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Desde</label>
+          <input type="datetime-local" id="vd-desde" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Hasta</label>
+          <input type="datetime-local" id="vd-hasta" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Moneda</label>
+          <select id="vd-moneda" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;background:#fff;cursor:pointer">
+            <option value="COP">COP — Colombia</option>
+            <option value="MXN">MXN — México</option>
+            <option value="NIO">NIO — Nicaragua</option>
+            <option value="USD">USD</option>
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Banco</label>
+          <input type="text" id="vd-banco" placeholder="Ej: Daviplata" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;width:140px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Buscar por</label>
+          <select id="vd-buscar-por" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;background:#fff;cursor:pointer">
+            <option value="">— ninguno —</option>
+            <option value="id_tx">ID Transacción</option>
+            <option value="id_user">ID Usuario</option>
+            <option value="id_company">ID Company</option>
+            <option value="consecutivo">Consecutivo</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:160px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Valor a buscar</label>
+          <input type="text" id="vd-q" placeholder="ID / consecutivo…" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')cargarValidadorDispersiones()">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;align-self:flex-end">
+          <button class="search-btn" onclick="cargarValidadorDispersiones()" style="background:#6b21a8;color:#fff;border:none">🔍 Buscar</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;align-self:flex-end">
+          <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('validador_dispersiones')" style="background:#0369a1" title="Enviar Excel con detalle por email">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Enviar por email
+          </button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;align-self:flex-end">
+          <button class="btn-export-xl" onclick="exportarValidadorDispersiones(this)" style="background:#16a34a" title="Descargar Excel">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Exportar Excel
+          </button>
+        </div>
+      </div>
+
+      <!-- Estado de carga -->
+      <div id="vd-estado" style="margin-top:14px;font-size:13px;color:var(--text3)">Configurá los filtros y presioná <b>🔍 Buscar</b>.</div>
+
+      <!-- KPI cards -->
+      <div id="vd-kpis" style="margin-top:14px"></div>
+
+      <!-- Tabla detalle -->
+      <div id="vd-table-container" style="margin-top:14px"></div>
+    </div>
+  </div>
+
   <!-- v3.3.20: Modal genérico Enviar email — reutilizado por Estafa, Cédula, Pagos, etc. -->
   <div id="modal-email-generico" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
     <div style="background:#fff;width:90%;max-width:540px;max-height:90vh;overflow-y:auto;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.3)">
@@ -5078,6 +5160,7 @@ function switchView(view){
     'comisiones_recaudo': 'Comisiones por Recaudo — Informe Mensual',
     'recaudos_dispersiones': 'Recaudos y Dispersiones — Informe Mensual',
     'estado_cuenta':         'Estado de Cuenta SURTITODO — Informe Mensual',
+    'validador_dispersiones': 'Validador de Dispersiones — Cash Out',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -5158,6 +5241,10 @@ function switchView(view){
   if(view === 'estado_cuenta'){
     // v3.3.31: Inicializar selector año
     _initEstadoCuentaAnios();
+  }
+  if(view === 'validador_dispersiones'){
+    // v3.3.52: Inicializar fechas default (últimos 7 días)
+    initValidadorDispersiones();
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -6990,7 +7077,7 @@ function aplicarRol() {
     'sbg-retencion': ['admin','monitoreo'],
     'sbg-auditoria': ['admin','monitoreo','financiero','pibox'],
     'sbg-pibox':     ['admin','monitoreo','pibox'],
-    'sbg-cashout':   ['admin','monitoreo'],
+    'sbg-cashout':   ['admin','monitoreo','financiero'],
     'nav-rf':        ['admin','monitoreo','sac','financiero'],
     // v3.3.16: Recursos sigue listado por rol pero ADICIONALMENTE oculto si
     // el usuario no tiene NADA accesible (chequeo dinámico via endpoint).
@@ -9932,6 +10019,13 @@ const ENVIAR_EMAIL_CONFIGS = {
       const a = (typeof _minticAnio !== 'undefined' ? _minticAnio : null) || new Date().getFullYear();
       return { trimestre: t, anio: a };
     },
+  },
+  // v3.3.52: Validador de Dispersiones (submódulo Cash Out)
+  validador_dispersiones: {
+    titulo: '🧾 Enviar Validador de Dispersiones',
+    color: 'linear-gradient(90deg,#6b21a8 0%,#3b0764 100%)',
+    endpoint: '/api/validador_dispersiones/enviar_email',
+    extraParams: () => _validadorDispersionesParams(),
   },
   // v3.3.47: Recaudos (Picash + Ida y Vuelta + Resumen Ejecutivo)
   // Reemplaza el prompt() crudo por el modal con CC / CCO / Asunto / Mensaje.
@@ -16439,6 +16533,253 @@ function _descargarEstadoCuentaExcel(job_id, r) {
     .catch(err => {
       estado.innerHTML = `❌ Error descargando: ${err.message || err}`;
       estado.style.color = '#dc2626';
+    });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v3.3.52: Validador de Dispersiones (submódulo Cash Out)
+// ═══════════════════════════════════════════════════════════════════════════
+let _vdInitialized = false;
+let _vdJobPoller = null;
+let _vdRelaunched = 0;
+
+function _validadorDispersionesParams() {
+  return {
+    desde:      document.getElementById('vd-desde')?.value || '',
+    hasta:      document.getElementById('vd-hasta')?.value || '',
+    moneda:     document.getElementById('vd-moneda')?.value || '',
+    banco:      (document.getElementById('vd-banco')?.value || '').trim(),
+    buscar_por: document.getElementById('vd-buscar-por')?.value || '',
+    q:          (document.getElementById('vd-q')?.value || '').trim(),
+  };
+}
+
+function _vdSetDefaultDates() {
+  // Default: últimos 7 días, 00:00:00 → ahora.
+  const now  = new Date();
+  const past = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+  const fmt  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const desdeEl = document.getElementById('vd-desde');
+  const hastaEl = document.getElementById('vd-hasta');
+  if (desdeEl && !desdeEl.value) desdeEl.value = fmt(past).replace(/T\d{2}:\d{2}$/, 'T00:00');
+  if (hastaEl && !hastaEl.value) hastaEl.value = fmt(now);
+}
+
+function initValidadorDispersiones() {
+  if (_vdInitialized) return;
+  _vdInitialized = true;
+  _vdSetDefaultDates();
+}
+
+async function cargarValidadorDispersiones(isRelaunch) {
+  if (!isRelaunch) _vdRelaunched = 0;
+  _vdSetDefaultDates();
+  const p = _validadorDispersionesParams();
+  if (!p.desde || !p.hasta) { alert('Configurá Desde y Hasta'); return; }
+
+  const estado = document.getElementById('vd-estado');
+  const kpis   = document.getElementById('vd-kpis');
+  const tbl    = document.getElementById('vd-table-container');
+  estado.innerHTML = '⏳ Iniciando carga…';
+  estado.style.color = '#6b21a8';
+  kpis.innerHTML = '';
+  tbl.innerHTML = '';
+
+  if (_vdJobPoller) { clearInterval(_vdJobPoller); _vdJobPoller = null; }
+
+  try {
+    const url = new URL(`${API}/api/validador_dispersiones/cargar_async`);
+    Object.entries(p).forEach(([k,v]) => { if (v) url.searchParams.set(k, v); });
+    const resp = await fetch(url.toString(), { headers: { 'X-Token': _sesionToken }});
+    if (resp.status === 202) {
+      const j = await resp.json();
+      _vdJobPoller = setInterval(() => _polleaValidadorDispersiones(j.job_id), 3000);
+      estado.innerHTML = '⏳ Ejecutando query CH… (0s)';
+      return;
+    }
+    const d = await resp.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+    _renderValidadorDispersiones(d);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+async function _polleaValidadorDispersiones(jobId) {
+  const estado = document.getElementById('vd-estado');
+  try {
+    const r = await fetch(`${API}/api/validador_dispersiones/cargar_status/${jobId}`, { headers: { 'X-Token': _sesionToken }});
+    if (r.status === 202) {
+      const j = await r.json();
+      estado.innerHTML = `⏳ Ejecutando query CH… (${j.elapsed_sec}s)`;
+      return;
+    }
+    if (r.status === 404) {
+      if (_vdRelaunched >= 2) {
+        clearInterval(_vdJobPoller); _vdJobPoller = null;
+        estado.innerHTML = '❌ El job se perdió 2 veces. Hacé click en <b>🔍 Buscar</b> para reintentar.';
+        estado.style.color = '#dc2626';
+        return;
+      }
+      _vdRelaunched++;
+      clearInterval(_vdJobPoller); _vdJobPoller = null;
+      estado.innerHTML = `🔄 Job perdido (pod reiniciado). Relanzando ${_vdRelaunched}/2…`;
+      estado.style.color = '#d97706';
+      setTimeout(() => cargarValidadorDispersiones(true), 800 * _vdRelaunched);
+      return;
+    }
+    clearInterval(_vdJobPoller); _vdJobPoller = null;
+    const d = await r.json();
+    if (!d.ok) {
+      estado.innerHTML = `❌ Error: ${d.error || 'desconocido'}`;
+      estado.style.color = '#dc2626';
+      return;
+    }
+    _renderValidadorDispersiones(d);
+  } catch (err) {
+    estado.innerHTML = `⏳ Reintentando polling… (${err.message||err})`;
+  }
+}
+
+function _renderValidadorDispersiones(d) {
+  const estado = document.getElementById('vd-estado');
+  const kpis   = document.getElementById('vd-kpis');
+  const tbl    = document.getElementById('vd-table-container');
+
+  const s = d.stats || {};
+  const total = s.total || 0;
+  const elapsed = d.t_elapsed ? ` · ${d.t_elapsed}s` : '';
+  const cached = d.cached ? ' · 💾 cache hit' : '';
+  estado.innerHTML = `✅ <b>${fmtNum(total)}</b> transacciones cargadas (período ${d.desde} → ${d.hasta})${elapsed}${cached}`;
+  estado.style.color = '#16a34a';
+
+  const fmtCard = (label, cnt, val, color, icon) => `
+    <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;min-width:160px;flex:1">
+      <div style="font-size:11px;color:var(--text3);font-weight:600;margin-bottom:6px">${icon} ${label}</div>
+      <div style="font-size:20px;font-weight:700;color:${color}">${fmtNum(cnt)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">${fmtMoney(val)}</div>
+    </div>`;
+
+  kpis.innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${fmtCard('Pago exitoso', s.pago_exitoso, s.pago_exitoso_valor, '#16a34a', '✅')}
+      ${fmtCard('Aprobado',     s.aprobado,     s.aprobado_valor,     '#16a34a', '✅')}
+      ${fmtCard('Reembolso',    s.reembolso,    s.reembolso_valor,    '#dc2626', '⚠️')}
+      ${fmtCard('Pendiente',    s.pendiente,    s.pendiente_valor,    '#d97706', '⏳')}
+      ${fmtCard('Otro',         s.otro,         s.otro_valor,         '#4b5563', '📋')}
+      ${fmtCard('TOTAL',        s.total,        s.total_valor,        '#6b21a8', '📊')}
+    </div>`;
+
+  const rows = d.filas || [];
+  if (rows.length === 0) {
+    tbl.innerHTML = '<div style="margin-top:16px;padding:24px;text-align:center;color:var(--text3);background:#fff;border:1px solid var(--border);border-radius:10px">Sin resultados para los filtros aplicados.</div>';
+    return;
+  }
+
+  const estadoColor = (e) => {
+    if (e === 'Pago exitoso' || e === 'Aprobado') return 'background:#dcfce7;color:#065f46';
+    if (e === 'Reembolso') return 'background:#fee2e2;color:#991b1b';
+    if (e === 'Pendiente') return 'background:#fef3c7;color:#92400e';
+    return 'background:#f3f4f6;color:#4b5563';
+  };
+
+  const escape = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+  const headers = ['Creación TX','ID TX','ID User','Nombre','Moneda','Valor','Banco','Consecutivo','Estado'];
+  const trs = rows.map(r => `
+    <tr>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-size:11px;white-space:nowrap">${escape(r.creacion_tx)}</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-size:10px" title="${escape(r.id_tx)}">${escape((r.id_tx||'').slice(0,12))}…</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-size:10px" title="${escape(r.id_user)}">${escape((r.id_user||'').slice(0,12))}…</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-size:12px">${escape(r.name_user)}</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-size:11px;text-align:center">${escape(r.moneda)}</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:right">${fmtMoney(r.valor)}</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-size:12px">${escape(r.name_bank)}</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-size:11px">${escape(r.consecutivo)}</td>
+      <td style="padding:6px;border-bottom:1px solid #f1f5f9"><span style="padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;${estadoColor(r.estado)}">${escape(r.estado)}</span></td>
+    </tr>`).join('');
+
+  tbl.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--border);border-radius:10px;overflow:auto;max-height:600px;margin-top:16px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead style="background:#f8fafc;position:sticky;top:0;z-index:10">
+          <tr>${headers.map(h => `<th style="padding:8px;text-align:left;font-size:11px;font-weight:700;color:var(--text2);border-bottom:2px solid var(--border)">${h}</th>`).join('')}</tr>
+        </thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">${rows.length} fila(s) mostradas${rows.length === 5000 ? ' · cap UI 5.000 — descargá Excel para ver todas' : ''}</div>`;
+}
+
+async function exportarValidadorDispersiones(btn) {
+  const p = _validadorDispersionesParams();
+  if (!p.desde || !p.hasta) { alert('Configurá Desde y Hasta'); return; }
+
+  const origHTML = btn ? btn.innerHTML : null;
+  const setBtn = (h, dis=true) => { if (!btn) return; btn.disabled = dis; btn.style.opacity = dis ? '0.75' : ''; btn.innerHTML = h; };
+  setBtn('⏳ Iniciando…');
+
+  try {
+    const url = new URL(`${API}/api/validador_dispersiones/exportar_async`);
+    Object.entries(p).forEach(([k,v]) => { if (v) url.searchParams.set(k, v); });
+    const initResp = await fetch(url.toString(), { headers: { 'X-Token': _sesionToken }});
+    const init = await initResp.json();
+    if (!init.ok) throw new Error(init.error || `HTTP ${initResp.status}`);
+
+    if (init.listo_para_descargar) {
+      return _vdDescargarBlob(init.job_id, p, btn, origHTML);
+    }
+
+    let secs = 0;
+    const poller = setInterval(async () => {
+      try {
+        const r = await fetch(`${API}/api/validador_dispersiones/export_status/${init.job_id}`, { headers: { 'X-Token': _sesionToken }});
+        if (r.status === 202) {
+          const j = await r.json();
+          secs = j.elapsed_sec || (secs + 3);
+          setBtn(`⏳ Construyendo Excel… ${secs}s`);
+          return;
+        }
+        clearInterval(poller);
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'desconocido');
+        if (d.listo_para_descargar) _vdDescargarBlob(init.job_id, p, btn, origHTML);
+      } catch (err) {
+        clearInterval(poller);
+        setBtn(origHTML, false);
+        alert('❌ Error generando Excel: ' + (err.message || err));
+      }
+    }, 3000);
+  } catch (err) {
+    setBtn(origHTML, false);
+    alert('❌ Error iniciando: ' + (err.message || err));
+  }
+}
+
+function _vdDescargarBlob(jobId, p, btn, origHTML) {
+  const setBtn = (h, dis=true) => { if (!btn) return; btn.disabled = dis; btn.style.opacity = dis ? '0.75' : ''; btn.innerHTML = h; };
+  setBtn('⬇️ Descargando…');
+  const url = new URL(`${API}/api/validador_dispersiones/exportar_async`);
+  url.searchParams.set('download', '1');
+  url.searchParams.set('job_id', jobId);
+  Object.entries(p).forEach(([k,v]) => { if (v) url.searchParams.set(k, v); });
+  fetch(url.toString(), { headers: { 'X-Token': _sesionToken }})
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      const u = window.URL.createObjectURL(blob);
+      a.href = u;
+      a.download = `Picap_Validador_Dispersiones_${new Date().toISOString().slice(0,10)}.xlsx`;
+      document.body.appendChild(a); a.click();
+      window.URL.revokeObjectURL(u); a.remove();
+      setBtn(`✅ Listo (${Math.round(blob.size/1024)} KB)`);
+      setTimeout(() => setBtn(origHTML, false), 2000);
+    })
+    .catch(err => {
+      setBtn(origHTML, false);
+      alert('❌ Error descargando: ' + (err.message || err));
     });
 }
 

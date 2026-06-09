@@ -3273,4 +3273,55 @@ module QueriesService
     LEFT JOIN picapmongoprod.vehicle_types AS vt FINAL ON vt._id = qtf.served_vehicle_type_id
     ORDER BY FECHA ASC, qtf.booking_id
   SQL
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # v3.3.52: Validador de Dispersiones — submódulo de Cash Out.
+  # Muestra transacciones de dispersión (wallet_account_transactions) con su
+  # estado real (Pago exitoso / Aprobado / Reembolso / Pendiente / Otro).
+  #
+  # Variables placeholder:
+  #   %{fecha_desde}    requerido (date_time YYYY-MM-DD HH:MM:SS, America/Bogota)
+  #   %{fecha_hasta}    requerido
+  #   %{filtro_extra}   opcional - bloque AND ... AND ... ya sanitizado en Ruby.
+  # ═══════════════════════════════════════════════════════════════════════════
+  Q_VALIDADOR_DISPERSIONES = <<~'SQL'
+    SELECT * EXCEPT rn
+    FROM (
+      SELECT
+        wat.created_at                                                AS creacion_tx,
+        wat._id                                                       AS id_tx,
+        wa.passenger_id                                               AS id_user,
+        p.name                                                        AS name_user,
+        JSONExtractString(wat.amount, 'currency_iso')                 AS moneda,
+        toFloat64OrNull(JSONExtractString(wat.amount, 'cents')) / 100 AS valor,
+        bk.name                                                       AS name_bank,
+        wat.consecutive                                               AS consecutivo,
+        wat.daviplata_response                                        AS daviplata_response,
+        wat.status_cd                                                 AS status_cd,
+        CASE
+          WHEN (wat.daviplata_response = '' OR wat.daviplata_response IS NULL)
+               AND wat.status_cd = 2 THEN 'Reembolso'
+          WHEN wat.status_cd = 2 THEN 'Aprobado'
+          WHEN wat.status_cd = 0 THEN 'Pendiente'
+          WHEN wat.status_cd = 1 THEN 'Pago exitoso'
+          ELSE 'Otro'
+        END                                                           AS estado,
+        ROW_NUMBER() OVER (PARTITION BY wat._id ORDER BY wat.created_at DESC) AS rn
+      FROM picapmongoprod.wallet_account_transactions wat
+      LEFT JOIN picapmongoprod.wallet_accounts wa  ON wat.account_id = wa._id
+      LEFT JOIN picapmongoprod.passengers     p   ON wa.passenger_id = p._id
+      LEFT JOIN picapmongoprod.bank_accounts  ba  ON ba.passenger_id = wa.passenger_id
+      LEFT JOIN picapmongoprod.bank_account_types bat ON ba.bank_id = bat._id
+      LEFT JOIN picapmongoprod.banks          bk  ON ba.bank_id     = bk._id
+      WHERE
+        wat.created_at BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
+                           AND toDateTime('%{fecha_hasta}', 'America/Bogota')
+        AND notEmpty(wat.consecutive)
+        AND wat.consecutive != ''
+        %{filtro_extra}
+      GROUP BY ALL
+    )
+    WHERE rn = 1
+    ORDER BY creacion_tx DESC
+  SQL
 end

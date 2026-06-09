@@ -112,6 +112,16 @@ Rails.application.routes.draw do
     end
     post "estado_cuenta/enviar_email", to: "estado_cuenta#enviar_email"
 
+    # v3.3.52: Validador de Dispersiones (submódulo Cash Out)
+    namespace :validador_dispersiones do
+      get  "cargar_async",                 to: "/api/validador_dispersiones#cargar_async"
+      get  "cargar_status/:job_id",        to: "/api/validador_dispersiones#cargar_status"
+      get  "exportar_async",               to: "/api/validador_dispersiones#exportar_async"
+      get  "export_status/:job_id",        to: "/api/validador_dispersiones#export_status"
+      get  "enviar_email_status/:job_id",  to: "/api/validador_dispersiones#enviar_email_status"
+    end
+    post "validador_dispersiones/enviar_email", to: "validador_dispersiones#enviar_email"
+
     # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
     namespace :mintic do
       get  "detallado_query",        to: "/api/mintic#detallado_query"
