@@ -186,20 +186,36 @@ class EstadoCuentaExcelBuilder
       ws.rows.last.height = 24
       ws.merge_cells("B6:C6")
 
-      # F7-F10: tabla resumen normal
+      # v3.3.50: valores calculados directos en lugar de fórmulas.
+      # Antes había 2 bugs:
+      #   1) Las fórmulas =-(C7*1%) y =-C8*9.66/1000 referenciaban C7/C8
+      #      que en realidad son strings ("SURTITODO", periodo_txt). Las fila
+      #      con números empiezan en C9 (Recaudos) y C10 (Pago Servicios).
+      #      Resultado: las fórmulas nunca calculaban bien.
+      #   2) El usuario quiere ver el VALOR ya calculado en el Excel, no
+      #      depender de que Excel re-ejecute fórmulas (la UI ya muestra
+      #      los valores correctos).
+      # Mismas fórmulas que el controller (construir_estadisticas).
+      total_recaudos       = @recaudos.sum { |r| r["MONTO"].to_f }
+      total_pago_servicios = @valor_mensajeria.sum { |r| r["MONTO"].to_f }
+      comision_1pct        = -(total_recaudos * 0.01)
+      ica                  = (-total_pago_servicios * 9.66) / 1000.0
+      total_cruce          = total_recaudos + total_pago_servicios + comision_1pct + ica
+
+      # F7-F10: tabla resumen
       [
-        ["Recaudos",          "=SUM(Recaudos!D:D)"],
-        ["Pago Servicios",    "=SUM('Valor Mensajeria'!E:E)"],
-        ["Comisión del 1%",   "=-(C7*1%)"],
-        ["ICA",               "=(-C8*9.66)/1000"],
-      ].each do |label, formula|
-        ws.add_row([nil, label, formula],
+        ["Recaudos",          total_recaudos.round(2)],
+        ["Pago Servicios",    total_pago_servicios.round(2)],
+        ["Comisión del 1%",   comision_1pct.round(2)],
+        ["ICA",               ica.round(2)],
+      ].each do |label, valor|
+        ws.add_row([nil, label, valor],
                    style: [nil, @styles[:label_left], @styles[:money_value]])
         ws.rows.last.height = 22
       end
 
       # F11: total (resaltado morado claro)
-      ws.add_row([nil, "valor a pagar despues del cruce:", "=SUM(C7:C10)"],
+      ws.add_row([nil, "valor a pagar despues del cruce:", total_cruce.round(2)],
                  style: [nil, @styles[:label_total], @styles[:money_total]])
       ws.rows.last.height = 24
 
