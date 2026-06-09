@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.46-COMISIONES-HOJA3-FIX-20260609</title>
+<title>Picap · Monitoreo · v3.3.47-RECAUDOS-EMAIL-MODAL-20260609</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -9933,6 +9933,21 @@ const ENVIAR_EMAIL_CONFIGS = {
       return { trimestre: t, anio: a };
     },
   },
+  // v3.3.47: Recaudos (Picash + Ida y Vuelta + Resumen Ejecutivo)
+  // Reemplaza el prompt() crudo por el modal con CC / CCO / Asunto / Mensaje.
+  recaudos: {
+    titulo: '💵 Enviar Recaudos (Picash + Ida y Vuelta + Resumen)',
+    color: 'linear-gradient(90deg,#7C3AED 0%,#5b21b6 100%)',
+    endpoint: '/api/recaudos/enviar_email',
+    extraParams: () => {
+      const desde = _recDesde || daysAgo(30);
+      const hasta = _recHasta || today();
+      const pais  = document.getElementById('rec-moneda')?.value || '';
+      const out = { desde, hasta };
+      if (pais) out.pais = pais;
+      return out;
+    },
+  },
   // v3.3.28: Saldo Recaudos — balance mensual Recaudos vs Servicios B2B
   saldo_recaudos: {
     titulo: '💼 Enviar Saldo Recaudos',
@@ -13126,72 +13141,12 @@ function exportarPagos(btn, tipo) {
     `Picap_Pagos_${(tipo || 'tc').toUpperCase()}`);
 }
 
-// v3 (May 2026): siempre envía AMBOS sub-tabs (Picash + Ida y Vuelta) +
-// Resumen Ejecutivo. Ignora el tab activo. POST /api/recaudos/enviar_email.
-async function enviarRecaudosEmail(btn) {
-  const desde = _recDesde || daysAgo(30);
-  const hasta = _recHasta || today();
-  const pais  = document.getElementById('rec-moneda')?.value || '';
-
-  const email = prompt(`Enviar reporte completo de Recaudos\n\nIncluye:\n  • 💵 Recaudos Picash\n  • 🔁 Recaudos Ida y Vuelta\n  • 📊 Resumen Ejecutivo (Pibox)\n\nPeríodo: ${desde} → ${hasta}\n\nIngresa el email destinatario:`, '');
-  if (!email) return;
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { alert('Email inválido.'); return; }
-  const mensaje = prompt('Mensaje opcional (deja vacío para usar el default):', '') || '';
-
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Enviando...'; }
-  try {
-    const body = { email: email.trim(), desde, hasta, mensaje };
-    if (pais) body.pais = pais;
-    const r = await fetch(`${API}/api/recaudos/enviar_email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Token': _sesionToken },
-      body: JSON.stringify(body),
-    });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
-    const detalle = (d.total_picash !== undefined && d.total_iv !== undefined)
-      ? `Picash: ${d.total_picash} · Ida y Vuelta: ${d.total_iv}`
-      : `${d.total} registros`;
-    alert(`✅ Reporte enviado a ${d.destinatario}\n${detalle}\nAdjunto: ${d.filename}`);
-  } catch(err) {
-    const msg = err.message || '';
-    // Si el backend respondió que Resend no está configurado / falló la API,
-    // ofrecer fallback con el cliente de email local (mailto:) y descarga
-    // manual del Excel para que el usuario no se quede sin enviar el reporte.
-    const esErrorEnvio =
-      msg.includes('RESEND_API_KEY') ||
-      msg.includes('Resend') ||
-      msg.includes('SMTP') ||              // por compatibilidad si hay caches
-      msg.includes('Connection refused');
-    if (esErrorEnvio) {
-      const usarMailto = confirm(
-        `${msg}\n\n` +
-        `¿Querés que abramos tu cliente de email con el resumen pre-llenado?\n` +
-        `Después podés descargar el Excel con el botón "Exportar Excel" y adjuntarlo manualmente.`
-      );
-      if (usarMailto) {
-        const subject = `Reporte Recaudos · ${desde} → ${hasta}`;
-        const body =
-          `Hola,\n\n` +
-          `Te comparto el reporte de Recaudos del período ${desde} → ${hasta} ` +
-          `(Picash + Ida y Vuelta + Resumen Ejecutivo).\n\n` +
-          `Adjunto encontrarás el detalle en Excel (descargado desde el portal Picap Monitoreo).\n\n` +
-          (mensaje ? `Mensaje: ${mensaje}\n\n` : '') +
-          `Saludos.`;
-        const mailto = `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-        window.location.href = mailto;
-        // Auto-disparar la descarga del Excel para facilitar el flujo
-        setTimeout(() => { try { exportarRecaudos(null); } catch(_) {} }, 600);
-      }
-    } else {
-      alert('Error al enviar email: ' + msg);
-    }
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg> Enviar por email';
-    }
-  }
+// v3.3.47: usa el modal genérico (To/CC/CCO/Asunto/Mensaje), igual que
+// Comisiones, Saldo Recaudos, Recaudos Dispersiones, Estado Cuenta, MINTIC.
+// Antes era un prompt() del browser sin CC/CCO/asunto. La config está en
+// ENVIAR_EMAIL_CONFIGS['recaudos'].
+function enviarRecaudosEmail(btn) {
+  abrirModalEnviarEmailGenerico('recaudos');
 }
 
 // v3 (May 2026): exporta el reporte COMPLETO en xlsx con 3 hojas (Picash +
