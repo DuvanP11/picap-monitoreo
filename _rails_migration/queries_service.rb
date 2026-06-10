@@ -3382,10 +3382,10 @@ module QueriesService
         Jornada,
         Tipo_de_Usuario,
         multiIf(
-          Tipo_de_Desglosado IN ('Pibox Moto','Pago contraentrega Pibox','Mensajería Pibox'), 'Mensajería Pibox',
-          Tipo_de_Desglosado = 'Rent',                                                        'Rent',
-          Tipo_de_Desglosado IN ('Inmovilizaciones','SAC Reclamaciones'),                     'Pago Reclamaciones',
-          Tipo_de_Desglosado = 'Otro',                                                        'Otro',
+          -- v3.3.57: Bono Pibox entra en Mensajería Pibox
+          Tipo_de_Desglosado IN ('Pibox Moto','Pago contraentrega Pibox','Mensajería Pibox','Bono Pibox'), 'Mensajería Pibox',
+          Tipo_de_Desglosado = 'Rent',                                                                     'Rent',
+          Tipo_de_Desglosado IN ('Inmovilizaciones','SAC Reclamaciones'),                                  'Pago Reclamaciones',
           Tipo_de_Desglosado
         ) AS Tipo,
         Tipo_de_Desglosado,
@@ -3393,6 +3393,9 @@ module QueriesService
         Es_Cliente,
         Cliente_Nombre
     FROM classified
+    -- v3.3.57: solo entradas a la Picash (positivas) y sin 'Otro' (catch-all sin clasificar)
+    WHERE Valor > 0
+      AND Tipo_de_Desglosado != 'Otro'
     ORDER BY _ts_bog DESC
     SETTINGS join_use_nulls = 0
   SQL
