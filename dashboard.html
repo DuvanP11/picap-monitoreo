@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.54-FIX-SYNTAX-VALIDADOR-20260610</title>
+<title>Picap · Monitoreo · v3.3.55-FIX-URL-VALIDADOR-20260610</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -16589,9 +16589,10 @@ async function cargarValidadorDispersiones(isRelaunch) {
   if (_vdJobPoller) { clearInterval(_vdJobPoller); _vdJobPoller = null; }
 
   try {
-    const url = new URL(`${API}/api/validador_dispersiones/cargar_async`);
-    Object.entries(p).forEach(([k,v]) => { if (v) url.searchParams.set(k, v); });
-    const resp = await fetch(url.toString(), { headers: { 'X-Token': _sesionToken }});
+    // v3.3.55: API es "" (relativo) → new URL() falla. Construir querystring manualmente.
+    const sp = new URLSearchParams();
+    Object.entries(p).forEach(([k,v]) => { if (v) sp.set(k, v); });
+    const resp = await fetch(`${API}/api/validador_dispersiones/cargar_async?${sp.toString()}`, { headers: { 'X-Token': _sesionToken }});
     if (resp.status === 202) {
       const j = await resp.json();
       _vdJobPoller = setInterval(() => _polleaValidadorDispersiones(j.job_id), 3000);
@@ -16722,9 +16723,10 @@ async function exportarValidadorDispersiones(btn) {
   setBtn('⏳ Iniciando…');
 
   try {
-    const url = new URL(`${API}/api/validador_dispersiones/exportar_async`);
-    Object.entries(p).forEach(([k,v]) => { if (v) url.searchParams.set(k, v); });
-    const initResp = await fetch(url.toString(), { headers: { 'X-Token': _sesionToken }});
+    // v3.3.55: querystring manual (API="" no acepta new URL)
+    const sp = new URLSearchParams();
+    Object.entries(p).forEach(([k,v]) => { if (v) sp.set(k, v); });
+    const initResp = await fetch(`${API}/api/validador_dispersiones/exportar_async?${sp.toString()}`, { headers: { 'X-Token': _sesionToken }});
     const init = await initResp.json();
     if (!init.ok) throw new Error(init.error || `HTTP ${initResp.status}`);
 
@@ -16761,11 +16763,12 @@ async function exportarValidadorDispersiones(btn) {
 function _vdDescargarBlob(jobId, p, btn, origHTML) {
   const setBtn = (h, dis=true) => { if (!btn) return; btn.disabled = dis; btn.style.opacity = dis ? '0.75' : ''; btn.innerHTML = h; };
   setBtn('⬇️ Descargando…');
-  const url = new URL(`${API}/api/validador_dispersiones/exportar_async`);
-  url.searchParams.set('download', '1');
-  url.searchParams.set('job_id', jobId);
-  Object.entries(p).forEach(([k,v]) => { if (v) url.searchParams.set(k, v); });
-  fetch(url.toString(), { headers: { 'X-Token': _sesionToken }})
+  // v3.3.55: querystring manual (API="" no acepta new URL)
+  const sp = new URLSearchParams();
+  sp.set('download', '1');
+  sp.set('job_id', jobId);
+  Object.entries(p).forEach(([k,v]) => { if (v) sp.set(k, v); });
+  fetch(`${API}/api/validador_dispersiones/exportar_async?${sp.toString()}`, { headers: { 'X-Token': _sesionToken }})
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
     .then(blob => {
       const a = document.createElement('a');
