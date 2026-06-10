@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.55-FIX-URL-VALIDADOR-20260610</title>
+<title>Picap · Monitoreo · v3.3.56-CONSOLIDADO-CASH-OUT-20260610</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -1713,6 +1713,7 @@ window.fetch = function(url, opts) {
     <div class="sb2-flyout">
       <div class="fly-title">Cash Out</div>
       <div class="fly-link" id="nav-validador-dispersiones" onclick="switchView('validador_dispersiones')"><span>🧾</span> Validador de Dispersiones</div>
+      <div class="fly-link" id="nav-consolidado-cashout" onclick="switchView('consolidado_cash_out')"><span>📑</span> Consolidado Cash Out</div>
       <div class="fly-link fly-disabled"><span>🇨🇴</span> Colombia (pronto)</div>
       <div class="fly-link fly-disabled"><span>🇲🇽</span> México (pronto)</div>
       <div class="fly-link fly-disabled"><span>🇳🇮</span> Nicaragua (pronto)</div>
@@ -4658,6 +4659,69 @@ window.fetch = function(url, opts) {
     </div>
   </div>
 
+  <!-- ════════════════════════════════════════════════════════════════════
+       v3.3.56: Consolidado Cash Out (submódulo Cash Out)
+       3 paneles: Estadística (resúmenes pivot) · Detallado (Pilotos/etc) · Clientes
+       ════════════════════════════════════════════════════════════════════ -->
+  <div class="view" id="view-consolidado_cash_out">
+    <div class="wrap">
+      <!-- Header info -->
+      <div style="margin-top:10px;padding:12px 16px;background:linear-gradient(90deg,#ede9f5,#d8b4fe);border-left:4px solid #6b21a8;border-radius:8px;display:flex;align-items:center;gap:14px">
+        <div style="font-size:24px">📑</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#3b0764">Consolidado Cash Out</div>
+          <div style="font-size:11px;color:#6b21a8">Resumen de retiros · pivot por bolsa · totales por tipo de usuario</div>
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div style="margin-top:14px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Desde</label>
+          <input type="datetime-local" id="cco-desde" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <label style="font-size:10px;font-weight:700;color:var(--text3)">Hasta</label>
+          <input type="datetime-local" id="cco-hasta" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px">
+        </div>
+        <button class="search-btn" onclick="cargarConsolidadoCashOut()" style="background:#6b21a8;color:#fff;border:none">🔍 Consultar</button>
+        <button class="search-btn" onclick="limpiarConsolidadoCashOut()" style="background:#fff">↺ Limpiar</button>
+        <div style="flex:1"></div>
+        <button class="btn-export-xl" onclick="abrirModalEnviarEmailGenerico('consolidado_cash_out')" style="background:#0369a1" title="Enviar Excel por email">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M3 6l7 5 7-5M3 6v8h14V6M3 6l7-3 7 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Enviar por email
+        </button>
+        <button class="btn-export-xl" onclick="exportarConsolidadoCashOut(this)" style="background:#16a34a" title="Descargar Excel">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M10 3v10M10 13l-4-4M10 13l4-4M4 17h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+
+      <!-- Tabs -->
+      <div style="margin-top:14px;display:flex;gap:6px;border-bottom:2px solid var(--border)">
+        <button class="cco-tab cco-tab-active" id="cco-tab-stats" onclick="ccoSwitchTab('stats')" style="padding:8px 16px;border:none;background:none;font-weight:700;font-size:13px;cursor:pointer;border-bottom:3px solid transparent">📊 Estadística</button>
+        <button class="cco-tab" id="cco-tab-detalle" onclick="ccoSwitchTab('detalle')" style="padding:8px 16px;border:none;background:none;font-weight:700;font-size:13px;cursor:pointer;border-bottom:3px solid transparent">📋 Detallado</button>
+        <button class="cco-tab" id="cco-tab-clientes" onclick="ccoSwitchTab('clientes')" style="padding:8px 16px;border:none;background:none;font-weight:700;font-size:13px;cursor:pointer;border-bottom:3px solid transparent">🏢 Clientes / Comercios</button>
+      </div>
+
+      <!-- Estado / mensaje -->
+      <div id="cco-estado" style="margin-top:14px;font-size:13px;color:var(--text3)">Seleccioná rango de fechas y presioná <b>🔍 Consultar</b>.</div>
+
+      <!-- Panel 1: Estadística -->
+      <div id="cco-panel-stats" class="cco-panel" style="margin-top:14px"></div>
+
+      <!-- Panel 2: Detallado (Pilotos / Pasajeros / Empleados) -->
+      <div id="cco-panel-detalle" class="cco-panel" style="display:none;margin-top:14px"></div>
+
+      <!-- Panel 3: Clientes -->
+      <div id="cco-panel-clientes" class="cco-panel" style="display:none;margin-top:14px"></div>
+    </div>
+  </div>
+  <style>
+    .cco-tab-active { color:#6b21a8;border-bottom-color:#6b21a8 !important; }
+    .cco-tab:hover { color:#6b21a8; }
+  </style>
+
   <!-- v3.3.20: Modal genérico Enviar email — reutilizado por Estafa, Cédula, Pagos, etc. -->
   <div id="modal-email-generico" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,16,40,0.55);align-items:center;justify-content:center;backdrop-filter:blur(2px)">
     <div style="background:#fff;width:90%;max-width:540px;max-height:90vh;overflow-y:auto;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.3)">
@@ -5161,6 +5225,7 @@ function switchView(view){
     'recaudos_dispersiones': 'Recaudos y Dispersiones — Informe Mensual',
     'estado_cuenta':         'Estado de Cuenta SURTITODO — Informe Mensual',
     'validador_dispersiones': 'Validador de Dispersiones — Cash Out',
+    'consolidado_cash_out':   'Consolidado Cash Out — Informe Bolsas',
     'informes':       'Informes — Centro de Reportes',
     'auditoria':      'Auditorías Pibox Comercial',
     'pibox-alertas':  'Auditorías de Servicios Pibox — Alertas de Fraude',
@@ -5245,6 +5310,10 @@ function switchView(view){
   if(view === 'validador_dispersiones'){
     // v3.3.52: Inicializar fechas default (últimos 7 días)
     initValidadorDispersiones();
+  }
+  if(view === 'consolidado_cash_out'){
+    // v3.3.56: Inicializar fechas default y switcheo a panel Estadística
+    initConsolidadoCashOut();
   }
   if(view === 'estafa'){
     const tab = arguments[1] || 'stats';
@@ -10026,6 +10095,13 @@ const ENVIAR_EMAIL_CONFIGS = {
     color: 'linear-gradient(90deg,#6b21a8 0%,#3b0764 100%)',
     endpoint: '/api/validador_dispersiones/enviar_email',
     extraParams: () => _validadorDispersionesParams(),
+  },
+  // v3.3.56: Consolidado Cash Out (submódulo Cash Out)
+  consolidado_cash_out: {
+    titulo: '📑 Enviar Consolidado Cash Out',
+    color: 'linear-gradient(90deg,#6b21a8 0%,#3b0764 100%)',
+    endpoint: '/api/consolidado_cash_out/enviar_email',
+    extraParams: () => _consolidadoCashOutParams(),
   },
   // v3.3.47: Recaudos (Picash + Ida y Vuelta + Resumen Ejecutivo)
   // Reemplaza el prompt() crudo por el modal con CC / CCO / Asunto / Mensaje.
@@ -16775,6 +16851,351 @@ function _vdDescargarBlob(jobId, p, btn, origHTML) {
       const u = window.URL.createObjectURL(blob);
       a.href = u;
       a.download = `Picap_Validador_Dispersiones_${new Date().toISOString().slice(0,10)}.xlsx`;
+      document.body.appendChild(a); a.click();
+      window.URL.revokeObjectURL(u); a.remove();
+      setBtn(`✅ Listo (${Math.round(blob.size/1024)} KB)`);
+      setTimeout(() => setBtn(origHTML, false), 2000);
+    })
+    .catch(err => {
+      setBtn(origHTML, false);
+      alert('❌ Error descargando: ' + (err.message || err));
+    });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v3.3.56: Consolidado Cash Out (submódulo Cash Out)
+// ═══════════════════════════════════════════════════════════════════════════
+let _ccoInitialized = false;
+let _ccoData = null;
+let _ccoJobPoller = null;
+let _ccoCurrentTab = 'stats';
+let _ccoDetalleFilter = '';
+let _ccoDetallePage = 1;
+let _ccoDetalleSort = { col: 'Fecha', dir: 'desc' };
+let _ccoClientesFilter = '';
+let _ccoClientesPage = 1;
+let _ccoClientesSort = { col: 'Fecha', dir: 'desc' };
+const CCO_PAGE_SIZE = 50;
+
+function _consolidadoCashOutParams() {
+  return {
+    desde: document.getElementById('cco-desde')?.value || '',
+    hasta: document.getElementById('cco-hasta')?.value || '',
+  };
+}
+
+function _ccoSetDefaultDates() {
+  const now = new Date();
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const desdeEl = document.getElementById('cco-desde');
+  const hastaEl = document.getElementById('cco-hasta');
+  if (desdeEl && !desdeEl.value) {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
+    desdeEl.value = fmt(start);
+  }
+  if (hastaEl && !hastaEl.value) {
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59);
+    hastaEl.value = fmt(end);
+  }
+}
+
+function initConsolidadoCashOut() {
+  if (_ccoInitialized) return;
+  _ccoInitialized = true;
+  _ccoSetDefaultDates();
+}
+
+function limpiarConsolidadoCashOut() {
+  document.getElementById('cco-desde').value = '';
+  document.getElementById('cco-hasta').value = '';
+  _ccoSetDefaultDates();
+  _ccoData = null;
+  document.getElementById('cco-panel-stats').innerHTML = '';
+  document.getElementById('cco-panel-detalle').innerHTML = '';
+  document.getElementById('cco-panel-clientes').innerHTML = '';
+  document.getElementById('cco-estado').innerHTML = 'Seleccioná rango de fechas y presioná <b>🔍 Consultar</b>.';
+  document.getElementById('cco-estado').style.color = 'var(--text3)';
+}
+
+function ccoSwitchTab(tab) {
+  _ccoCurrentTab = tab;
+  document.querySelectorAll('.cco-tab').forEach(el => el.classList.remove('cco-tab-active'));
+  document.querySelectorAll('.cco-panel').forEach(el => el.style.display = 'none');
+  if (tab === 'stats')    { document.getElementById('cco-tab-stats').classList.add('cco-tab-active');    document.getElementById('cco-panel-stats').style.display    = 'block'; }
+  if (tab === 'detalle')  { document.getElementById('cco-tab-detalle').classList.add('cco-tab-active');  document.getElementById('cco-panel-detalle').style.display  = 'block'; if (_ccoData) _renderCcoDetalle(); }
+  if (tab === 'clientes') { document.getElementById('cco-tab-clientes').classList.add('cco-tab-active'); document.getElementById('cco-panel-clientes').style.display = 'block'; if (_ccoData) _renderCcoClientes(); }
+}
+
+async function cargarConsolidadoCashOut() {
+  _ccoSetDefaultDates();
+  const p = _consolidadoCashOutParams();
+  if (!p.desde || !p.hasta) { alert('Configurá Desde y Hasta'); return; }
+
+  const estado = document.getElementById('cco-estado');
+  estado.innerHTML = '⏳ Iniciando consulta…';
+  estado.style.color = '#6b21a8';
+
+  if (_ccoJobPoller) { clearInterval(_ccoJobPoller); _ccoJobPoller = null; }
+
+  try {
+    const sp = new URLSearchParams();
+    Object.entries(p).forEach(([k,v]) => { if (v) sp.set(k, v); });
+    const resp = await fetch(`${API}/api/consolidado_cash_out/cargar_async?${sp.toString()}`, { headers: { 'X-Token': _sesionToken }});
+    if (resp.status === 202) {
+      const j = await resp.json();
+      _ccoJobPoller = setInterval(() => _polleaConsolidadoCashOut(j.job_id), 3000);
+      estado.innerHTML = '⏳ Ejecutando query CH… (0s)';
+      return;
+    }
+    const d = await resp.json();
+    if (!d.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+    _renderConsolidadoCashOut(d);
+  } catch (err) {
+    estado.innerHTML = `❌ Error: ${err.message || err}`;
+    estado.style.color = '#dc2626';
+  }
+}
+
+async function _polleaConsolidadoCashOut(jobId) {
+  const estado = document.getElementById('cco-estado');
+  try {
+    const r = await fetch(`${API}/api/consolidado_cash_out/cargar_status/${jobId}`, { headers: { 'X-Token': _sesionToken }});
+    if (r.status === 202) {
+      const j = await r.json();
+      estado.innerHTML = `⏳ Ejecutando query CH… (${j.elapsed_sec}s)`;
+      return;
+    }
+    if (r.status === 404) {
+      clearInterval(_ccoJobPoller); _ccoJobPoller = null;
+      estado.innerHTML = '❌ Job perdido. Hacé click en <b>🔍 Consultar</b> para reintentar.';
+      estado.style.color = '#dc2626';
+      return;
+    }
+    clearInterval(_ccoJobPoller); _ccoJobPoller = null;
+    const d = await r.json();
+    if (!d.ok) {
+      estado.innerHTML = `❌ Error: ${d.error || 'desconocido'}`;
+      estado.style.color = '#dc2626';
+      return;
+    }
+    _renderConsolidadoCashOut(d);
+  } catch (err) {
+    estado.innerHTML = `⏳ Polling… (${err.message||err})`;
+  }
+}
+
+function _renderConsolidadoCashOut(d) {
+  _ccoData = d;
+  _ccoDetalleFilter = ''; _ccoDetallePage = 1;
+  _ccoClientesFilter = ''; _ccoClientesPage = 1;
+
+  const estado = document.getElementById('cco-estado');
+  const elapsed = d.t_elapsed ? ` · ${d.t_elapsed}s` : '';
+  const cached = d.cached ? ' · 💾 cache hit' : '';
+  estado.innerHTML = `✅ <b>${fmtNum(d.total_rows||0)}</b> tx cargadas (${d.desde} → ${d.hasta})${elapsed}${cached}`;
+  estado.style.color = '#16a34a';
+
+  _renderCcoStats();
+  _renderCcoDetalle();
+  _renderCcoClientes();
+}
+
+function _renderCcoStats() {
+  const panel = document.getElementById('cco-panel-stats');
+  if (!_ccoData) { panel.innerHTML = ''; return; }
+  const t = _ccoData.totales || {};
+
+  const card = (label, valor, color, bg, icon) => `
+    <div style="background:${bg};border:1px solid var(--border);border-radius:10px;padding:14px;flex:1;min-width:180px">
+      <div style="font-size:11px;color:var(--text3);font-weight:700;margin-bottom:6px">${icon} ${label}</div>
+      <div style="font-size:20px;font-weight:700;color:${color}">${fmtMoney(valor)}</div>
+    </div>`;
+
+  const cards = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      ${card('Pilotos',   t.pilotos   || 0, '#3b82f6', '#dbeafe', '🛵')}
+      ${card('Pasajeros', t.pasajeros || 0, '#16a34a', '#dcfce7', '🚕')}
+      ${card('Empleados', t.empleados || 0, '#f97316', '#fed7aa', '👤')}
+      ${card('Clientes',  t.clientes  || 0, '#7c3aed', '#e9d5ff', '🏢')}
+      ${card('GRAN TOTAL', t.gran_total || 0, '#fff', '#6b21a8', '💰')}
+    </div>`;
+
+  panel.innerHTML = cards
+    + _renderCcoPivot('Resumen por Tipo y Jornada',           _ccoData.resumen_tipo,       'Tipo')
+    + _renderCcoPivot('Resumen por Tipo Desglosado y Jornada', _ccoData.resumen_desglosado, 'Tipo Desglosado')
+    + _renderCcoPivot('Resumen de Retiro de Clientes por Jornada', _ccoData.resumen_clientes, 'Cliente / Compañía')
+    + _renderCcoPivot('Resumen de Bolsa por Tipo de Usuario',  _ccoData.resumen_bolsa,      'Tipo de Usuario');
+}
+
+function _renderCcoPivot(title, pivot, labelHdr) {
+  if (!pivot || !pivot.rows) return '';
+  const jornadas = pivot.jornadas || ['Bolsa Mañana','Bolsa Tarde'];
+  const escape = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  const headers = `<tr style="background:#4b5563;color:#fff"><th style="padding:8px;text-align:left">${escape(labelHdr)}</th>${jornadas.map(j => `<th style="padding:8px;text-align:right">${escape(j)}</th>`).join('')}<th style="padding:8px;text-align:right">Total</th></tr>`;
+  const body = (pivot.rows || []).map(r => `
+    <tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:6px 8px;font-size:12px">${escape(r.label)}</td>
+      ${jornadas.map(j => `<td style="padding:6px 8px;font-size:12px;text-align:right">${fmtMoney(r[j]||0)}</td>`).join('')}
+      <td style="padding:6px 8px;font-size:12px;text-align:right;font-weight:600">${fmtMoney(r.Total||0)}</td>
+    </tr>`).join('');
+  const total = pivot.totals || {};
+  const totalRow = `
+    <tr style="background:#ede9f5;font-weight:700">
+      <td style="padding:8px;font-size:13px">TOTAL</td>
+      ${jornadas.map(j => `<td style="padding:8px;font-size:13px;text-align:right">${fmtMoney(total[j]||0)}</td>`).join('')}
+      <td style="padding:8px;font-size:13px;text-align:right;color:#6b21a8">${fmtMoney(total.Total||0)}</td>
+    </tr>`;
+
+  return `
+    <div style="margin-bottom:18px">
+      <h3 style="font-size:14px;margin:0 0 8px 0;color:#3b0764">${escape(title)}</h3>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;overflow:auto;max-height:400px">
+        <table style="width:100%;border-collapse:collapse"><thead style="position:sticky;top:0;z-index:5">${headers}</thead><tbody>${body}${totalRow}</tbody></table>
+      </div>
+    </div>`;
+}
+
+function _ccoFilterRows(rows, filter, cols) {
+  if (!filter) return rows;
+  const f = filter.toLowerCase();
+  return rows.filter(r => cols.some(c => String(r[c] ?? '').toLowerCase().includes(f)));
+}
+
+function _ccoSortRows(rows, sort) {
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = a[sort.col]; const bv = b[sort.col];
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
+  });
+}
+
+function _renderCcoDetalle() {
+  const panel = document.getElementById('cco-panel-detalle');
+  if (!_ccoData) { panel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)">Sin datos. Hacé Consultar primero.</div>'; return; }
+  const cols = ['Fecha','Jornada','Tipo_de_Usuario','Tipo','Tipo_de_Desglosado','Valor'];
+  const all = _ccoData.detallado || [];
+  const filtered = _ccoFilterRows(all, _ccoDetalleFilter, cols);
+  const sorted = _ccoSortRows(filtered, _ccoDetalleSort);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / CCO_PAGE_SIZE));
+  if (_ccoDetallePage > totalPages) _ccoDetallePage = totalPages;
+  const start = (_ccoDetallePage - 1) * CCO_PAGE_SIZE;
+  const page = sorted.slice(start, start + CCO_PAGE_SIZE);
+  panel.innerHTML = _ccoTablaDetalleHTML('detalle', cols, page, filtered.length, _ccoDetallePage, totalPages, _ccoDetalleFilter, _ccoDetalleSort);
+}
+
+function _renderCcoClientes() {
+  const panel = document.getElementById('cco-panel-clientes');
+  if (!_ccoData) { panel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)">Sin datos.</div>'; return; }
+  const cols = ['Fecha','Jornada','Cliente_Nombre','Tipo','Tipo_de_Desglosado','Valor'];
+  const all = _ccoData.clientes_detalle || [];
+  const filtered = _ccoFilterRows(all, _ccoClientesFilter, cols);
+  const sorted = _ccoSortRows(filtered, _ccoClientesSort);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / CCO_PAGE_SIZE));
+  if (_ccoClientesPage > totalPages) _ccoClientesPage = totalPages;
+  const start = (_ccoClientesPage - 1) * CCO_PAGE_SIZE;
+  const page = sorted.slice(start, start + CCO_PAGE_SIZE);
+  panel.innerHTML = _ccoTablaDetalleHTML('clientes', cols, page, filtered.length, _ccoClientesPage, totalPages, _ccoClientesFilter, _ccoClientesSort);
+}
+
+function _ccoTablaDetalleHTML(which, cols, page, total, currentPage, totalPages, filter, sort) {
+  const labels = {
+    'Fecha': 'Fecha', 'Jornada': 'Jornada', 'Tipo_de_Usuario': 'Tipo Usuario',
+    'Tipo': 'Tipo', 'Tipo_de_Desglosado': 'Tipo Desglosado', 'Valor': 'Valor',
+    'Cliente_Nombre': 'Cliente / Compañía',
+  };
+  const escape = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  const arrow = (c) => sort.col === c ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  const headers = cols.map(c => `<th style="padding:8px;text-align:left;font-size:11px;font-weight:700;border-bottom:2px solid var(--border);cursor:pointer;background:#f8fafc;position:sticky;top:0" onclick="_ccoSort('${which}', '${c}')">${escape(labels[c])}${arrow(c)}</th>`).join('');
+  const body = page.map(r => `
+    <tr style="border-bottom:1px solid #f1f5f9">
+      ${cols.map(c => `<td style="padding:6px 8px;font-size:12px${c==='Valor' ? ';text-align:right' : ''}">${c==='Valor' ? fmtMoney(r[c]||0) : escape(r[c])}</td>`).join('')}
+    </tr>`).join('');
+  const pageInfo = total === 0 ? 'Sin resultados' : `${(currentPage-1)*CCO_PAGE_SIZE + 1}-${Math.min(currentPage*CCO_PAGE_SIZE, total)} de ${fmtNum(total)}`;
+  return `
+    <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="text" placeholder="🔍 Buscar en la tabla…" value="${escape(filter)}" onkeyup="_ccoFilter('${which}', this.value)" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;flex:1;min-width:200px">
+      <div style="font-size:11px;color:var(--text3)">${pageInfo}</div>
+      <button onclick="_ccoPage('${which}', -1)" ${currentPage <= 1 ? 'disabled' : ''} style="padding:5px 10px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-size:12px">← Ant</button>
+      <span style="font-size:12px">${currentPage}/${totalPages}</span>
+      <button onclick="_ccoPage('${which}', 1)" ${currentPage >= totalPages ? 'disabled' : ''} style="padding:5px 10px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Sig →</button>
+    </div>
+    <div style="background:#fff;border:1px solid var(--border);border-radius:10px;overflow:auto;max-height:600px">
+      <table style="width:100%;border-collapse:collapse"><thead><tr>${headers}</tr></thead><tbody>${body || '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--text3)">Sin resultados</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+function _ccoFilter(which, value) {
+  if (which === 'detalle')  { _ccoDetalleFilter  = value; _ccoDetallePage  = 1; _renderCcoDetalle(); }
+  if (which === 'clientes') { _ccoClientesFilter = value; _ccoClientesPage = 1; _renderCcoClientes(); }
+}
+
+function _ccoPage(which, delta) {
+  if (which === 'detalle')  { _ccoDetallePage  += delta; _renderCcoDetalle(); }
+  if (which === 'clientes') { _ccoClientesPage += delta; _renderCcoClientes(); }
+}
+
+function _ccoSort(which, col) {
+  const sortObj = which === 'detalle' ? _ccoDetalleSort : _ccoClientesSort;
+  if (sortObj.col === col) sortObj.dir = (sortObj.dir === 'asc' ? 'desc' : 'asc');
+  else { sortObj.col = col; sortObj.dir = 'asc'; }
+  if (which === 'detalle')  _renderCcoDetalle();
+  if (which === 'clientes') _renderCcoClientes();
+}
+
+async function exportarConsolidadoCashOut(btn) {
+  const p = _consolidadoCashOutParams();
+  if (!p.desde || !p.hasta) { alert('Configurá Desde y Hasta'); return; }
+  const origHTML = btn ? btn.innerHTML : null;
+  const setBtn = (h, dis=true) => { if (!btn) return; btn.disabled = dis; btn.style.opacity = dis ? '0.75' : ''; btn.innerHTML = h; };
+  setBtn('⏳ Iniciando…');
+  try {
+    const sp = new URLSearchParams();
+    Object.entries(p).forEach(([k,v]) => { if (v) sp.set(k, v); });
+    const initResp = await fetch(`${API}/api/consolidado_cash_out/exportar_async?${sp.toString()}`, { headers: { 'X-Token': _sesionToken }});
+    const init = await initResp.json();
+    if (!init.ok) throw new Error(init.error || `HTTP ${initResp.status}`);
+
+    let secs = 0;
+    const poller = setInterval(async () => {
+      try {
+        const r = await fetch(`${API}/api/consolidado_cash_out/export_status/${init.job_id}`, { headers: { 'X-Token': _sesionToken }});
+        if (r.status === 202) {
+          const j = await r.json();
+          secs = j.elapsed_sec || (secs + 3);
+          setBtn(`⏳ Construyendo Excel… ${secs}s`);
+          return;
+        }
+        clearInterval(poller);
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'desconocido');
+        if (d.listo_para_descargar) _ccoDescargarBlob(init.job_id, p, btn, origHTML);
+      } catch (err) {
+        clearInterval(poller);
+        setBtn(origHTML, false);
+        alert('❌ Error generando Excel: ' + (err.message || err));
+      }
+    }, 3000);
+  } catch (err) {
+    setBtn(origHTML, false);
+    alert('❌ Error iniciando: ' + (err.message || err));
+  }
+}
+
+function _ccoDescargarBlob(jobId, p, btn, origHTML) {
+  const setBtn = (h, dis=true) => { if (!btn) return; btn.disabled = dis; btn.style.opacity = dis ? '0.75' : ''; btn.innerHTML = h; };
+  setBtn('⬇️ Descargando…');
+  const sp = new URLSearchParams();
+  sp.set('download', '1'); sp.set('job_id', jobId);
+  Object.entries(p).forEach(([k,v]) => { if (v) sp.set(k, v); });
+  fetch(`${API}/api/consolidado_cash_out/exportar_async?${sp.toString()}`, { headers: { 'X-Token': _sesionToken }})
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      const u = window.URL.createObjectURL(blob);
+      a.href = u;
+      a.download = `Picap_Consolidado_Cash_Out_${new Date().toISOString().slice(0,10)}.xlsx`;
       document.body.appendChild(a); a.click();
       window.URL.revokeObjectURL(u); a.remove();
       setBtn(`✅ Listo (${Math.round(blob.size/1024)} KB)`);

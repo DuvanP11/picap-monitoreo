@@ -122,6 +122,16 @@ Rails.application.routes.draw do
     end
     post "validador_dispersiones/enviar_email", to: "validador_dispersiones#enviar_email"
 
+    # v3.3.56: Consolidado Cash Out (submódulo Cash Out)
+    namespace :consolidado_cash_out do
+      get  "cargar_async",                 to: "/api/consolidado_cash_out#cargar_async"
+      get  "cargar_status/:job_id",        to: "/api/consolidado_cash_out#cargar_status"
+      get  "exportar_async",               to: "/api/consolidado_cash_out#exportar_async"
+      get  "export_status/:job_id",        to: "/api/consolidado_cash_out#export_status"
+      get  "enviar_email_status/:job_id",  to: "/api/consolidado_cash_out#enviar_email_status"
+    end
+    post "consolidado_cash_out/enviar_email", to: "consolidado_cash_out#enviar_email"
+
     # v3.3.24: MINTIC — reporte trimestral B2B (acceso restringido)
     namespace :mintic do
       get  "detallado_query",        to: "/api/mintic#detallado_query"

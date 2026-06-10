@@ -3284,6 +3284,119 @@ module QueriesService
   #   %{fecha_hasta}    requerido
   #   %{filtro_extra}   opcional - bloque AND ... AND ... ya sanitizado en Ruby.
   # ═══════════════════════════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════════════════════
+  # v3.3.56: Consolidado Cash Out — informe mensual de retiros por jornada,
+  # tipo de usuario y categoría. Construido sobre la misma base que el
+  # Validador pero clasificando además clientes (company_id NOT NULL).
+  #
+  # Devuelve: Fecha, Jornada, Tipo_de_Usuario, Tipo, Tipo_de_Desglosado,
+  #           Valor, Es_Cliente (UInt8), Cliente_Nombre.
+  # ═══════════════════════════════════════════════════════════════════════════
+  Q_CONSOLIDADO_CASH_OUT = <<~'SQL'
+    WITH base AS (
+      SELECT
+          formatDateTime(toTimeZone(wat.created_at, 'America/Bogota'), '%d/%m/%Y %H:%i:%S') AS Fecha,
+          toTimeZone(wat.created_at, 'America/Bogota')                                       AS _ts_bog,
+          wat._type                                                                          AS _wat_type,
+          lower(JSONExtractString(st.name, 'es'))                                            AS _svc_name,
+          p.driver_enrollment_status_cd                                                      AS _driver_status,
+          toFloat64OrNull(JSONExtractString(wat.amount, 'cents')) / 100                      AS Valor,
+          wa.company_id                                                                      AS _company_id,
+          if(notEmpty(toString(wa.company_id)) AND wa.company_id != '', comp.name, '')       AS Cliente_Nombre
+      FROM picapmongoprod.wallet_account_transactions       AS wat FINAL
+      INNER JOIN picapmongoprod.wallet_accounts             AS wa   FINAL ON wa._id   = wat.account_id
+      LEFT  JOIN picapmongoprod.passengers                  AS p    FINAL ON p._id    = wa.passenger_id
+      LEFT  JOIN picapmongoprod.bookings                    AS b    FINAL ON b._id    = wat.booking_id
+      LEFT  JOIN picapmongoprod.service_types               AS st   FINAL ON st._id   = b.requested_service_type_id
+      LEFT  JOIN picapmongoprod.companies                   AS comp FINAL ON comp._id = wa.company_id
+      WHERE wat.created_at BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
+                               AND toDateTime('%{fecha_hasta}', 'America/Bogota')
+        AND JSONExtractString(wat.amount, 'currency_iso') = 'COP'
+        AND wat.status_cd IN (0, 1, 2)
+        AND lower(wat._type) NOT IN (
+            'walletaccounttransactionpocketconciliation',
+            'walletaccounttransactionpenaltycancelpayment',
+            'walletaccounttransactioncommissiondriverpayment',
+            'walletaccounttransactiondirectpayment',
+            'walletaccounttransactionexpirepromobalance',
+            'walletaccounttransactionpromocodemultipleuse',
+            'walletaccounttransactionpenaltycancelrefund',
+            'walletaccountdriverbalancetransactiondaviplatacashout',
+            'walletaccounttransactiondriverproplancheckout',
+            'walletaccounttransactionpiboxpenalty',
+            'walletaccounttransactioncompanyinvoiceadjustment',
+            'walletaccounttransactionpinpurchase',
+            'walletaccounttransactionbookingcompanycharge',
+            'walletaccounttransactionextracharge',
+            'walletaccounttransactioncommissioncompanypayment',
+            'walletaccounttransactionbookingcompanycollectionfee',
+            'walletaccounttransactionbookingcompanyivacharge',
+            'walletaccounttransactionbookingpassengercharge',
+            'walletaccounttransactionpenaltycancel',
+            'walletaccounttransactionpenaltycancelpaymentcommission',
+            'walletaccounttransactionfraudcommission',
+            'walletaccounttransactionbookingdriverretention'
+        )
+    ),
+    classified AS (
+      SELECT
+          Fecha,
+          multiIf(
+            (toHour(_ts_bog) * 60 + toMinute(_ts_bog)) BETWEEN 481 AND 720, 'Bolsa Tarde',
+            (toHour(_ts_bog) * 60 + toMinute(_ts_bog)) >= 721
+              OR (toHour(_ts_bog) * 60 + toMinute(_ts_bog)) <= 480,          'Bolsa Mañana',
+            'Otro'
+          ) AS Jornada,
+          multiIf(
+            lower(_wat_type) = 'walletaccounttransactionbatchdispersion', 'Empleado',
+            _driver_status = 3,                                            'Piloto',
+            'Pasajero'
+          ) AS Tipo_de_Usuario,
+          CASE
+            WHEN lower(_wat_type) = 'walletaccounttransactionbookingdriverpayment' AND _svc_name IN ('mensajería','mensajeria','delivery')                                            THEN 'Pibox Moto'
+            WHEN lower(_wat_type) = 'walletaccounttransactionbookingdriverpayment' AND _svc_name IN ('moto','moto vip','rapidín','rapidin','espero tranqui','carro','picap moto','picap carro','subasta') THEN 'Rent'
+            WHEN lower(_wat_type) = 'walletaccounttransactionbookingdriverpayment' AND _svc_name IN ('carga','carga carry','carga nhr','carga moto-vagón','carga moto-vagon','carga npr','carga nkr','carro mensajeria','carga trailer','nhr refrigerada','mensajería en bicicleta','moto favor') THEN 'Mensajería Pibox'
+            WHEN lower(_wat_type) IN ('walletaccountcounterdeliverytransaction','walletaccountcounterdeliverypaymenttransaction')                                                      THEN 'Pago contraentrega Pibox'
+            WHEN lower(_wat_type) = 'walletaccounttransactiondriverrecharge'                  THEN 'Recarga'
+            WHEN lower(_wat_type) = 'walletaccounttransactionbookingpssgretentiondiscount'    THEN 'Motor de Retención'
+            WHEN lower(_wat_type) = 'walletaccounttransactioncreditinstalmentpayment'         THEN 'Crédito Pibank'
+            WHEN lower(_wat_type) = 'walletaccountsendmoneytransaction'                       THEN 'Envío'
+            WHEN lower(_wat_type) = 'walletaccounttransactionbookingdriverincentive'          THEN 'Pago de Incentivo'
+            WHEN lower(_wat_type) = 'walletaccounttransactiondriverstreak'                    THEN 'Bono de Racha'
+            WHEN lower(_wat_type) = 'walletaccounttransactionchargemoney'                     THEN 'Recarga TC'
+            WHEN lower(_wat_type) = 'walletaccounttransactionbatchdispersion'                 THEN 'Bono Pibox'
+            WHEN lower(_wat_type) = 'walletaccounttransactionpromocampaign'                   THEN 'Pago de Campaña'
+            WHEN lower(_wat_type) = 'walletaccounttransactionbookinghelpbonus'                THEN 'Inmovilizaciones'
+            WHEN lower(_wat_type) = 'walletaccounttransactionrefacilnequipayment'             THEN 'Recarga Refacilpay'
+            WHEN lower(_wat_type) = 'walletaccounttransactionsacrequest'                      THEN 'SAC Reclamaciones'
+            ELSE 'Otro'
+          END AS Tipo_de_Desglosado,
+          if(notEmpty(toString(_company_id)) AND _company_id != '', 1, 0) AS Es_Cliente,
+          Cliente_Nombre,
+          Valor,
+          _ts_bog
+      FROM base
+    )
+    SELECT
+        Fecha,
+        Jornada,
+        Tipo_de_Usuario,
+        multiIf(
+          Tipo_de_Desglosado IN ('Pibox Moto','Pago contraentrega Pibox','Mensajería Pibox'), 'Mensajería Pibox',
+          Tipo_de_Desglosado = 'Rent',                                                        'Rent',
+          Tipo_de_Desglosado IN ('Inmovilizaciones','SAC Reclamaciones'),                     'Pago Reclamaciones',
+          Tipo_de_Desglosado = 'Otro',                                                        'Otro',
+          Tipo_de_Desglosado
+        ) AS Tipo,
+        Tipo_de_Desglosado,
+        Valor,
+        Es_Cliente,
+        Cliente_Nombre
+    FROM classified
+    ORDER BY _ts_bog DESC
+    SETTINGS join_use_nulls = 0
+  SQL
+
   Q_VALIDADOR_DISPERSIONES = <<~'SQL'
     SELECT * EXCEPT rn
     FROM (
