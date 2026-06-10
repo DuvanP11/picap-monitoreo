@@ -391,23 +391,30 @@ module Api
 
     def construir_html_email(p, stats, total, mensaje_usuario, usuario)
       fmt = ->(n) { "$ #{n.to_i.to_s.reverse.scan(/\d{1,3}/).join(".").reverse}" }
-      "<!doctype html><html><body style='font-family:Arial,sans-serif;color:#1e1333;max-width:680px;margin:0 auto'>" \
-      "<div style='background:linear-gradient(90deg,#6b21a8,#5b21b6);color:#fff;padding:24px;border-radius:8px 8px 0 0'>" \
-      "<h2 style='margin:0;font-size:18px'>Validador de Dispersiones</h2>" \
-      "<p style='margin:6px 0 0;font-size:13px;color:#e9d5ff'>Período: #{p[:desde]} → #{p[:hasta]}</p>" \
-      "</div>" \
-      "<div style='border:1px solid #d8d0ec;border-top:0;padding:20px;border-radius:0 0 8px 8px'>" \
-      (mensaje_usuario.to_s.empty? ? "" : "<p style='background:#ede9f5;padding:12px;border-left:3px solid #6b21a8;margin:0 0 16px'>#{ERB::Util.h(mensaje_usuario)}</p>") + \
-      "<table style='width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px'>" \
-      "<tr><th align='left' style='padding:6px;border-bottom:1px solid #d8d0ec'>Estado</th><th align='right' style='padding:6px;border-bottom:1px solid #d8d0ec'>Cantidad</th><th align='right' style='padding:6px;border-bottom:1px solid #d8d0ec'>Valor</th></tr>" \
-      "<tr><td style='padding:6px'>Pago exitoso</td><td align='right' style='padding:6px'>#{stats[:pago_exitoso]}</td><td align='right' style='padding:6px;color:#16a34a'>#{fmt.(stats[:pago_exitoso_valor])}</td></tr>" \
-      "<tr><td style='padding:6px'>Aprobado</td><td align='right' style='padding:6px'>#{stats[:aprobado]}</td><td align='right' style='padding:6px;color:#16a34a'>#{fmt.(stats[:aprobado_valor])}</td></tr>" \
-      "<tr><td style='padding:6px'>Reembolso</td><td align='right' style='padding:6px'>#{stats[:reembolso]}</td><td align='right' style='padding:6px;color:#dc2626'>#{fmt.(stats[:reembolso_valor])}</td></tr>" \
-      "<tr><td style='padding:6px'>Pendiente</td><td align='right' style='padding:6px'>#{stats[:pendiente]}</td><td align='right' style='padding:6px;color:#f59e0b'>#{fmt.(stats[:pendiente_valor])}</td></tr>" \
-      "<tr><th align='left' style='padding:6px;border-top:1px solid #d8d0ec'>TOTAL</th><th align='right' style='padding:6px;border-top:1px solid #d8d0ec'>#{total}</th><th align='right' style='padding:6px;border-top:1px solid #d8d0ec'>#{fmt.(stats[:total_valor])}</th></tr>" \
-      "</table>" \
-      "<p style='font-size:12px;color:#6b5f8a;margin:12px 0 0'>Reporte generado por #{ERB::Util.h(usuario)}. Adjunto: detalle completo en Excel.</p>" \
-      "</div></body></html>"
+      # v3.3.54 FIX: refactor usando interpolación. El `\` continuation no
+      # acepta `(` al inicio de la siguiente línea → SyntaxError que
+      # impedía que Rails arrancara y dejaba al cluster en CrashLoopBackOff.
+      mensaje_html = mensaje_usuario.to_s.empty? ? "" : "<p style='background:#ede9f5;padding:12px;border-left:3px solid #6b21a8;margin:0 0 16px'>#{ERB::Util.h(mensaje_usuario)}</p>"
+      <<~HTML
+        <!doctype html><html><body style='font-family:Arial,sans-serif;color:#1e1333;max-width:680px;margin:0 auto'>
+        <div style='background:linear-gradient(90deg,#6b21a8,#5b21b6);color:#fff;padding:24px;border-radius:8px 8px 0 0'>
+          <h2 style='margin:0;font-size:18px'>Validador de Dispersiones</h2>
+          <p style='margin:6px 0 0;font-size:13px;color:#e9d5ff'>Período: #{p[:desde]} → #{p[:hasta]}</p>
+        </div>
+        <div style='border:1px solid #d8d0ec;border-top:0;padding:20px;border-radius:0 0 8px 8px'>
+          #{mensaje_html}
+          <table style='width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px'>
+            <tr><th align='left' style='padding:6px;border-bottom:1px solid #d8d0ec'>Estado</th><th align='right' style='padding:6px;border-bottom:1px solid #d8d0ec'>Cantidad</th><th align='right' style='padding:6px;border-bottom:1px solid #d8d0ec'>Valor</th></tr>
+            <tr><td style='padding:6px'>Pago exitoso</td><td align='right' style='padding:6px'>#{stats[:pago_exitoso]}</td><td align='right' style='padding:6px;color:#16a34a'>#{fmt.(stats[:pago_exitoso_valor])}</td></tr>
+            <tr><td style='padding:6px'>Aprobado</td><td align='right' style='padding:6px'>#{stats[:aprobado]}</td><td align='right' style='padding:6px;color:#16a34a'>#{fmt.(stats[:aprobado_valor])}</td></tr>
+            <tr><td style='padding:6px'>Reembolso</td><td align='right' style='padding:6px'>#{stats[:reembolso]}</td><td align='right' style='padding:6px;color:#dc2626'>#{fmt.(stats[:reembolso_valor])}</td></tr>
+            <tr><td style='padding:6px'>Pendiente</td><td align='right' style='padding:6px'>#{stats[:pendiente]}</td><td align='right' style='padding:6px;color:#f59e0b'>#{fmt.(stats[:pendiente_valor])}</td></tr>
+            <tr><th align='left' style='padding:6px;border-top:1px solid #d8d0ec'>TOTAL</th><th align='right' style='padding:6px;border-top:1px solid #d8d0ec'>#{total}</th><th align='right' style='padding:6px;border-top:1px solid #d8d0ec'>#{fmt.(stats[:total_valor])}</th></tr>
+          </table>
+          <p style='font-size:12px;color:#6b5f8a;margin:12px 0 0'>Reporte generado por #{ERB::Util.h(usuario)}. Adjunto: detalle completo en Excel.</p>
+        </div>
+        </body></html>
+      HTML
     end
 
     def _descargar_export(job_id)
