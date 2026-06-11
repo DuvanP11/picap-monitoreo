@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PICAP · Campaign Validator</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><text x='16' y='24' text-anchor='middle' fill='white' font-size='20' font-weight='900' font-family='Arial'>P</text></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#f0ecf8;--surface:#fff;--surface2:#ede9f5;--border:#d8d0ec;
+  --purple:#6b21a8;--purple2:#7c3aed;--purple-lt:#ede9f5;--purple-md:#a78bfa;
+  --grad1:#4a0e8f;--grad2:#6b21a8;--grad3:#7c3aed;
+  --text1:#1e1333;--text2:#6b5f8a;--text3:#a89fc0;
+  --red:#ef4444;--red-bg:#fef2f2;--green:#22c55e;--green-bg:#f0fdf4;
+  --amber:#f59e0b;--amber-bg:#fffbeb;--orange:#f97316;
+  --card-bg:rgba(255,255,255,0.78);--card-border:rgba(167,139,250,0.38);
+  --card-shadow:rgba(107,33,168,0.2);--radius:16px;
+  --font:'Segoe UI',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font);background:linear-gradient(145deg,#f0ecf8 0%,#e8e0f5 55%,#ddd4f0 100%);min-height:100vh;color:var(--text1);}
+
+/* ── HEADER ───────────────────────────────────────────────────── */
+.site-header{background:linear-gradient(135deg,#4a0e8f 0%,#6b21a8 60%,#7c3aed 100%);padding:22px 40px;display:flex;align-items:center;gap:24px;box-shadow:0 4px 24px rgba(74,14,143,.35);position:sticky;top:0;z-index:200;}
+.logo-3d{width:72px;height:72px;flex-shrink:0;animation:float-logo 4s ease-in-out infinite;filter:drop-shadow(0 10px 20px rgba(0,0,0,.35));transform-style:preserve-3d;}
+.logo-3d svg{width:72px;height:72px;}
+.header-text{flex:1;}
+.site-title{font-size:28px;font-weight:900;color:#fff;letter-spacing:.04em;text-shadow:0 2px 12px rgba(0,0,0,.3);}
+.welcome{font-size:15px;color:rgba(255,255,255,.82);margin-top:4px;}
+
+/* ── MAIN LAYOUT ─────────────────────────────────────────────── */
+.page-main{padding:32px 28px 60px;}
+.countries-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;max-width:1640px;margin:0 auto;}
+
+/* ── COUNTRY CARD ────────────────────────────────────────────── */
+.country-card{background:var(--card-bg);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1.5px solid var(--card-border);border-radius:28px;padding:0 0 20px;overflow:hidden;
+  box-shadow:0 24px 60px var(--card-shadow),0 8px 24px rgba(124,58,237,.12),inset 0 2px 0 rgba(255,255,255,.7),inset 0 -2px 0 rgba(139,92,246,.08);
+  animation:float 6s ease-in-out infinite;transition:transform .3s;}
+.country-card:hover{transform:translateY(-4px) scale(1.005);}
+
+/* ── FLAG & TITLE ────────────────────────────────────────────── */
+.card-flag-band{background:linear-gradient(135deg,rgba(107,33,168,.1),rgba(124,58,237,.06));padding:20px 20px 18px;text-align:center;border-bottom:1px solid var(--card-border);cursor:pointer;user-select:none;position:relative;}
+.card-flag-band:hover{background:linear-gradient(135deg,rgba(107,33,168,.16),rgba(124,58,237,.10));}
+.card-flag{display:block;margin:0 auto 8px;width:96px;height:72px;object-fit:cover;border-radius:8px;filter:drop-shadow(0 6px 12px rgba(0,0,0,.22));animation:flag-bob 3s ease-in-out infinite;}
+.card-country-name{font-size:22px;font-weight:800;color:var(--purple);letter-spacing:.02em;}
+.card-currency{font-size:11px;color:var(--text3);font-weight:600;margin-top:2px;}
+.card-expand-hint{font-size:11px;color:var(--purple-md);margin-top:10px;font-weight:600;letter-spacing:.03em;transition:opacity .3s;}
+.card-expand-arrow{display:inline-block;margin-left:4px;transition:transform .35s ease;}
+.country-card.expanded .card-expand-hint{opacity:.7;}
+.country-card.expanded .card-expand-arrow{transform:rotate(180deg);}
+
+/* ── CARD BODY (hidden until modal) ──────────────────────────── */
+.card-body{display:none;}
+.country-card{cursor:pointer;}
+
+/* ── MODAL OVERLAY ───────────────────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(30,19,51,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:600;display:none;align-items:flex-start;justify-content:center;padding:28px 16px 40px;}
+.modal-overlay.active{display:flex;animation:fadeBackdrop .22s ease;}
+@keyframes fadeBackdrop{from{opacity:0}to{opacity:1}}
+.modal-box{background:var(--surface);border-radius:24px;width:min(1440px,97vw);flex-shrink:0;overflow:hidden;box-shadow:0 40px 100px rgba(74,14,143,.45),0 8px 32px rgba(0,0,0,.3);animation:slideUp .3s cubic-bezier(.4,0,.2,1);}
+@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+.modal-hdr{background:linear-gradient(135deg,var(--grad1),var(--grad3));padding:16px 22px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:5;}
+.modal-flag-img{width:76px;height:57px;object-fit:cover;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.35);flex-shrink:0;}
+.modal-hdr-text{flex:1;}
+.modal-cntry-nm{font-size:22px;font-weight:900;color:#fff;letter-spacing:.02em;}
+.modal-cntry-cur{font-size:12px;color:rgba(255,255,255,.72);margin-top:3px;}
+.modal-close-btn{width:38px;height:38px;border-radius:50%;border:2px solid rgba(255,255,255,.38);background:rgba(255,255,255,.12);color:#fff;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;flex-shrink:0;}
+.modal-close-btn:hover{background:rgba(255,255,255,.28);border-color:rgba(255,255,255,.75);}
+.modal-body-wrap{overflow-y:auto;max-height:calc(92vh - 90px);}
+.modal-body-wrap .card-body{display:block;}
+
+/* ── TABS ────────────────────────────────────────────────────── */
+.card-tabs{display:flex;gap:6px;padding:14px 14px 0;flex-wrap:wrap;}
+.tab-btn{flex:1;min-width:90px;padding:9px 6px;font-size:11.5px;font-weight:700;border:1.5px solid var(--border);border-radius:12px;background:var(--surface2);color:var(--text2);cursor:pointer;transition:.2s;text-align:center;white-space:nowrap;}
+.tab-btn:hover{border-color:var(--purple-md);color:var(--purple);}
+.tab-btn.active{background:linear-gradient(135deg,var(--grad1),var(--grad3));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(107,33,168,.3);}
+
+/* ── FILTERS BAR ─────────────────────────────────────────────── */
+.filters-bar{margin:12px 14px 0;background:rgba(255,255,255,.62);border:1px solid var(--border);border-radius:14px;padding:12px 14px;}
+.filter-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.filter-row:last-child{margin-bottom:0;}
+.filter-label{font-size:10.5px;font-weight:700;color:var(--text2);white-space:nowrap;min-width:60px;}
+.filter-input{font-size:11.5px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text1);outline:none;transition:.15s;}
+.filter-input:focus{border-color:var(--purple-md);box-shadow:0 0 0 2px rgba(167,139,250,.2);}
+.filter-sep{width:1px;height:20px;background:var(--border);flex-shrink:0;}
+.date-toggle{font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:20px;border:1.5px solid var(--purple-md);background:var(--purple);color:#fff;cursor:pointer;transition:.15s;white-space:nowrap;}
+.date-toggle:not(.active){background:#f1f1f5;color:var(--text3);border-color:var(--border);}
+.filter-input.dim{opacity:.35;pointer-events:none;}
+.tyc-link{color:var(--purple);font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;padding:2px 6px;border-radius:6px;border:1px solid var(--purple-md);background:var(--purple-lt);}
+.tyc-link:hover{background:#ddd6fe;text-decoration:none;}
+.id-search-group{display:flex;gap:4px;align-items:center;flex:1;max-width:340px;}
+.id-type-select{font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text1);cursor:pointer;outline:none;}
+.id-input{flex:1;font-size:11.5px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text1);outline:none;}
+.id-input:focus{border-color:var(--purple-md);}
+.btn-search{font-size:11px;padding:6px 12px;border-radius:8px;border:none;background:var(--purple);color:#fff;cursor:pointer;font-weight:700;transition:.15s;}
+.btn-search:hover{background:var(--grad1);}
+
+/* ── PERIOD BUTTONS ──────────────────────────────────────────── */
+.period-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.period-btn{font-size:11px;padding:5px 12px;border-radius:20px;border:1.5px solid var(--border);background:#fff;color:var(--text2);cursor:pointer;font-weight:600;transition:.15s;}
+.period-btn:hover{border-color:var(--purple-md);color:var(--purple);}
+.period-btn.active{background:linear-gradient(135deg,var(--grad1),var(--purple2));color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(107,33,168,.25);}
+.btn-excel{font-size:11px;padding:5px 13px;border-radius:20px;border:1.5px solid #22c55e;background:#f0fdf4;color:#166534;cursor:pointer;font-weight:700;transition:.15s;}
+.btn-excel:hover{background:#dcfce7;}
+.btn-email{font-size:11px;padding:5px 13px;border-radius:20px;border:1.5px solid var(--purple-md);background:var(--purple-lt);color:var(--purple);cursor:pointer;font-weight:700;transition:.15s;}
+.btn-email:hover{background:#ddd6fe;}
+.month-year-group{display:flex;gap:4px;}
+.my-select{font-size:11px;padding:5px 8px;border-radius:8px;border:1.5px solid var(--border);background:#fff;color:var(--text1);cursor:pointer;outline:none;}
+
+/* ── TAB PANELS ──────────────────────────────────────────────── */
+.tab-panels{padding:14px;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* ── KPI GRID ────────────────────────────────────────────────── */
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
+.kpi-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;transition:.2s;}
+.kpi-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(107,33,168,.12);}
+.kpi-icon{font-size:26px;line-height:1;flex-shrink:0;}
+.kpi-body{}
+.kpi-value{font-size:20px;font-weight:800;color:var(--text1);line-height:1.1;}
+.kpi-label{font-size:10px;color:var(--text2);font-weight:600;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;}
+.kpi-purple{border-left:4px solid var(--purple);}
+.kpi-green{border-left:4px solid var(--green);}
+.kpi-amber{border-left:4px solid var(--amber);}
+.kpi-red{border-left:4px solid var(--red);}
+.kpi-blue{border-left:4px solid #3b82f6;}
+.kpi-teal{border-left:4px solid #14b8a6;}
+
+/* ── SECTION TITLES ──────────────────────────────────────────── */
+.section-title{font-size:12.5px;font-weight:800;color:var(--purple);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px;display:flex;align-items:center;gap:6px;}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* ── TABLES ──────────────────────────────────────────────────── */
+.table-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--border);margin-bottom:16px;}
+.table-wrap.scrollable-y{max-height:320px;overflow-y:auto;}
+table{width:100%;border-collapse:collapse;font-size:11.5px;}
+thead{position:sticky;top:0;z-index:2;}
+thead tr.th-main th{background:linear-gradient(135deg,var(--grad1),var(--purple2));color:#fff;padding:8px 10px;text-align:left;font-weight:700;font-size:11px;letter-spacing:.03em;white-space:nowrap;cursor:pointer;user-select:none;}
+thead tr.th-main th:hover{background:linear-gradient(135deg,var(--purple2),#8b5cf6);}
+thead tr.th-main th.no-sort{cursor:default;}
+thead tr.th-main th.sorted-asc::after{content:' ↑';opacity:.8;}
+thead tr.th-main th.sorted-desc::after{content:' ↓';opacity:.8;}
+thead tr.th-filter th{background:#f8f5ff;padding:3px 4px;border-bottom:1px solid var(--border);}
+.col-filter-inp{width:100%;font-size:10.5px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text1);outline:none;}
+.col-filter-inp:focus{border-color:var(--purple-md);}
+tbody tr{border-bottom:1px solid rgba(216,208,236,.35);transition:.1s;}
+tbody tr:hover td{background:rgba(237,233,254,.55)!important;}
+tbody tr:nth-child(even) td{background:rgba(248,245,255,.6);}
+td{padding:7px 10px;color:var(--text1);vertical-align:middle;white-space:nowrap;}
+td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
+.no-data{text-align:center;padding:24px;color:var(--text3);font-size:13px;}
+
+/* ── BADGES ──────────────────────────────────────────────────── */
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap;}
+.b-ok{background:var(--green-bg);color:#166534;}
+.b-warn{background:var(--amber-bg);color:#92400e;}
+.b-danger{background:var(--red-bg);color:#991b1b;}
+.b-purple{background:var(--purple-lt);color:var(--purple);}
+.b-gray{background:#f1f5f9;color:#475569;}
+.b-blue{background:#eff6ff;color:#1d4ed8;}
+.b-fraud{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;}
+
+/* ── FRAUD FILTER BAR ────────────────────────────────────────── */
+.fraud-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+.btn-fraud{font-size:11.5px;padding:7px 18px;border-radius:20px;border:1.5px solid var(--border);background:#fff;color:var(--text2);cursor:pointer;font-weight:700;transition:.2s;}
+.btn-fraud.danger-active{background:var(--red-bg);color:var(--red);border-color:var(--red);}
+.fraud-count{font-size:11px;color:var(--text3);}
+
+/* ── STATS TWO-COL ───────────────────────────────────────────── */
+.stats-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;}
+
+/* ── CHART CONTAINER ─────────────────────────────────────────── */
+.chart-wrap{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px;max-height:240px;}
+
+/* ── SCROLLBAR ───────────────────────────────────────────────── */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--purple-md);border-radius:3px;}
+
+/* ── ANIMATIONS ──────────────────────────────────────────────── */
+@keyframes float{
+  0%,100%{transform:translateY(0);box-shadow:0 24px 60px var(--card-shadow),0 8px 24px rgba(124,58,237,.12),inset 0 2px 0 rgba(255,255,255,.7);}
+  50%{transform:translateY(-16px);box-shadow:0 40px 80px rgba(107,33,168,.28),0 16px 40px rgba(124,58,237,.18),inset 0 2px 0 rgba(255,255,255,.7);}
+}
+@keyframes float-logo{
+  0%,100%{transform:perspective(400px) rotateY(0deg) rotateX(0deg) translateY(0);}
+  25%{transform:perspective(400px) rotateY(10deg) rotateX(4deg) translateY(-6px);}
+  50%{transform:perspective(400px) rotateY(0deg) rotateX(8deg) translateY(-10px);}
+  75%{transform:perspective(400px) rotateY(-8deg) rotateX(3deg) translateY(-5px);}
+}
+@keyframes flag-bob{
+  0%,100%{transform:translateY(0) rotate(0deg);}
+  40%{transform:translateY(-5px) rotate(2deg);}
+  70%{transform:translateY(-3px) rotate(-1deg);}
+}
+
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
+@media(max-width:1380px){.countries-grid{grid-template-columns:1fr 1fr;}}
+@media(max-width:880px){.countries-grid{grid-template-columns:1fr;}}
+@media(max-width:580px){.kpi-grid{grid-template-columns:1fr 1fr;}.stats-2col{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════════ -->
+<header class="site-header">
+  <div class="logo-3d">
+    <svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="lg1" x1="0" y1="0" x2="72" y2="72" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#c084fc"/><stop offset="1" stop-color="#4a0e8f"/>
+        </linearGradient>
+        <filter id="gshadow"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#4a0e8f" flood-opacity="0.6"/></filter>
+      </defs>
+      <rect width="72" height="72" rx="18" fill="url(#lg1)" filter="url(#gshadow)"/>
+      <text x="36" y="52" text-anchor="middle" fill="white" font-size="44" font-weight="900" font-family="Segoe UI,Arial,sans-serif">P</text>
+    </svg>
+  </div>
+  <div class="header-text">
+    <h1 class="site-title">PICAP CAMPAIGN VALIDATOR</h1>
+    <p class="welcome">¡Bienvenido, Usuario! 🤘🏻</p>
+  </div>
+</header>
+
+<!-- ══ MAIN GRID ════════════════════════════════════════════════════ -->
+<main class="page-main">
+<div class="countries-grid">
+
+<!-- ────────────────────── COLOMBIA ──────────────────────────── -->
+<div class="country-card" style="animation-delay:0s" id="card-COL" onclick="openCountry('COL')">
+  <div class="card-flag-band">
+    <img class="card-flag" src="https://flagcdn.com/w160/co.png" alt="Colombia">
+    <div class="card-country-name">Colombia</div>
+    <div class="card-currency">COP · Bogotá / Medellín / Cali…</div>
+    <div class="card-expand-hint">Abrir módulos →</div>
+  </div>
+  <div class="card-body">
+  <div class="card-tabs" id="tabs-COL">
+    <button class="tab-btn active" onclick="openTab('COL','est')">📊 Estadística</button>
+    <button class="tab-btn" onclick="openTab('COL','seg')">📡 Seguimiento</button>
+    <button class="tab-btn" onclick="openTab('COL','det')">🔍 Detallado</button>
+  </div>
+  <div class="filters-bar" id="fbar-COL">
+    <div class="filter-row">
+      <button class="date-toggle active" id="dt-svc-COL" onclick="toggleDateFilter('COL','svc')">🗓 Servicios</button>
+      <input type="date" class="filter-input" id="svc-from-COL" value="2026-06-04" onchange="renderAll('COL')">
+      <span style="font-size:11px;color:var(--text3)">—</span>
+      <input type="date" class="filter-input" id="svc-to-COL" value="2026-06-11" onchange="renderAll('COL')">
+      <span class="filter-sep"></span>
+      <button class="date-toggle active" id="dt-pay-COL" onclick="toggleDateFilter('COL','pay')">💳 Pago TX</button>
+      <input type="date" class="filter-input" id="pay-from-COL" value="2026-06-04" onchange="renderAll('COL')">
+      <span style="font-size:11px;color:var(--text3)">—</span>
+      <input type="date" class="filter-input" id="pay-to-COL" value="2026-06-11" onchange="renderAll('COL')">
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">🔎 Buscar ID:</span>
+      <div class="id-search-group">
+        <select class="id-type-select" id="id-type-COL">
+          <option value="campaign">ID Campaña</option>
+          <option value="user">ID Usuario</option>
+          <option value="booking">ID Booking</option>
+          <option value="tx">ID Transacción</option>
+        </select>
+        <input type="text" class="id-input" id="id-val-COL" placeholder="Ingresa un ID…">
+        <button class="btn-search" onclick="searchById('COL')">Buscar</button>
+      </div>
+      <span class="filter-sep"></span>
+      <button class="btn-excel" onclick="exportExcel('COL')">⬇ Excel</button>
+      <button class="btn-email" onclick="sendEmail('COL')">✉ Correo</button>
+    </div>
+    <div class="period-row">
+      <span class="filter-label">⏱ Periodo:</span>
+      <button class="period-btn active" onclick="setPeriod('COL',7,this)">7 días</button>
+      <button class="period-btn" onclick="setPeriod('COL',15,this)">15 días</button>
+      <button class="period-btn" onclick="setPeriod('COL',30,this)">30 días</button>
+      <div class="month-year-group">
+        <select class="my-select" id="month-COL" onchange="setMonth('COL')"><option value="">Mes</option><option>Ene</option><option>Feb</option><option>Mar</option><option>Abr</option><option>May</option><option selected>Jun</option><option>Jul</option><option>Ago</option><option>Sep</option><option>Oct</option><option>Nov</option><option>Dic</option></select>
+        <select class="my-select" id="year-COL" onchange="setMonth('COL')"><option>2025</option><option selected>2026</option></select>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panels">
+    <!-- ── ESTADÍSTICA ── -->
+    <div class="tab-panel active" id="COL-est">
+      <div class="kpi-grid" id="kpi-COL"></div>
+      <div class="section-title">📋 Resumen por Campaña</div>
+      <div class="table-wrap scrollable-y" id="camp-resume-COL"></div>
+      <div class="section-title">📍 Estadística por Ciudad</div>
+      <div class="table-wrap scrollable-y" id="city-tbl-COL"></div>
+      <div class="stats-2col">
+        <div>
+          <div class="section-title">🏆 Top 10 Pilotos Ganadores</div>
+          <div class="table-wrap scrollable-y" id="top-pilots-COL"></div>
+        </div>
+        <div>
+          <div class="section-title">🎯 Top 10 Campañas Pagadas</div>
+          <div class="table-wrap scrollable-y" id="top-camps-COL"></div>
+        </div>
+      </div>
+      <div class="stats-2col">
+        <div>
+          <div class="section-title">📡 Regla Monitoreo (regla_distancia)</div>
+          <div class="table-wrap" id="tbl-monit-COL"></div>
+        </div>
+        <div>
+          <div class="section-title">🃏 Regla Trump (reason_text)</div>
+          <div class="table-wrap" id="tbl-trump-COL"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SEGUIMIENTO ── -->
+    <div class="tab-panel" id="COL-seg">
+      <div class="fraud-bar">
+        <button class="btn-fraud" id="fraud-btn-COL" onclick="toggleFraud('COL')">🚨 Solo Alertas de Fraude</button>
+        <button class="btn-fraud" id="cero-btn-COL" onclick="toggleCero('COL')">💲 Solo Pago $0</button>
+        <span class="fraud-count" id="fraud-count-COL"></span>
+      </div>
+      <div class="table-wrap scrollable-y" id="seg-tbl-COL"></div>
+    </div>
+
+    <!-- ── DETALLADO ── -->
+    <div class="tab-panel" id="COL-det">
+      <div class="table-wrap" style="max-height:480px;overflow-y:auto;" id="det-tbl-COL"></div>
+    </div>
+  </div>
+  </div><!-- /card-body COL -->
+</div><!-- /Colombia -->
+
+
+<!-- ────────────────────── MÉXICO ────────────────────────────── -->
+<div class="country-card" style="animation-delay:2s" id="card-MEX" onclick="openCountry('MEX')">
+  <div class="card-flag-band">
+    <img class="card-flag" src="https://flagcdn.com/w160/mx.png" alt="México">
+    <div class="card-country-name">México</div>
+    <div class="card-currency">MXN · CDMX / Guadalajara / Monterrey…</div>
+    <div class="card-expand-hint">Abrir módulos →</div>
+  </div>
+  <div class="card-body">
+  <div class="card-tabs" id="tabs-MEX">
+    <button class="tab-btn active" onclick="openTab('MEX','est')">📊 Estadística</button>
+    <button class="tab-btn" onclick="openTab('MEX','seg')">📡 Seguimiento</button>
+    <button class="tab-btn" onclick="openTab('MEX','det')">🔍 Detallado</button>
+  </div>
+  <div class="filters-bar" id="fbar-MEX">
+    <div class="filter-row">
+      <button class="date-toggle active" id="dt-svc-MEX" onclick="toggleDateFilter('MEX','svc')">🗓 Servicios</button>
+      <input type="date" class="filter-input" id="svc-from-MEX" value="2026-06-04" onchange="renderAll('MEX')">
+      <span style="font-size:11px;color:var(--text3)">—</span>
+      <input type="date" class="filter-input" id="svc-to-MEX" value="2026-06-11" onchange="renderAll('MEX')">
+      <span class="filter-sep"></span>
+      <button class="date-toggle active" id="dt-pay-MEX" onclick="toggleDateFilter('MEX','pay')">💳 Pago TX</button>
+      <input type="date" class="filter-input" id="pay-from-MEX" value="2026-06-04" onchange="renderAll('MEX')">
+      <span style="font-size:11px;color:var(--text3)">—</span>
+      <input type="date" class="filter-input" id="pay-to-MEX" value="2026-06-11" onchange="renderAll('MEX')">
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">🔎 Buscar ID:</span>
+      <div class="id-search-group">
+        <select class="id-type-select"><option>ID Campaña</option><option>ID Usuario</option><option>ID Booking</option><option>ID Transacción</option></select>
+        <input type="text" class="id-input" placeholder="Ingresa un ID…">
+        <button class="btn-search">Buscar</button>
+      </div>
+      <span class="filter-sep"></span>
+      <button class="btn-excel">⬇ Excel</button>
+      <button class="btn-email">✉ Correo</button>
+    </div>
+    <div class="period-row">
+      <span class="filter-label">⏱ Periodo:</span>
+      <button class="period-btn active" onclick="setPeriod('MEX',7,this)">7 días</button>
+      <button class="period-btn" onclick="setPeriod('MEX',15,this)">15 días</button>
+      <button class="period-btn" onclick="setPeriod('MEX',30,this)">30 días</button>
+      <div class="month-year-group">
+        <select class="my-select" id="month-MEX" onchange="setMonth('MEX')"><option value="">Mes</option><option>May</option><option selected>Jun</option></select>
+        <select class="my-select" id="year-MEX" onchange="setMonth('MEX')"><option selected>2026</option></select>
+      </div>
+    </div>
+  </div>
+  <div class="tab-panels">
+    <div class="tab-panel active" id="MEX-est">
+      <div class="kpi-grid" id="kpi-MEX"></div>
+      <div class="section-title">📋 Resumen por Campaña</div>
+      <div class="table-wrap scrollable-y" id="camp-resume-MEX"></div>
+      <div class="section-title">📍 Estadística por Ciudad</div>
+      <div class="table-wrap scrollable-y" id="city-tbl-MEX"></div>
+      <div class="stats-2col">
+        <div><div class="section-title">🏆 Top 10 Pilotos Ganadores</div><div class="table-wrap scrollable-y" id="top-pilots-MEX"></div></div>
+        <div><div class="section-title">🎯 Top 10 Campañas Pagadas</div><div class="table-wrap scrollable-y" id="top-camps-MEX"></div></div>
+      </div>
+      <div class="stats-2col">
+        <div><div class="section-title">📡 Regla Monitoreo</div><div class="table-wrap" id="tbl-monit-MEX"></div></div>
+        <div><div class="section-title">🃏 Regla Trump</div><div class="table-wrap" id="tbl-trump-MEX"></div></div>
+      </div>
+    </div>
+    <div class="tab-panel" id="MEX-seg">
+      <div class="fraud-bar"><button class="btn-fraud" id="fraud-btn-MEX" onclick="toggleFraud('MEX')">🚨 Solo Alertas de Fraude</button><button class="btn-fraud" id="cero-btn-MEX" onclick="toggleCero('MEX')">💲 Solo Pago $0</button><span class="fraud-count" id="fraud-count-MEX"></span></div>
+      <div class="table-wrap scrollable-y" id="seg-tbl-MEX"></div>
+    </div>
+    <div class="tab-panel" id="MEX-det"><div class="table-wrap" style="max-height:480px;overflow-y:auto;" id="det-tbl-MEX"></div></div>
+  </div>
+  </div><!-- /card-body MEX -->
+</div><!-- /Mexico -->
+
+
+<!-- ──────────────────── NICARAGUA ───────────────────────────── -->
+<div class="country-card" style="animation-delay:4s" id="card-NIC" onclick="openCountry('NIC')">
+  <div class="card-flag-band">
+    <img class="card-flag" src="https://flagcdn.com/w160/ni.png" alt="Nicaragua">
+    <div class="card-country-name">Nicaragua</div>
+    <div class="card-currency">NIO · Managua / León / Masaya…</div>
+    <div class="card-expand-hint">Abrir módulos →</div>
+  </div>
+  <div class="card-body">
+  <div class="card-tabs" id="tabs-NIC">
+    <button class="tab-btn active" onclick="openTab('NIC','est')">📊 Estadística</button>
+    <button class="tab-btn" onclick="openTab('NIC','seg')">📡 Seguimiento</button>
+    <button class="tab-btn" onclick="openTab('NIC','det')">🔍 Detallado</button>
+  </div>
+  <div class="filters-bar" id="fbar-NIC">
+    <div class="filter-row">
+      <button class="date-toggle active" id="dt-svc-NIC" onclick="toggleDateFilter('NIC','svc')">🗓 Servicios</button>
+      <input type="date" class="filter-input" id="svc-from-NIC" value="2026-06-04" onchange="renderAll('NIC')">
+      <span style="font-size:11px;color:var(--text3)">—</span>
+      <input type="date" class="filter-input" id="svc-to-NIC" value="2026-06-11" onchange="renderAll('NIC')">
+      <span class="filter-sep"></span>
+      <button class="date-toggle active" id="dt-pay-NIC" onclick="toggleDateFilter('NIC','pay')">💳 Pago TX</button>
+      <input type="date" class="filter-input" id="pay-from-NIC" value="2026-06-04" onchange="renderAll('NIC')">
+      <span style="font-size:11px;color:var(--text3)">—</span>
+      <input type="date" class="filter-input" id="pay-to-NIC" value="2026-06-11" onchange="renderAll('NIC')">
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">🔎 Buscar ID:</span>
+      <div class="id-search-group">
+        <select class="id-type-select"><option>ID Campaña</option><option>ID Usuario</option><option>ID Booking</option><option>ID Transacción</option></select>
+        <input type="text" class="id-input" placeholder="Ingresa un ID…">
+        <button class="btn-search">Buscar</button>
+      </div>
+      <span class="filter-sep"></span>
+      <button class="btn-excel">⬇ Excel</button>
+      <button class="btn-email">✉ Correo</button>
+    </div>
+    <div class="period-row">
+      <span class="filter-label">⏱ Periodo:</span>
+      <button class="period-btn active" onclick="setPeriod('NIC',7,this)">7 días</button>
+      <button class="period-btn" onclick="setPeriod('NIC',15,this)">15 días</button>
+      <button class="period-btn" onclick="setPeriod('NIC',30,this)">30 días</button>
+      <div class="month-year-group">
+        <select class="my-select" id="month-NIC" onchange="setMonth('NIC')"><option value="">Mes</option><option>May</option><option selected>Jun</option></select>
+        <select class="my-select" id="year-NIC" onchange="setMonth('NIC')"><option selected>2026</option></select>
+      </div>
+    </div>
+  </div>
+  <div class="tab-panels">
+    <div class="tab-panel active" id="NIC-est">
+      <div class="kpi-grid" id="kpi-NIC"></div>
+      <div class="section-title">📋 Resumen por Campaña</div>
+      <div class="table-wrap scrollable-y" id="camp-resume-NIC"></div>
+      <div class="section-title">📍 Estadística por Ciudad</div>
+      <div class="table-wrap scrollable-y" id="city-tbl-NIC"></div>
+      <div class="stats-2col">
+        <div><div class="section-title">🏆 Top 10 Pilotos Ganadores</div><div class="table-wrap scrollable-y" id="top-pilots-NIC"></div></div>
+        <div><div class="section-title">🎯 Top 10 Campañas Pagadas</div><div class="table-wrap scrollable-y" id="top-camps-NIC"></div></div>
+      </div>
+      <div class="stats-2col">
+        <div><div class="section-title">📡 Regla Monitoreo</div><div class="table-wrap" id="tbl-monit-NIC"></div></div>
+        <div><div class="section-title">🃏 Regla Trump</div><div class="table-wrap" id="tbl-trump-NIC"></div></div>
+      </div>
+    </div>
+    <div class="tab-panel" id="NIC-seg">
+      <div class="fraud-bar"><button class="btn-fraud" id="fraud-btn-NIC" onclick="toggleFraud('NIC')">🚨 Solo Alertas de Fraude</button><button class="btn-fraud" id="cero-btn-NIC" onclick="toggleCero('NIC')">💲 Solo Pago $0</button><span class="fraud-count" id="fraud-count-NIC"></span></div>
+      <div class="table-wrap scrollable-y" id="seg-tbl-NIC"></div>
+    </div>
+    <div class="tab-panel" id="NIC-det"><div class="table-wrap" style="max-height:480px;overflow-y:auto;" id="det-tbl-NIC"></div></div>
+  </div>
+  </div><!-- /card-body NIC -->
+</div><!-- /Nicaragua -->
+
+</div><!-- /countries-grid -->
+</main>
+
+<!-- ══ COUNTRY MODAL ════════════════════════════════════════════════ -->
+<div id="modal-overlay" class="modal-overlay" onclick="handleModalClick(event)">
+  <div id="modal-box" class="modal-box">
+    <div class="modal-hdr">
+      <img id="modal-flag-img" class="modal-flag-img" src="" alt="">
+      <div class="modal-hdr-text">
+        <div id="modal-cntry-nm" class="modal-cntry-nm"></div>
+        <div id="modal-cntry-cur" class="modal-cntry-cur"></div>
+      </div>
+      <button class="modal-close-btn" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modal-body-wrap" class="modal-body-wrap"></div>
+  </div>
+</div>
+
+<!-- ══ JAVASCRIPT ════════════════════════════════════════════════════ -->
+<script>
+/* ── API CONFIG ──────────────────────────────────────────────── */
+// Cuando el validator corre desde el mismo dominio del portal → dejar API_BASE = ''
+// Cuando corre separado (localhost:8002) → poner la URL del portal aquí.
+const API_BASE  = '';
+const AUTH_TOKEN = () => localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
+
+/* ── DATA (se llenará desde CH vía API; mientras, vacío) ─────── */
+const DATA = {
+  COL:{
+    kpi:{total_txs:1284,total_valor:28750000,total_pilots:847,affected_zero:34,fraud_pilots:127,fraud_services:318},
+    currency:'COP',
+    cities:[
+      {ciudad:'Bogotá',campanas:534,valor:12200000,pilotos:392},
+      {ciudad:'Medellín',campanas:312,valor:8400000,pilotos:241},
+      {ciudad:'Cali',campanas:198,valor:4500000,pilotos:138},
+      {ciudad:'Barranquilla',campanas:134,valor:2780000,pilotos:98},
+      {ciudad:'Bucaramanga',campanas:106,valor:1870000,pilotos:72},
+    ],
+    top_pilots:[
+      {rank:4,id:'5dd7c81bf72629001512d773',nombre:'Angel Arturo Hernandez Sanchez',campanas:4,valor:30500,ultimo:'2026-06-06'},
+      {rank:2,id:'61bc9d4bd6e38701bba460c9',nombre:'Jhon Sebastian Bernal Torres',campanas:7,valor:170000,ultimo:'2026-06-06'},
+      {rank:1,id:'59f15424fd81a300184b154a',nombre:'Laura Daniela Guacaneme Lugo',campanas:5,valor:290000,ultimo:'2026-06-06'},
+      {rank:6,id:'62e406715d8404001b33dade',nombre:'Jorge Andres Velandia Cristancho',campanas:1,valor:10000,ultimo:'2026-06-06'},
+      {rank:7,id:'687e8b5fc5b4e09d46d4f099',nombre:'Cristián Javier Martinez Contreras',campanas:1,valor:10000,ultimo:'2026-06-06'},
+      {rank:3,id:'63a9d95870c67e001e681fdb',nombre:'Carlos Alfredo Marin Trujillo',campanas:5,valor:41000,ultimo:'2026-06-06'},
+      {rank:9,id:'5875181c0842ee0004d854ca',nombre:'Freddy Merchan Achury',campanas:1,valor:2000,ultimo:'2026-06-11'},
+      {rank:8,id:'632b03129e0c142aaf49099a',nombre:'Jesus Alejandro Luces',campanas:1,valor:6000,ultimo:'2026-06-11'},
+      {rank:5,id:'63f78f79a7bf5500401143a9',nombre:'Luis Miguel Mariño Silva',campanas:2,valor:20000,ultimo:'2026-06-06'},
+      {rank:10,id:'5d24a3168d7fe7003eaffa36',nombre:'Ivan Andres Ariza Perea',campanas:1,valor:0,ultimo:'2026-06-06'},
+    ],
+    top_camps:[
+      {rank:1,id:'6a196edccc79d80474d1b933',nombre:'Semana del Conductor',pagos:423,valor:10575000},
+      {rank:2,id:'6a243cba677d7f15633561e4',nombre:'Bono Fidelidad Mayo',pagos:312,valor:7800000},
+      {rank:3,id:'6a243cf5677d7f15918bc7a6',nombre:'Campaña 100 Servicios',pagos:198,valor:4950000},
+      {rank:4,id:'6a196edccc79d80474d1b933',nombre:'Zona Norte Bogotá',pagos:167,valor:3340000},
+      {rank:5,id:'6a243cba677d7f15633561e4',nombre:'Bono Express Medellín',pagos:134,valor:2010000},
+      {rank:6,id:'6a243cf5677d7f15918bc7a6',nombre:'Campaña Nocturna',pagos:98,valor:1470000},
+      {rank:7,id:'6a196edccc79d80474d1b933',nombre:'Bono Nuevos Pilotos',pagos:76,valor:1140000},
+      {rank:8,id:'6a243cba677d7f15633561e4',nombre:'Campaña Fines de Semana',pagos:62,valor:930000},
+      {rank:9,id:'6a243cf5677d7f15918bc7a6',nombre:'Bono Aeropuerto El Dorado',pagos:48,valor:720000},
+      {rank:10,id:'6a196edccc79d80474d1b933',nombre:'Campaña Sur Occidente',pagos:37,valor:555000},
+    ],
+    monitoreo:[
+      {tipo:'LLEGO_AL_DESTINO',count:843,pct:65.7,badge:'b-ok'},
+      {tipo:'NO_LLEGO_AL_DESTINO',count:318,pct:24.8,badge:'b-danger'},
+      {tipo:'SIN_COORDENADAS',count:123,pct:9.6,badge:'b-gray'},
+    ],
+    trump:[
+      {tipo:'(sin alerta)',count:897,pct:69.9,badge:'b-ok'},
+      {tipo:'"fraud_booking"',count:187,pct:14.6,badge:'b-danger'},
+      {tipo:'"low_rating_booking"',count:124,pct:9.7,badge:'b-warn'},
+      {tipo:'"same_device"',count:76,pct:5.9,badge:'b-danger'},
+    ],
+    seg:[
+      {fecha_tx:'2026-06-06 06:35:54',driver_id:'5dd7c81bf72629001512d773',nombre:'Angel Arturo Hernandez Sanchez',id_camp:'6a196edccc79d80474d1b933',nombre_camp:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',servicios:45,valor:10000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-06-06 11:35:00',driver_id:'61bc9d4bd6e38701bba460c9',nombre:'Jhon Sebastian Bernal Torres',id_camp:'6a196edccc79d80474d1b933',nombre_camp:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',servicios:38,valor:25000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-06-06 06:46:00',driver_id:'59f15424fd81a300184b154a',nombre:'Laura Daniela Guacaneme Lugo',id_camp:'6a243cba677d7f15633561e4',nombre_camp:'Bono Fidelidad Mayo',servicios:12,valor:50000,tyc:'5 servicios + rating 4.8',monitoreo:'NO_LLEGO_AL_DESTINO',trump:'"fraud_booking"',fraude:true},
+      {fecha_tx:'2026-06-06 09:15:00',driver_id:'62e406715d8404001b33dade',nombre:'Jorge Andres Velandia Cristancho',id_camp:'6a243cf5677d7f15918bc7a6',nombre_camp:'Campaña 100 Servicios',servicios:28,valor:30000,tyc:'100 servicios acumulados',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-06-06 08:00:00',driver_id:'687e8b5fc5b4e09d46d4f099',nombre:'Cristián Javier Martinez Contreras',id_camp:'6a243cba677d7f15633561e4',nombre_camp:'Bono Fidelidad Mayo',servicios:25,valor:50000,tyc:'5 servicios + rating 4.8',monitoreo:'NO_LLEGO_AL_DESTINO',trump:'"same_device"',fraude:true},
+      {fecha_tx:'2026-05-30 16:45:00',driver_id:'63a9d95870c67e001e681fdb',nombre:'Carlos Alfredo Marin Trujillo',id_camp:'6a196edccc79d80474d1b933',nombre_camp:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',servicios:22,valor:25000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-06-11 09:30:00',driver_id:'5875181c0842ee0004d854ca',nombre:'Freddy Merchan Achury',id_camp:'6a196edccc79d80474d1b933',nombre_camp:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',servicios:19,valor:20000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',monitoreo:'SIN_COORDENADAS',trump:'"low_rating_booking"',fraude:true},
+      {fecha_tx:'2026-06-11 15:20:00',driver_id:'632b03129e0c142aaf49099a',nombre:'Jesus Alejandro Luces',id_camp:'6a196edccc79d80474d1b933',nombre_camp:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',servicios:17,valor:25000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-05-15 13:10:00',driver_id:'63f78f79a7bf5500401143a9',nombre:'Luis Miguel Mariño Silva',id_camp:'6a243cba677d7f15633561e4',nombre_camp:'Bono Express Medellín',servicios:15,valor:15000,tyc:'8 servicios express',monitoreo:'NO_LLEGO_AL_DESTINO',trump:'"fraud_booking"',fraude:true},
+      {fecha_tx:'2026-04-20 10:05:00',driver_id:'5d24a3168d7fe7003eaffa36',nombre:'Ivan Andres Ariza Perea',id_camp:'6a243cf5677d7f15918bc7a6',nombre_camp:'Campaña 100 Servicios',servicios:13,valor:30000,tyc:'100 servicios acumulados',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-06-06 06:46:36',driver_id:'5a4d442c9ec1ed000cd1a17d',nombre:'Joan Camilo Ramos Cruz',id_camp:'6a196edccc79d80474d1b933',nombre_camp:'Escalón 40 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',servicios:92,valor:200000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+    ],
+    det:[
+      {id_booking:'65b4e2d1a9f8c07b23451f01',aceptado:'2026-06-05 09:15:32',conductor_llego:'2026-06-05 09:22:15',finalizado:'2026-06-05 09:48:07',fecha:'2026-06-05',driver_name:'Angel Arturo Hernandez Sanchez',passenger_name:'María López',driver_id:'5dd7c81bf72629001512d773',passenger_id:'6a4f2c91e305b71f34872e01',company_name:'',country_name:'Colombia',city_name:'Bogotá',imei_driver:'352891001234567',imei_passenger:'864691023456789',status_carrera:'Finalizado Por Conductor',id_campana:'6a196edccc79d80474d1b933',nombre_campana:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',fecha_bono:'2026-06-06 06:35:54',valor_campana:10000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',revision_imei:'OK',id_tx:'6a24061ac5484e8e84dee032',valor:24457,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f02',aceptado:'2026-06-05 10:30:00',conductor_llego:'2026-06-05 10:38:20',finalizado:'2026-06-05 11:05:45',fecha:'2026-06-05',driver_name:'Jhon Sebastian Bernal Torres',passenger_name:'Pedro Ruiz',driver_id:'61bc9d4bd6e38701bba460c9',passenger_id:'6a4f2c91e305b71f34872e02',company_name:'',country_name:'Colombia',city_name:'Medellín',imei_driver:'352891009876543',imei_passenger:'864691034567891',status_carrera:'Finalizado Por Conductor',id_campana:'6a196edccc79d80474d1b933',nombre_campana:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',fecha_bono:'2026-06-06 11:35:00',valor_campana:25000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',revision_imei:'OK',id_tx:'6a24082dc5484e8e84dee17f',valor:9800,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f03',aceptado:'2026-06-05 14:20:10',conductor_llego:'2026-06-05 14:31:50',finalizado:'2026-06-05 14:35:12',fecha:'2026-06-05',driver_name:'Laura Daniela Guacaneme Lugo',passenger_name:'Laura Jiménez',driver_id:'59f15424fd81a300184b154a',passenger_id:'6a4f2c91e305b71f34872e03',company_name:'',country_name:'Colombia',city_name:'Cali',imei_driver:'352891005544332',imei_passenger:'864691056789012',status_carrera:'Finalizado Por Conductor',id_campana:'6a243cba677d7f15633561e4',nombre_campana:'Bono Fidelidad Mayo',fecha_bono:'2026-06-06 06:46:00',valor_campana:50000,tyc:'5 servicios + rating 4.8',revision_imei:'Mismo IMEI entre usuarios',id_tx:'6a240875c5484e8e84dee19b',valor:7200,fraud_suspect:true,reason_text:'"fraud_booking"',regla_distancia:'NO_LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f04',aceptado:'2026-06-05 08:45:33',conductor_llego:'2026-06-05 08:54:17',finalizado:'2026-06-05 09:22:40',fecha:'2026-06-05',driver_name:'Jorge Andres Velandia Cristancho',passenger_name:'Sofía Díaz',driver_id:'62e406715d8404001b33dade',passenger_id:'6a4f2c91e305b71f34872e04',company_name:'LogiCargo S.A.S.',country_name:'Colombia',city_name:'Barranquilla',imei_driver:'352891007788996',imei_passenger:'864691078901234',status_carrera:'Finalizado Por Conductor',id_campana:'6a243cf5677d7f15918bc7a6',nombre_campana:'Campaña 100 Servicios',fecha_bono:'2026-06-06 09:15:00',valor_campana:30000,tyc:'100 servicios acumulados',revision_imei:'OK',id_tx:'6a2405b3c5484e8e84dedfce',valor:14300,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mensajería'},
+      {id_booking:'65b4e2d1a9f8c07b23451f05',aceptado:'2026-06-05 17:10:05',conductor_llego:'2026-06-05 17:22:48',finalizado:'2026-06-05 17:26:03',fecha:'2026-06-05',driver_name:'Cristián Javier Martinez Contreras',passenger_name:'Roberto Castro',driver_id:'687e8b5fc5b4e09d46d4f099',passenger_id:'6a4f2c91e305b71f34872e05',company_name:'',country_name:'Colombia',city_name:'Bogotá',imei_driver:'352891003322110',imei_passenger:'352891003322110',status_carrera:'Finalizado Por Conductor',id_campana:'6a243cba677d7f15633561e4',nombre_campana:'Bono Fidelidad Mayo',fecha_bono:'2026-06-06 08:00:00',valor_campana:50000,tyc:'5 servicios + rating 4.8',revision_imei:'Mismo IMEI entre usuarios',id_tx:'6a2405e5c5484e8e84dee003',valor:5600,fraud_suspect:true,reason_text:'"same_device"',regla_distancia:'NO_LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f06',aceptado:'2026-05-29 06:35:22',conductor_llego:'2026-05-29 06:44:11',finalizado:'2026-05-29 07:10:58',fecha:'2026-05-29',driver_name:'Carlos Alfredo Marin Trujillo',passenger_name:'Ana Morales',driver_id:'63a9d95870c67e001e681fdb',passenger_id:'6a4f2c91e305b71f34872e06',company_name:'',country_name:'Colombia',city_name:'Bucaramanga',imei_driver:'352891001122334',imei_passenger:'864691090123456',status_carrera:'Finalizado Por Conductor',id_campana:'6a196edccc79d80474d1b933',nombre_campana:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',fecha_bono:'2026-05-30 16:45:00',valor_campana:25000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',revision_imei:'OK',id_tx:'6a24058cc5484e8e84dedfa8',valor:11100,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f07',aceptado:'2026-06-06 19:55:44',conductor_llego:'2026-06-06 20:05:30',finalizado:'2026-06-06 20:08:15',fecha:'2026-06-06',driver_name:'Freddy Merchan Achury',passenger_name:'Carlos Vidal',driver_id:'5875181c0842ee0004d854ca',passenger_id:'6a4f2c91e305b71f34872e07',company_name:'',country_name:'Colombia',city_name:'Bogotá',imei_driver:'352891006655443',imei_passenger:'864691012345678',status_carrera:'Finalizado Por Conductor',id_campana:'6a196edccc79d80474d1b933',nombre_campana:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',fecha_bono:'2026-06-11 09:30:00',valor_campana:20000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',revision_imei:'IMEI con dos o más cuentas',id_tx:'6a2aadc247b42a68fea77e3b',valor:8900,fraud_suspect:true,reason_text:'"low_rating_booking"',regla_distancia:'SIN_COORDENADAS',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f08',aceptado:'2026-06-05 11:20:15',conductor_llego:'2026-06-05 11:29:40',finalizado:'2026-06-05 11:58:22',fecha:'2026-06-05',driver_name:'Jesus Alejandro Luces',passenger_name:'Elena Bermúdez',driver_id:'632b03129e0c142aaf49099a',passenger_id:'6a4f2c91e305b71f34872e08',company_name:'',country_name:'Colombia',city_name:'Medellín',imei_driver:'352891008877665',imei_passenger:'864691034512345',status_carrera:'Finalizado Por Conductor',id_campana:'6a196edccc79d80474d1b933',nombre_campana:'Escalón 6 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',fecha_bono:'2026-06-11 15:20:00',valor_campana:25000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',revision_imei:'OK',id_tx:'6a2aae57bb17de46547454b5',valor:13400,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f09',aceptado:'2026-05-14 15:40:55',conductor_llego:'2026-05-14 15:52:20',finalizado:'2026-05-14 15:55:48',fecha:'2026-05-14',driver_name:'Luis Miguel Mariño Silva',passenger_name:'Felipe Rueda',driver_id:'63f78f79a7bf5500401143a9',passenger_id:'6a4f2c91e305b71f34872e09',company_name:'',country_name:'Colombia',city_name:'Cali',imei_driver:'352891004433221',imei_passenger:'864691056701234',status_carrera:'Finalizado Por Conductor',id_campana:'6a243cba677d7f15633561e4',nombre_campana:'Bono Express Medellín',fecha_bono:'2026-05-15 13:10:00',valor_campana:15000,tyc:'8 servicios express',revision_imei:'OK',id_tx:'6a2406f0c5484e8e84dee0e2',valor:6700,fraud_suspect:true,reason_text:'"fraud_booking"',regla_distancia:'NO_LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f0a',aceptado:'2026-04-19 08:10:30',conductor_llego:'2026-04-19 08:20:15',finalizado:'2026-04-19 08:48:50',fecha:'2026-04-19',driver_name:'Ivan Andres Ariza Perea',passenger_name:'Sandra Ospina',driver_id:'5d24a3168d7fe7003eaffa36',passenger_id:'6a4f2c91e305b71f34872e0a',company_name:'MiPymes Express',country_name:'Colombia',city_name:'Bogotá',imei_driver:'352891002211009',imei_passenger:'864691078912345',status_carrera:'Finalizado Por Conductor',id_campana:'6a243cf5677d7f15918bc7a6',nombre_campana:'Campaña 100 Servicios',fecha_bono:'2026-04-20 10:05:00',valor_campana:30000,tyc:'100 servicios acumulados',revision_imei:'OK',id_tx:'6a2408f5c5484e8e84dee200',valor:16200,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mensajería'},
+      {id_booking:'—',aceptado:'—',conductor_llego:'—',finalizado:'—',fecha:'2026-06-06',driver_name:'Joan Camilo Ramos Cruz',passenger_name:'—',driver_id:'5a4d442c9ec1ed000cd1a17d',passenger_id:'—',company_name:'',country_name:'Colombia',city_name:'Bogotá',imei_driver:'—',imei_passenger:'—',status_carrera:'Sin carrera asociada',id_campana:'6a196edccc79d80474d1b933',nombre_campana:'Escalón 40 REVENUE-MAX May29-Jun5 · Recuperación 8 días (single-payout cumulativo) día May 29',fecha_bono:'2026-06-06 06:46:36',valor_campana:200000,tyc:'https://static.picap.co/campaigns/2026-05-29/TyC_revmax_combined_tiersAE_2026-05-29_2026-06-05.pdf',revision_imei:'—',id_tx:'6a24089cc5484e8e84dee1b3',valor:0,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+    ],
+  },
+  MEX:{
+    kpi:{total_txs:892,total_valor:1344800,total_pilots:598,affected_zero:22,fraud_pilots:89,fraud_services:201},
+    currency:'MXN',
+    cities:[
+      {ciudad:'CDMX',campanas:412,valor:660000,pilotos:278},
+      {ciudad:'Guadalajara',campanas:234,valor:371000,pilotos:159},
+      {ciudad:'Monterrey',campanas:156,valor:235000,pilotos:108},
+      {ciudad:'Puebla',campanas:90,valor:78000,pilotos:53},
+    ],
+    top_pilots:[
+      {rank:4,id:'6597a129aa89b20032995b33',nombre:'Héctor Barrientos Hernandez',campanas:2,valor:300,ultimo:'2025-12-01'},
+      {rank:3,id:'5f523b7035e33a008d20f7aa',nombre:'Antonio Casas Alcantara',campanas:24,valor:5050,ultimo:'2025-12-01'},
+      {rank:1,id:'67da2d3d797447b7b44814a7',nombre:'Miguel Angel Reyes Cruz',campanas:140,valor:23252,ultimo:'2025-12-01'},
+      {rank:5,id:'67549b0fc2a809551c1984d1',nombre:'Yovani Pineda Gonzalez',campanas:1,valor:0,ultimo:'2025-12-01'},
+      {rank:2,id:'6655f3396fbef30035683ef3',nombre:'Luis Enrique Lopez Rosales',campanas:97,valor:20470,ultimo:'2025-12-01'},
+    ],
+    top_camps:[
+      {rank:1,id:'6904ccbb84d03b0025f5f23c',nombre:'Pi-Bono MX: 8 serv./día 300 MXN',pagos:345,valor:552000},
+      {rank:2,id:'63c5a3e2b8f7d06c12345e0c',nombre:'Bono Guadalajara',pagos:228,valor:341000},
+      {rank:3,id:'63c5a3e2b8f7d06c12345e0d',nombre:'Moto Express Norte',pagos:187,valor:281000},
+      {rank:4,id:'63c5a3e2b8f7d06c12345e0e',nombre:'Fin de Semana Puebla',pagos:132,valor:171000},
+    ],
+    monitoreo:[{tipo:'LLEGO_AL_DESTINO',count:621,pct:69.6,badge:'b-ok'},{tipo:'NO_LLEGO_AL_DESTINO',count:201,pct:22.5,badge:'b-danger'},{tipo:'SIN_COORDENADAS',count:70,pct:7.8,badge:'b-gray'}],
+    trump:[{tipo:'(sin alerta)',count:648,pct:72.6,badge:'b-ok'},{tipo:'"fraud_booking"',count:143,pct:16.0,badge:'b-danger'},{tipo:'"low_rating_booking"',count:101,pct:11.3,badge:'b-warn'}],
+    seg:[
+      {fecha_tx:'2026-06-10 09:00:00',driver_id:'6597a129aa89b20032995b33',nombre:'Héctor Barrientos Hernandez',id_camp:'6904ccbb84d03b0025f5f23c',nombre_camp:'Pi-Bono MX: 8 serv./día 300 MXN',servicios:42,valor:1500,tyc:'15 servicios CDMX',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-06-09 11:30:00',driver_id:'5f523b7035e33a008d20f7aa',nombre:'Antonio Casas Alcantara',id_camp:'6904ccbb84d03b0025f5f23c',nombre_camp:'Pi-Bono MX: 8 serv./día 300 MXN',servicios:35,valor:1500,tyc:'20 servicios GDL',monitoreo:'NO_LLEGO_AL_DESTINO',trump:'"fraud_booking"',fraude:true},
+      {fecha_tx:'2026-06-08 14:15:00',driver_id:'67da2d3d797447b7b44814a7',nombre:'Miguel Angel Reyes Cruz',id_camp:'6904ccbb84d03b0025f5f23c',nombre_camp:'Pi-Bono MX: 8 serv./día 300 MXN',servicios:29,valor:1500,tyc:'12 servicios express',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+    ],
+    det:[
+      {id_booking:'65b4e2d1a9f8c07b23451f0b',aceptado:'2026-06-10 08:00:00',conductor_llego:'2026-06-10 08:10:00',finalizado:'2026-06-10 08:35:00',fecha:'2026-06-10',driver_name:'Héctor Barrientos Hernandez',passenger_name:'Jorge Medina',driver_id:'6597a129aa89b20032995b33',passenger_id:'6a4f2c91e305b71f34872e0b',company_name:'',country_name:'México',city_name:'CDMX',imei_driver:'350001112223334',imei_passenger:'860001112223334',status_carrera:'Finalizado Por Conductor',id_campana:'6904ccbb84d03b0025f5f23c',nombre_campana:'Pi-Bono MX: 8 serv./día 300 MXN',fecha_bono:'2026-06-10 09:00:00',valor_campana:1500,tyc:'15 servicios CDMX',revision_imei:'OK',id_tx:'692d9afab8142727aeca6c79',valor:1200,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+      {id_booking:'65b4e2d1a9f8c07b23451f0c',aceptado:'2026-06-09 10:20:00',conductor_llego:'2026-06-09 10:32:00',finalizado:'2026-06-09 10:36:00',fecha:'2026-06-09',driver_name:'Antonio Casas Alcantara',passenger_name:'Luis Pacheco',driver_id:'5f523b7035e33a008d20f7aa',passenger_id:'6a4f2c91e305b71f34872e0c',company_name:'',country_name:'México',city_name:'Guadalajara',imei_driver:'350001115556667',imei_passenger:'860001115556667',status_carrera:'Finalizado Por Conductor',id_campana:'6904ccbb84d03b0025f5f23c',nombre_campana:'Pi-Bono MX: 8 serv./día 300 MXN',fecha_bono:'2026-06-09 11:30:00',valor_campana:1500,tyc:'20 servicios GDL',revision_imei:'Mismo IMEI entre usuarios',id_tx:'692d9af6b8142727aeca6c77',valor:980,fraud_suspect:true,reason_text:'"fraud_booking"',regla_distancia:'NO_LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+    ],
+  },
+  NIC:{
+    kpi:{total_txs:347,total_valor:1734000,total_pilots:218,affected_zero:12,fraud_pilots:43,fraud_services:98},
+    currency:'NIO',
+    cities:[
+      {ciudad:'Managua',campanas:198,valor:990000,pilotos:124},
+      {ciudad:'León',campanas:87,valor:435000,pilotos:54},
+      {ciudad:'Masaya',campanas:62,valor:309000,pilotos:40},
+    ],
+    top_pilots:[
+      {rank:2,id:'698fe5fa649ee38a0326dae9',nombre:'Carlos Jose Sandoval Castañeda',campanas:1,valor:7,ultimo:'2026-04-17'},
+      {rank:1,id:'691a83c8895bf0abe2875008',nombre:'Luis Enrique Cardenas Centeno',campanas:2,valor:14,ultimo:'2026-04-17'},
+      {rank:3,id:'698d2ce3174edc122e0066a5',nombre:'Juan Carlos Arias Rodriguez',campanas:1,valor:7,ultimo:'2026-04-17'},
+    ],
+    top_camps:[
+      {rank:1,id:'69d91bf1ad2b410032737526',nombre:'Pi-Bono NI: viaje #5 = +7 NIO/día',pagos:189,valor:945000},
+      {rank:2,id:'69d91bb0ad2b410032736fb2',nombre:'Pi-Bono NI: viaje #3 = +5 NIO/día',pagos:98,valor:490000},
+      {rank:3,id:'63c5a3e2b8f7d06c12345e11',nombre:'Express Masaya',pagos:60,valor:299000},
+    ],
+    monitoreo:[{tipo:'LLEGO_AL_DESTINO',count:241,pct:69.5,badge:'b-ok'},{tipo:'NO_LLEGO_AL_DESTINO',count:98,pct:28.2,badge:'b-danger'},{tipo:'SIN_COORDENADAS',count:8,pct:2.3,badge:'b-gray'}],
+    trump:[{tipo:'(sin alerta)',count:257,pct:74.1,badge:'b-ok'},{tipo:'"fraud_booking"',count:58,pct:16.7,badge:'b-danger'},{tipo:'"low_rating_booking"',count:32,pct:9.2,badge:'b-warn'}],
+    seg:[
+      {fecha_tx:'2026-06-10 08:00:00',driver_id:'698fe5fa649ee38a0326dae9',nombre:'Carlos Jose Sandoval Castañeda',id_camp:'69d91bf1ad2b410032737526',nombre_camp:'Pi-Bono NI: viaje #5 = +7 NIO/día',servicios:28,valor:5000,tyc:'12 servicios zona central',monitoreo:'LLEGO_AL_DESTINO',trump:'(sin alerta)',fraude:false},
+      {fecha_tx:'2026-06-08 12:00:00',driver_id:'691a83c8895bf0abe2875008',nombre:'Luis Enrique Cardenas Centeno',id_camp:'69d91bb0ad2b410032736fb2',nombre_camp:'Pi-Bono NI: viaje #3 = +5 NIO/día',servicios:22,valor:5000,tyc:'10 servicios León',monitoreo:'NO_LLEGO_AL_DESTINO',trump:'"fraud_booking"',fraude:true},
+    ],
+    det:[
+      {id_booking:'65b4e2d1a9f8c07b23451f0d',aceptado:'2026-06-10 07:30:00',conductor_llego:'2026-06-10 07:41:00',finalizado:'2026-06-10 08:05:00',fecha:'2026-06-10',driver_name:'Carlos Jose Sandoval Castañeda',passenger_name:'Ana Sandoval',driver_id:'698fe5fa649ee38a0326dae9',passenger_id:'6a4f2c91e305b71f34872e0d',company_name:'',country_name:'Nicaragua',city_name:'Managua',imei_driver:'340001112223334',imei_passenger:'840001112223334',status_carrera:'Finalizado Por Conductor',id_campana:'69d91bf1ad2b410032737526',nombre_campana:'Pi-Bono NI: viaje #5 = +7 NIO/día',fecha_bono:'2026-06-10 08:00:00',valor_campana:5000,tyc:'12 servicios zona central',revision_imei:'OK',id_tx:'69e252e49aa2c78d6dcd93e8',valor:3500,fraud_suspect:false,reason_text:'',regla_distancia:'LLEGO_AL_DESTINO',service_type:'Mototaxi'},
+    ],
+  }
+};
+
+/* ── FRAUD FILTER STATE ──────────────────────────────────────── */
+const fraudFilter = {COL:false, MEX:false, NIC:false};
+const ceroFilter  = {COL:false, MEX:false, NIC:false};
+
+/* ── HELPERS ─────────────────────────────────────────────────── */
+function fmt(n, curr){
+  const s=new Intl.NumberFormat('es-CO',{maximumFractionDigits:0}).format(Math.abs(n));
+  return (curr||'')+(curr?' ':'')+s;
+}
+function pct(n){return n.toFixed(1)+'%';}
+function badge(cls,txt){return `<span class="badge ${cls}">${txt}</span>`;}
+function monitoreo_badge(v){
+  if(v==='LLEGO_AL_DESTINO') return badge('b-ok','✅ Llegó');
+  if(v==='NO_LLEGO_AL_DESTINO') return badge('b-danger','❌ No llegó');
+  return badge('b-gray','⚪ Sin coord.');
+}
+function trump_badge(v){
+  if(!v||v==='(sin alerta)') return badge('b-ok','OK');
+  if(v.includes('fraud')) return badge('b-danger',v);
+  if(v.includes('rating')) return badge('b-warn',v);
+  return badge('b-purple',v);
+}
+function imei_badge(v){
+  if(v==='OK') return badge('b-ok','OK');
+  if(v.includes('Mismo')) return badge('b-danger','Mismo IMEI');
+  if(v.includes('dos')) return badge('b-warn','Multi-cuenta');
+  return badge('b-gray',v);
+}
+
+/* ── COUNTRY META ────────────────────────────────────────────── */
+const COUNTRY_META={
+  COL:{name:'Colombia',currency:'COP · Bogotá / Medellín / Cali…',flag:'https://flagcdn.com/w160/co.png'},
+  MEX:{name:'México',currency:'MXN · CDMX / Guadalajara / Monterrey…',flag:'https://flagcdn.com/w160/mx.png'},
+  NIC:{name:'Nicaragua',currency:'NIO · Managua / León / Masaya…',flag:'https://flagcdn.com/w160/ni.png'},
+};
+
+/* ── OPEN COUNTRY MODAL ──────────────────────────────────────── */
+function openCountry(code){
+  const card=document.getElementById(`card-${code}`);
+  const body=card.querySelector('.card-body');
+  const wrap=document.getElementById('modal-body-wrap');
+  const overlay=document.getElementById('modal-overlay');
+  const meta=COUNTRY_META[code];
+  // Set header
+  document.getElementById('modal-flag-img').src=meta.flag;
+  document.getElementById('modal-flag-img').alt=meta.name;
+  document.getElementById('modal-cntry-nm').textContent=meta.name;
+  document.getElementById('modal-cntry-cur').textContent=meta.currency;
+  // Move card-body into modal
+  wrap.innerHTML='';
+  wrap.appendChild(body);
+  // Show
+  overlay.dataset.country=code;
+  overlay.classList.add('active');
+  document.body.style.overflow='hidden';
+}
+
+/* ── CLOSE MODAL ─────────────────────────────────────────────── */
+function closeModal(){
+  const overlay=document.getElementById('modal-overlay');
+  const code=overlay.dataset.country;
+  if(!code) return;
+  const wrap=document.getElementById('modal-body-wrap');
+  const body=wrap.querySelector('.card-body');
+  if(body){
+    document.getElementById(`card-${code}`).appendChild(body);
+  }
+  overlay.classList.remove('active');
+  overlay.dataset.country='';
+  document.body.style.overflow='';
+}
+function handleModalClick(e){
+  if(e.target===document.getElementById('modal-overlay')) closeModal();
+}
+
+/* ── TAB SWITCH ──────────────────────────────────────────────── */
+function openTab(country, tab){
+  const panels={est:'est',seg:'seg',det:'det'};
+  document.querySelectorAll(`#tabs-${country} .tab-btn`).forEach((b,i)=>{
+    b.classList.toggle('active',['est','seg','det'][i]===tab);
+  });
+  ['est','seg','det'].forEach(t=>{
+    const el=document.getElementById(`${country}-${t}`);
+    if(el) el.classList.toggle('active',t===tab);
+  });
+}
+
+/* ── PERIOD BUTTONS ──────────────────────────────────────────── */
+function setPeriod(country, days, btn){
+  const card=document.getElementById(`card-${country}`);
+  const wasActive=btn?.classList.contains('active');
+  card.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
+  if(wasActive){ renderAll(country); return; }
+  if(btn) btn.classList.add('active');
+  if(!days) return;
+  const now=new Date();
+  const toStr=now.toISOString().slice(0,10);
+  const fromD=new Date(now); fromD.setDate(fromD.getDate()-days);
+  const fromStr=fromD.toISOString().slice(0,10);
+  ['pay','svc'].forEach(type=>{
+    const f=document.getElementById(`${type}-from-${country}`);
+    const t=document.getElementById(`${type}-to-${country}`);
+    if(f&&!f.disabled){f.value=fromStr;}
+    if(t&&!t.disabled){t.value=toStr;}
+  });
+  renderAll(country);
+}
+function setMonth(country){
+  const mSel=document.getElementById(`month-${country}`);
+  const ySel=document.getElementById(`year-${country}`);
+  if(!mSel||!ySel||!mSel.value) return;
+  const months={'Ene':1,'Feb':2,'Mar':3,'Abr':4,'May':5,'Jun':6,'Jul':7,'Ago':8,'Sep':9,'Oct':10,'Nov':11,'Dic':12};
+  const m=months[mSel.value]; if(!m) return;
+  const y=parseInt(ySel.value);
+  const pad=n=>String(n).padStart(2,'0');
+  const fromStr=`${y}-${pad(m)}-01`;
+  const lastDay=new Date(y,m,0).getDate();
+  const toStr=`${y}-${pad(m)}-${pad(lastDay)}`;
+  const card=document.getElementById(`card-${country}`);
+  card.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
+  ['pay','svc'].forEach(type=>{
+    const f=document.getElementById(`${type}-from-${country}`);
+    const t=document.getElementById(`${type}-to-${country}`);
+    if(f&&!f.disabled) f.value=fromStr;
+    if(t&&!t.disabled) t.value=toStr;
+  });
+  renderAll(country);
+}
+
+/* ── TOGGLE CERO FILTER ──────────────────────────────────────── */
+function toggleCero(country){
+  ceroFilter[country]=!ceroFilter[country];
+  const btn=document.getElementById(`cero-btn-${country}`);
+  if(btn) btn.classList.toggle('danger-active',ceroFilter[country]);
+  renderSeg(country);
+}
+
+/* ── TOGGLE FRAUD FILTER ─────────────────────────────────────── */
+function toggleFraud(country){
+  fraudFilter[country]=!fraudFilter[country];
+  const btn=document.getElementById(`fraud-btn-${country}`);
+  btn.classList.toggle('danger-active',fraudFilter[country]);
+  renderSeg(country);
+}
+
+/* ── DATE FILTER TOGGLES ─────────────────────────────────────── */
+const dateFilterState={COL:{svc:true,pay:true},MEX:{svc:true,pay:true},NIC:{svc:true,pay:true}};
+function toggleDateFilter(country,type){
+  dateFilterState[country][type]=!dateFilterState[country][type];
+  const active=dateFilterState[country][type];
+  document.getElementById(`dt-${type}-${country}`).classList.toggle('active',active);
+  const ids=type==='svc'?[`svc-from-${country}`,`svc-to-${country}`]:[`pay-from-${country}`,`pay-to-${country}`];
+  ids.forEach(id=>{const el=document.getElementById(id);if(el){el.classList.toggle('dim',!active);el.disabled=!active;}});
+  renderAll(country);
+}
+
+/* ── SEARCH ──────────────────────────────────────────────────── */
+const searchState={COL:{type:'',val:''},MEX:{type:'',val:''},NIC:{type:'',val:''}};
+function searchById(country){
+  const type=document.getElementById(`id-type-${country}`)?.value||'';
+  const val=(document.getElementById(`id-val-${country}`)?.value||'').trim();
+  searchState[country]={type,val};
+  renderAll(country);
+  if(val){
+    const active=document.querySelector(`#card-${country} .tab-btn.active`);
+    const tab=active?.onclick?.toString().match(/'(\w+)'\)$/)?.[1];
+    if(tab==='est'||!tab) openTab(country,'seg');
+  }
+}
+function exportExcel(country){ alert(`[DEMO] Exportando datos de ${country} a Excel…`); }
+function sendEmail(country){ alert(`[DEMO] Enviando reporte de ${country} por correo a ${location.hostname}…`); }
+
+/* ── TABLE SORT ──────────────────────────────────────────────── */
+const sortState={};
+function sortTable(tbl, col){
+  const tbody=tbl.querySelector('tbody');
+  if(!tbody) return;
+  const id=tbl.id+'_'+col;
+  const asc=sortState[id]!==true;
+  sortState[id]=asc;
+  tbl.querySelectorAll('thead tr.th-main th').forEach((th,i)=>{
+    th.classList.remove('sorted-asc','sorted-desc');
+    if(i===col) th.classList.add(asc?'sorted-asc':'sorted-desc');
+  });
+  const rows=[...tbody.querySelectorAll('tr')];
+  rows.sort((a,b)=>{
+    const av=a.cells[col]?.innerText.replace(/[^0-9.\-]/g,'')||a.cells[col]?.innerText||'';
+    const bv=b.cells[col]?.innerText.replace(/[^0-9.\-]/g,'')||b.cells[col]?.innerText||'';
+    const an=parseFloat(av), bn=parseFloat(bv);
+    if(!isNaN(an)&&!isNaN(bn)) return asc?an-bn:bn-an;
+    return asc?av.localeCompare(bv):bv.localeCompare(av);
+  });
+  rows.forEach(r=>tbody.appendChild(r));
+}
+
+/* ── COLUMN FILTER ────────────────────────────────────────────── */
+function colFilter(tbl){
+  const inputs=[...tbl.querySelectorAll('.col-filter-inp')];
+  tbl.querySelectorAll('tbody tr').forEach(row=>{
+    let show=true;
+    inputs.forEach((inp,i)=>{
+      const v=inp.value.toLowerCase().trim();
+      if(v&&!row.cells[i]?.innerText.toLowerCase().includes(v)) show=false;
+    });
+    row.style.display=show?'':'none';
+  });
+}
+
+/* ── MAKE TABLE WITH SORT+FILTER ─────────────────────────────── */
+function makeTable(id, headers, rows, opts={}){
+  const tbl=document.createElement('table');
+  tbl.id=id;
+  const thead=document.createElement('thead');
+  const trH=document.createElement('tr'); trH.className='th-main';
+  headers.forEach((h,i)=>{
+    const th=document.createElement('th');
+    th.innerHTML=h;
+    if(!opts.noSort){
+      th.onclick=()=>sortTable(tbl,i);
+    } else { th.className='no-sort'; }
+    trH.appendChild(th);
+  });
+  thead.appendChild(trH);
+  if(opts.filter){
+    const trF=document.createElement('tr'); trF.className='th-filter';
+    headers.forEach(()=>{
+      const th=document.createElement('th');
+      const inp=document.createElement('input');
+      inp.className='col-filter-inp';
+      inp.placeholder='🔍';
+      inp.oninput=()=>colFilter(tbl);
+      th.appendChild(inp);
+      trF.appendChild(th);
+    });
+    thead.appendChild(trF);
+  }
+  tbl.appendChild(thead);
+  const tbody=document.createElement('tbody');
+  if(!rows.length){
+    const tr=document.createElement('tr');
+    const td=document.createElement('td');
+    td.colSpan=headers.length; td.className='no-data';
+    td.textContent='Sin datos para el periodo seleccionado';
+    tr.appendChild(td); tbody.appendChild(tr);
+  }
+  rows.forEach(r=>{
+    const tr=document.createElement('tr');
+    r.forEach((cell,i)=>{
+      const td=document.createElement('td');
+      if(opts.wrapCols&&opts.wrapCols.includes(i)) td.className='wrap-cell';
+      td.innerHTML=cell; tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  return tbl;
+}
+
+/* ── RENDER KPI ───────────────────────────────────────────────── */
+function renderKpi(country){
+  const d=DATA[country], k=d.kpi, curr=d.currency;
+  const el=document.getElementById(`kpi-${country}`);
+  if(!el) return;
+  el.innerHTML=`
+    <div class="kpi-card kpi-purple"><span class="kpi-icon">🧾</span><div class="kpi-body"><div class="kpi-value">${fmt(k.total_txs)}</div><div class="kpi-label">Campañas Pagadas (TX únicos)</div></div></div>
+    <div class="kpi-card kpi-green"><span class="kpi-icon">💰</span><div class="kpi-body"><div class="kpi-value">${curr} ${fmt(k.total_valor)}</div><div class="kpi-label">Total Valor Pagado</div></div></div>
+    <div class="kpi-card kpi-blue"><span class="kpi-icon">🏍️</span><div class="kpi-body"><div class="kpi-value">${fmt(k.total_pilots)}</div><div class="kpi-label">Pilotos Ganadores</div></div></div>
+    <div class="kpi-card kpi-amber"><span class="kpi-icon">⚠️</span><div class="kpi-body"><div class="kpi-value">${fmt(k.affected_zero)}</div><div class="kpi-label">Pilotos Afectados (Pago $0)</div></div></div>
+    <div class="kpi-card kpi-red"><span class="kpi-icon">🚫</span><div class="kpi-body"><div class="kpi-value">${fmt(k.fraud_pilots)}</div><div class="kpi-label">Pilotos con Fraude</div></div></div>
+    <div class="kpi-card kpi-teal"><span class="kpi-icon">📋</span><div class="kpi-body"><div class="kpi-value">${fmt(k.fraud_services)}</div><div class="kpi-label">Servicios con Fraude</div></div></div>`;
+}
+
+/* ── RENDER CITY TABLE ────────────────────────────────────────── */
+function renderCities(country){
+  const d=DATA[country], curr=d.currency;
+  const wrap=document.getElementById(`city-tbl-${country}`);
+  if(!wrap) return;
+  const rows=d.cities.map(c=>[c.ciudad,fmt(c.campanas),`${curr} ${fmt(c.valor)}`,fmt(c.pilotos)]);
+  wrap.appendChild(makeTable(`citytbl-${country}`,['Ciudad','Campañas','Valor Total','Pilotos'],rows,{filter:true}));
+}
+
+/* ── RENDER TOP PILOTS ────────────────────────────────────────── */
+function renderTopPilots(country){
+  const d=DATA[country], curr=d.currency;
+  const wrap=document.getElementById(`top-pilots-${country}`);
+  if(!wrap) return;
+  const rows=d.top_pilots.map(p=>[`<b>${p.rank}</b>`,`<small style="color:var(--text3)">${p.id}</small>`,p.nombre,fmt(p.campanas),`${curr} ${fmt(p.valor)}`,p.ultimo||'—']);
+  wrap.appendChild(makeTable(`tpil-${country}`,['#','ID Piloto','Nombre','Campañas','Valor','Último Pago'],rows,{filter:true}));
+}
+
+/* ── RENDER TOP CAMPAIGNS ─────────────────────────────────────── */
+function renderTopCamps(country){
+  const d=DATA[country], curr=d.currency;
+  const wrap=document.getElementById(`top-camps-${country}`);
+  if(!wrap) return;
+  const rows=d.top_camps.map(c=>[`<b>${c.rank}</b>`,`<small style="color:var(--text3)">${c.id}</small>`,c.nombre,fmt(c.pagos),`${curr} ${fmt(c.valor)}`]);
+  wrap.appendChild(makeTable(`tcmp-${country}`,['#','ID Camp.','Nombre','Pagos','Valor Total'],rows,{filter:true}));
+}
+
+/* ── RENDER MONITOREO / TRUMP ─────────────────────────────────── */
+function renderMonTrump(country){
+  const d=DATA[country];
+  const mw=document.getElementById(`tbl-monit-${country}`);
+  const tw=document.getElementById(`tbl-trump-${country}`);
+  if(mw){
+    const rows=d.monitoreo.map(r=>[badge(r.badge,r.tipo),fmt(r.count),pct(r.pct)]);
+    mw.appendChild(makeTable(`tmon-${country}`,['Regla Monitoreo','Cantidad','%'],rows));
+  }
+  if(tw){
+    const rows=d.trump.map(r=>[badge(r.badge,r.tipo),fmt(r.count),pct(r.pct)]);
+    tw.appendChild(makeTable(`ttrp-${country}`,['Regla Trump','Cantidad','%'],rows));
+  }
+}
+
+/* ── FILTERED DATA HELPER ─────────────────────────────────────── */
+function getFiltered(country){
+  const d=DATA[country], ds=dateFilterState[country];
+  let seg=[...d.seg], det=[...d.det];
+  const pf=ds.pay?(document.getElementById(`pay-from-${country}`)?.value||''):'';
+  const pt=ds.pay?(document.getElementById(`pay-to-${country}`)?.value||''):'';
+  const sf=ds.svc?(document.getElementById(`svc-from-${country}`)?.value||''):'';
+  const st=ds.svc?(document.getElementById(`svc-to-${country}`)?.value||''):'';
+  if(pf) seg=seg.filter(r=>r.fecha_tx&&r.fecha_tx.slice(0,10)>=pf);
+  if(pt) seg=seg.filter(r=>r.fecha_tx&&r.fecha_tx.slice(0,10)<=pt);
+  if(pf) det=det.filter(r=>r.fecha_bono&&r.fecha_bono.slice(0,10)>=pf);
+  if(pt) det=det.filter(r=>r.fecha_bono&&r.fecha_bono.slice(0,10)<=pt);
+  if(sf) det=det.filter(r=>r.fecha&&r.fecha.slice(0,10)>=sf);
+  if(st) det=det.filter(r=>r.fecha&&r.fecha.slice(0,10)<=st);
+  // search filter
+  const ss=searchState?.[country];
+  if(ss?.val){
+    const v=ss.val.toLowerCase();
+    if(ss.type==='campaign'){ seg=seg.filter(r=>r.id_camp?.toLowerCase().includes(v)); det=det.filter(r=>r.id_campana?.toLowerCase().includes(v)); }
+    else if(ss.type==='user'){ seg=seg.filter(r=>r.driver_id?.toLowerCase().includes(v)); det=det.filter(r=>r.driver_id?.toLowerCase().includes(v)); }
+    else if(ss.type==='booking'){ det=det.filter(r=>r.id_booking?.toLowerCase().includes(v)); }
+    else if(ss.type==='tx'){ det=det.filter(r=>r.id_tx?.toLowerCase().includes(v)); }
+  }
+  return {seg,det};
+}
+
+/* ── RENDER STATS DYNAMIC (from filtered data) ────────────────── */
+function renderStatsDynamic(country){
+  const {seg,det}=getFiltered(country);
+  const d=DATA[country], curr=d.currency;
+  // KPIs
+  const kpiEl=document.getElementById(`kpi-${country}`);
+  if(kpiEl){
+    const total_valor=seg.reduce((s,r)=>s+r.valor,0);
+    const pilots_con_pago=new Set(seg.filter(r=>r.valor>0).map(r=>r.driver_id)).size;
+    const total_pilots=new Set(seg.map(r=>r.driver_id)).size;
+    const affected_zero=seg.filter(r=>r.valor===0).length;
+    const fraud_pilots=seg.filter(r=>r.fraude).length;
+    const fraud_services=det.filter(r=>r.fraud_suspect).length;
+    kpiEl.innerHTML=`
+      <div class="kpi-card kpi-purple"><span class="kpi-icon">🧾</span><div class="kpi-body"><div class="kpi-value">${fmt(seg.length)}</div><div class="kpi-label">Campañas Pagadas (TX únicos)</div></div></div>
+      <div class="kpi-card kpi-green"><span class="kpi-icon">💰</span><div class="kpi-body"><div class="kpi-value">${curr} ${fmt(total_valor)}</div><div class="kpi-label">Total Pagado en el Periodo</div></div></div>
+      <div class="kpi-card kpi-blue"><span class="kpi-icon">🏍️</span><div class="kpi-body"><div class="kpi-value">${fmt(pilots_con_pago)} <small style="font-size:12px;opacity:.7">/ ${fmt(total_pilots)}</small></div><div class="kpi-label">Pilotos con Pago (de Total)</div></div></div>
+      <div class="kpi-card kpi-amber"><span class="kpi-icon">⚠️</span><div class="kpi-body"><div class="kpi-value">${fmt(affected_zero)}</div><div class="kpi-label">Pilotos Afectados (Pago $0)</div></div></div>
+      <div class="kpi-card kpi-red"><span class="kpi-icon">🚫</span><div class="kpi-body"><div class="kpi-value">${fmt(fraud_pilots)}</div><div class="kpi-label">Pilotos con Fraude</div></div></div>
+      <div class="kpi-card kpi-teal"><span class="kpi-icon">📋</span><div class="kpi-body"><div class="kpi-value">${fmt(fraud_services)}</div><div class="kpi-label">Servicios con Fraude</div></div></div>`;
+  }
+  // Cities
+  const cityWrap=document.getElementById(`city-tbl-${country}`);
+  if(cityWrap){
+    const cm={};
+    det.forEach(r=>{const c=r.city_name||'—';if(!cm[c])cm[c]={ciudad:c,campanas:0,valor:0,pilotos:new Set()};cm[c].campanas++;cm[c].valor+=(r.valor_campana||0);cm[c].pilotos.add(r.driver_id);});
+    const cities=Object.values(cm).sort((a,b)=>b.valor-a.valor);
+    cityWrap.innerHTML='';
+    const rows=cities.length?cities.map(c=>[c.ciudad,fmt(c.campanas),`${curr} ${fmt(c.valor)}`,fmt(c.pilotos.size)]):[];
+    cityWrap.appendChild(makeTable(`citytbl-${country}`,['Ciudad','Campañas','Valor Total','Pilotos'],rows,{filter:true}));
+  }
+  // Top Pilots
+  const pilWrap=document.getElementById(`top-pilots-${country}`);
+  if(pilWrap){
+    const pm={};
+    seg.forEach(r=>{if(!pm[r.driver_id])pm[r.driver_id]={id:r.driver_id,nombre:r.nombre,campanas:0,valor:0,ultimo:''};pm[r.driver_id].campanas++;pm[r.driver_id].valor+=r.valor;const d8=r.fecha_tx?r.fecha_tx.slice(0,10):'';if(d8>pm[r.driver_id].ultimo)pm[r.driver_id].ultimo=d8;});
+    const pilots=Object.values(pm).sort((a,b)=>b.valor-a.valor);
+    pilWrap.innerHTML='';
+    const rows=pilots.map((p,i)=>[`<b>${i+1}</b>`,`<small style="color:var(--text3)">${p.id}</small>`,p.nombre,fmt(p.campanas),`${curr} ${fmt(p.valor)}`,p.ultimo||'—']);
+    pilWrap.appendChild(makeTable(`tpil-${country}`,['#','ID Piloto','Nombre','Campañas','Valor','Último Pago'],rows,{filter:true}));
+  }
+  // Top Campaigns
+  const cmpWrap=document.getElementById(`top-camps-${country}`);
+  if(cmpWrap){
+    const campM={};
+    seg.forEach(r=>{if(!campM[r.id_camp])campM[r.id_camp]={id:r.id_camp,nombre:r.nombre_camp,pagos:0,valor:0};campM[r.id_camp].pagos++;campM[r.id_camp].valor+=r.valor;});
+    const camps=Object.values(campM).sort((a,b)=>b.valor-a.valor);
+    cmpWrap.innerHTML='';
+    const rows=camps.map((c,i)=>[`<b>${i+1}</b>`,`<small style="color:var(--text3)">${c.id}</small>`,c.nombre,fmt(c.pagos),`${curr} ${fmt(c.valor)}`]);
+    cmpWrap.appendChild(makeTable(`tcmp-${country}`,['#','ID Camp.','Nombre','Pagos','Valor Total'],rows,{filter:true}));
+  }
+  // Resumen por Campaña (todas las campañas del periodo filtrado)
+  const resumeWrap=document.getElementById(`camp-resume-${country}`);
+  if(resumeWrap){
+    const rM={};
+    seg.forEach(r=>{
+      const k=r.id_camp;
+      if(!rM[k]) rM[k]={id:k,nombre:r.nombre_camp,pilotos:new Set(),valor:0,fraudes:0};
+      rM[k].pilotos.add(r.driver_id);
+      rM[k].valor+=r.valor;
+      if(r.fraude) rM[k].fraudes++;
+    });
+    const resumen=Object.values(rM).sort((a,b)=>b.valor-a.valor);
+    resumeWrap.innerHTML='';
+    const rrows=resumen.map((c,i)=>[
+      `<b>${i+1}</b>`,
+      `<small style="color:var(--text3)">${c.id}</small>`,
+      c.nombre,
+      fmt(c.pilotos.size),
+      `${curr} ${fmt(c.valor)}`,
+      fmt(c.fraudes),
+      pct(c.pilotos.size?c.fraudes/c.pilotos.size*100:0)
+    ]);
+    resumeWrap.appendChild(makeTable(`camprsum-${country}`,
+      ['#','ID Campaña','Nombre Campaña','Pilotos Pagados',`Valor Total (${curr})`,'Con Fraude','% Fraude'],
+      rrows,{filter:true}));
+  }
+  // Monitoreo dinámico (desde det filtrado)
+  const monitWrap=document.getElementById(`tbl-monit-${country}`);
+  if(monitWrap){
+    const mM={};
+    det.forEach(r=>{const t=r.regla_distancia||'—';if(!mM[t])mM[t]={tipo:t,count:0};mM[t].count++;});
+    const monits=Object.values(mM).sort((a,b)=>b.count-a.count);
+    const totM=det.length||1;
+    const bM={'LLEGO_AL_DESTINO':'b-ok','NO_LLEGO_AL_DESTINO':'b-danger','SIN_COORDENADAS':'b-gray'};
+    monitWrap.innerHTML='';
+    const mrows=monits.map(r=>[badge(bM[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totM*100)]);
+    monitWrap.appendChild(makeTable(`tmon-${country}`,['Regla Monitoreo','Cantidad','%'],mrows));
+  }
+  // Trump dinámico (desde det filtrado)
+  const trumpWrap=document.getElementById(`tbl-trump-${country}`);
+  if(trumpWrap){
+    const tM={};
+    det.forEach(r=>{const t=r.reason_text||'(sin alerta)';if(!tM[t])tM[t]={tipo:t,count:0};tM[t].count++;});
+    const trumps=Object.values(tM).sort((a,b)=>b.count-a.count);
+    const totT=det.length||1;
+    const bT={'(sin alerta)':'b-ok','"fraud_booking"':'b-danger','"same_device"':'b-danger','"low_rating_booking"':'b-warn'};
+    trumpWrap.innerHTML='';
+    const trows=trumps.map(r=>[badge(bT[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totT*100)]);
+    trumpWrap.appendChild(makeTable(`ttrp-${country}`,['Regla Trump','Cantidad','%'],trows));
+  }
+}
+
+function renderAll(country){ renderStatsDynamic(country); renderSeg(country); renderDet(country); }
+
+/* ── RENDER SEGUIMIENTO ───────────────────────────────────────── */
+function renderSeg(country){
+  const d=DATA[country], curr=d.currency;
+  const wrap=document.getElementById(`seg-tbl-${country}`);
+  if(!wrap) return;
+  wrap.innerHTML='';
+  const {seg:allSeg, det:allDet}=getFiltered(country);
+  // valor_campana = wat.amount = monto real TX wallet (no la tarifa del viaje)
+  const valTxByPilot={};
+  allDet.forEach(r=>{if(r.driver_id) valTxByPilot[r.driver_id]=Math.max(valTxByPilot[r.driver_id]||0,r.valor_campana||0);});
+  let src=fraudFilter[country]?allSeg.filter(r=>r.fraude):allSeg;
+  if(ceroFilter[country]) src=src.filter(r=>r.valor===0);
+  const rows=src.map(r=>[
+    r.fecha_tx,
+    `<small>${r.driver_id}</small>`,
+    r.nombre,
+    `<small>${r.id_camp}</small>`,
+    r.nombre_camp,
+    fmt(r.servicios),
+    `${curr} ${fmt(r.valor)}`,
+    `${curr} ${fmt(valTxByPilot[r.driver_id]||0)}`,
+    (()=>{ const t=(r.tyc||''); return t.startsWith('http')?`<a class="tyc-link" href="${t}" target="_blank" rel="noopener">Ver T&C ↗</a>`:`<span style="font-size:11px;color:#888;font-style:italic;">${t||'—'}</span>`; })(),
+    monitoreo_badge(r.monitoreo),
+    trump_badge(r.trump),
+    r.fraude?badge('b-fraud','⚠ FRAUDE'):badge('b-ok','✓ OK'),
+  ]);
+  const fraudCnt=allSeg.filter(r=>r.fraude).length;
+  const zeroCnt=allSeg.filter(r=>r.valor===0).length;
+  const cntEl=document.getElementById(`fraud-count-${country}`);
+  if(cntEl) cntEl.textContent=`${fraudCnt} alerta${fraudCnt!==1?'s':''} de fraude · ${zeroCnt} pago${zeroCnt!==1?'s':''} $0 en el periodo`;
+  wrap.appendChild(makeTable(`segtbl-${country}`,
+    ['Fecha Pago TX','ID Piloto','Nombre Piloto','ID Campaña','Nombre Campaña','# Servicios',`Valor Bono (${curr})`,`Valor TX (${curr})`,'TyC','Regla Monitoreo','Regla Trump','Estado'],
+    rows,{filter:true}));
+}
+
+/* ── RENDER DETALLADO ─────────────────────────────────────────── */
+function renderDet(country){
+  const d=DATA[country], curr=d.currency;
+  const wrap=document.getElementById(`det-tbl-${country}`);
+  if(!wrap) return;
+  wrap.innerHTML='';
+  const {det}=getFiltered(country);
+  const rows=det.map(r=>[
+    r.id_booking,r.aceptado,r.conductor_llego,r.finalizado,r.fecha,
+    r.driver_name,r.passenger_name,r.driver_id,r.passenger_id,
+    r.company_name||'—',r.country_name,r.city_name,
+    r.imei_driver,r.imei_passenger,r.status_carrera,
+    r.id_campana,r.nombre_campana,r.fecha_bono,
+    `${curr} ${fmt(r.valor_campana)}`,(()=>{ const t=(r.tyc||''); return t.startsWith('http')?`<a class="tyc-link" href="${t}" target="_blank" rel="noopener">Ver T&C ↗</a>`:`<span style="font-size:11px;color:#888;font-style:italic;">${t||'—'}</span>`; })(),
+    imei_badge(r.revision_imei),r.id_tx,
+    `${curr} ${fmt(r.valor)}`,
+    r.fraud_suspect?badge('b-fraud','⚠ SÍ'):badge('b-ok','NO'),
+    trump_badge(r.reason_text||'(sin alerta)'),
+    monitoreo_badge(r.regla_distancia),
+    r.service_type,
+  ]);
+  wrap.appendChild(makeTable(`dettbl-${country}`,
+    ['ID Booking','Aceptado','Conductor Llegó','Finalizado','Fecha','Conductor','Pasajero','ID Conductor','ID Pasajero',
+     'Empresa','País','Ciudad','IMEI Conductor','IMEI Pasajero','Estado Carrera',
+     'ID Campaña','Nombre Campaña','Fecha Bono',`Valor Campaña (${curr})`,'TyC',
+     'Revisión IMEI','ID TX',`Valor (${curr})`,'Fraud Suspect','Regla Trump','Regla Monitoreo','Tipo Servicio'],
+    rows,{filter:true}));
+}
+
+/* ── INIT ────────────────────────────────────────────────────── */
+['COL','MEX','NIC'].forEach(c=>{
+  renderStatsDynamic(c);
+  renderSeg(c);
+  renderDet(c);
+});
+
+/* ── FETCH DATOS REALES DESDE CH (activo cuando API_BASE != '') ─ */
+async function cargarDesdeCH(){
+  const desde = (document.getElementById('from-COL')||{}).value
+                || new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  const hasta  = (document.getElementById('to-COL')||{}).value
+                || new Date().toISOString().slice(0,10);
+  const hdrs = {'Content-Type':'application/json'};
+  const tok = AUTH_TOKEN(); if(tok) hdrs['Authorization']=`Bearer ${tok}`;
+
+  try {
+    const lj = await fetch(
+      `${API_BASE}/api/campaign_validator/cargar_async?desde=${desde}&hasta=${hasta}`,
+      {headers:hdrs}
+    ).then(r=>r.json());
+    if(!lj.ok){ console.warn('[CV] API error:',lj.error); return; }
+    if(lj.status==='done'&&lj.data){ aplicarDataCH(lj.data); return; }
+
+    const poll=setInterval(async()=>{
+      try{
+        const sj=await fetch(`${API_BASE}/api/campaign_validator/cargar_status/${lj.job_id}`,{headers:hdrs}).then(r=>r.json());
+        if(sj.status==='done'){ clearInterval(poll); if(sj.data) aplicarDataCH(sj.data); }
+        else if(sj.status==='error'){ clearInterval(poll); console.error('[CV] Job error:',sj.error); }
+      }catch(e){ clearInterval(poll); }
+    }, 3000);
+  } catch(e){ console.warn('[CV] API no disponible, usando datos mock:',e.message); }
+}
+
+function aplicarDataCH(apiData){
+  ['COL','MEX','NIC'].forEach(c=>{
+    if(!apiData[c]) return;
+    const d=apiData[c];
+    if(d.kpi)        Object.assign(DATA[c].kpi, d.kpi);
+    if(d.cities)     DATA[c].cities     = d.cities;
+    if(d.top_pilots) DATA[c].top_pilots = d.top_pilots;
+    if(d.top_camps)  DATA[c].top_camps  = d.top_camps;
+    if(d.seg)        DATA[c].seg        = d.seg;
+    if(d.det)        DATA[c].det        = d.det;
+  });
+  ['COL','MEX','NIC'].forEach(c=>{ renderStatsDynamic(c); renderSeg(c); renderDet(c); });
+  console.log('[CV] ✓ Datos reales de ClickHouse cargados');
+}
+
+if(API_BASE) cargarDesdeCH();
+</script>
+</body>
+</html>

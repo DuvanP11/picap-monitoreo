@@ -122,6 +122,12 @@ Rails.application.routes.draw do
     end
     post "validador_dispersiones/enviar_email", to: "validador_dispersiones#enviar_email"
 
+    # v3.3.58: PICAP CAMPAIGN VALIDATOR — pagos de campaña con datos reales de CH
+    namespace :campaign_validator do
+      get  "cargar_async",          to: "/api/campaign_validator#cargar_async"
+      get  "cargar_status/:job_id", to: "/api/campaign_validator#cargar_status"
+    end
+
     # v3.3.56: Consolidado Cash Out (submódulo Cash Out)
     namespace :consolidado_cash_out do
       get  "cargar_async",                 to: "/api/consolidado_cash_out#cargar_async"

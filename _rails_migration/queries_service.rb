@@ -3440,4 +3440,97 @@ module QueriesService
     WHERE rn = 1
     ORDER BY creacion_tx DESC
   SQL
+
+  # ╔══════════════════════════════════════════════════════════════════════════╗
+  # ║ Q_CAMPAIGN_VALIDATOR  v1.0                                               ║
+  # ║ Endpoint: GET /api/campaign_validator/cargar_async?desde=&hasta=         ║
+  # ║ NOTAS DE SCHEMA:                                                         ║
+  # ║   • campaign_id: columna directa en wallet_account_transactions.         ║
+  # ║     Si no existe usar: toString(JSONExtractString(metadata,'campaign_id'))║
+  # ║   • picapmongoprod.campaigns: si no existe, reemplazar el CTE camp       ║
+  # ║     con '' AS nombre_camp, '' AS tyc en el SELECT final.                 ║
+  # ║   • monitoreo / trump / fraude: se añaden en v1.1 vía bookings+trump.   ║
+  # ╚══════════════════════════════════════════════════════════════════════════╝
+  Q_CAMPAIGN_VALIDATOR = <<~'SQL'
+    WITH
+    /* 1. Transacciones de pago de campaña en el rango */
+    wat_raw AS (
+        SELECT
+            _id,
+            account_id,
+            toTimeZone(created_at, 'America/Bogota')                         AS fecha_tx,
+            toFloat64OrNull(JSONExtractString(amount, 'cents')) / 100        AS valor,
+            JSONExtractString(amount, 'currency_iso')                        AS moneda,
+            toString(campaign_id)                                            AS campaign_id,
+            ROW_NUMBER() OVER (
+                PARTITION BY _id
+                ORDER BY ifNull(_sdc_batched_at, created_at) DESC
+            ) AS rn
+        FROM picapmongoprod.wallet_account_transactions
+        WHERE lower(_type) = 'walletaccounttransactionpromocampaign'
+          AND created_at BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
+                             AND toDateTime('%{fecha_hasta}', 'America/Bogota')
+    ),
+    wat AS (SELECT * FROM wat_raw WHERE rn = 1),
+
+    /* 2. Wallet accounts → passenger_id del piloto */
+    wa AS (
+        SELECT _id,
+               argMax(passenger_id, ifNull(_sdc_batched_at, created_at)) AS passenger_id
+        FROM picapmongoprod.wallet_accounts
+        WHERE _id IN (SELECT DISTINCT account_id FROM wat WHERE notEmpty(account_id))
+        GROUP BY _id
+    ),
+
+    /* 3. Nombre, país y ciudad del piloto */
+    drv AS (
+        SELECT
+            _id,
+            argMax(
+                trim(CONCAT(name,
+                     if(notEmpty(ifNull(last_name, '')), CONCAT(' ', last_name), ''))),
+                _sdc_batched_at
+            )                                                        AS nombre,
+            argMax(g_country,       _sdc_batched_at)                 AS pais,
+            argMax(g_adm_area_lv_1, _sdc_batched_at)                 AS ciudad
+        FROM picapmongoprod.passengers
+        WHERE _id IN (SELECT DISTINCT passenger_id FROM wa WHERE notEmpty(passenger_id))
+        GROUP BY _id
+    ),
+
+    /* 4. Nombre y TyC de la campaña */
+    camp AS (
+        SELECT
+            _id,
+            argMax(JSONExtractString(name, 'es'), updated_at) AS nombre_camp,
+            argMax(terms_url,                     updated_at) AS tyc
+        FROM picapmongoprod.campaigns
+        WHERE notEmpty(_id)
+          AND _id IN (SELECT DISTINCT campaign_id FROM wat WHERE notEmpty(campaign_id))
+        GROUP BY _id
+    )
+
+    SELECT
+        w._id                          AS id_tx,
+        w.fecha_tx,
+        wa.passenger_id                AS driver_id,
+        ifNull(drv.nombre, '')         AS nombre,
+        ifNull(drv.pais,   '')         AS pais,
+        ifNull(drv.ciudad, '')         AS ciudad,
+        w.campaign_id                  AS id_camp,
+        ifNull(camp.nombre_camp, '')   AS nombre_camp,
+        w.valor,
+        w.moneda,
+        ifNull(camp.tyc, '')           AS tyc,
+        0                              AS servicios,
+        ''                             AS monitoreo,
+        '(sin alerta)'                 AS trump,
+        0                              AS fraud_suspect
+    FROM wat w
+    INNER JOIN wa   ON wa._id    = w.account_id
+    LEFT  JOIN drv  ON drv._id   = wa.passenger_id
+    LEFT  JOIN camp ON camp._id  = w.campaign_id
+    ORDER BY w.fecha_tx DESC
+    SETTINGS join_use_nulls = 1
+  SQL
 end
