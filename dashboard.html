@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.59-CAMPAIGN-VALIDATOR-SIDEBAR-20260611</title>
+<title>Picap · Monitoreo · v3.3.60-CAMPAIGN-VALIDATOR-INDIVIDUAL-20260611</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -1714,10 +1714,17 @@ window.fetch = function(url, opts) {
       <div class="fly-title">Cash Out</div>
       <div class="fly-link" id="nav-validador-dispersiones" onclick="switchView('validador_dispersiones')"><span>🧾</span> Validador de Dispersiones</div>
       <div class="fly-link" id="nav-consolidado-cashout" onclick="switchView('consolidado_cash_out')"><span>📑</span> Consolidado Cash Out</div>
-      <div class="fly-link" id="nav-campaign-validator" onclick="window.open('/campaign_validator/index.html','_blank')"><span>🎯</span> Campaign Validator <span style="font-size:9px;color:#a78bfa;margin-left:4px">↗</span></div>
       <div class="fly-link fly-disabled"><span>🇨🇴</span> Colombia (pronto)</div>
       <div class="fly-link fly-disabled"><span>🇲🇽</span> México (pronto)</div>
       <div class="fly-link fly-disabled"><span>🇳🇮</span> Nicaragua (pronto)</div>
+    </div>
+  </div>
+
+  <!-- ── Campaign Validator (módulo individual, abre vista standalone) ── -->
+  <div class="sb2-item" id="sbg-campaign-validator">
+    <div class="sb2-icon" id="nav-campaign-validator" onclick="window.open('/campaign_validator/index.html','_blank')" title="Campaign Validator (abre en nueva pestaña)" style="cursor:pointer">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="white" stroke-width="1.5"/><circle cx="10" cy="10" r="3.5" stroke="white" stroke-width="1.5"/><circle cx="10" cy="10" r="1" fill="white"/></svg>
+      <span class="sb2-label">Campaign Validator</span>
     </div>
   </div>
 
@@ -7148,6 +7155,7 @@ function aplicarRol() {
     'sbg-auditoria': ['admin','monitoreo','financiero','pibox'],
     'sbg-pibox':     ['admin','monitoreo','pibox'],
     'sbg-cashout':   ['admin','monitoreo','financiero'],
+    'sbg-campaign-validator': ['admin','monitoreo','financiero','operaciones'],
     'nav-rf':        ['admin','monitoreo','sac','financiero'],
     // v3.3.16: Recursos sigue listado por rol pero ADICIONALMENTE oculto si
     // el usuario no tiene NADA accesible (chequeo dinámico via endpoint).
