@@ -3498,12 +3498,12 @@ module QueriesService
         GROUP BY _id
     ),
 
-    /* 4. Nombre y TyC de la campaña */
+    /* 4. Nombre de la campaña. v3.3.62: terms_url no existe en picapmongoprod.campaigns
+       → quitarlo y dejar tyc='' en el SELECT final. */
     camp AS (
         SELECT
             _id,
-            argMax(JSONExtractString(name, 'es'), updated_at) AS nombre_camp,
-            argMax(terms_url,                     updated_at) AS tyc
+            argMax(JSONExtractString(name, 'es'), updated_at) AS nombre_camp
         FROM picapmongoprod.campaigns
         WHERE notEmpty(_id)
           AND _id IN (SELECT DISTINCT campaign_id FROM wat WHERE notEmpty(campaign_id))
@@ -3521,7 +3521,7 @@ module QueriesService
         ifNull(camp.nombre_camp, '')   AS nombre_camp,
         w.valor,
         w.moneda,
-        ifNull(camp.tyc, '')           AS tyc,
+        ''                             AS tyc,
         0                              AS servicios,
         ''                             AS monitoreo,
         '(sin alerta)'                 AS trump,
