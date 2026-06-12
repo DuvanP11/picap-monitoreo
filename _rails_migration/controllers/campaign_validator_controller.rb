@@ -18,6 +18,14 @@ module Api
       desde = params[:desde].to_s.strip.presence || Date.today.beginning_of_month.to_s
       hasta  = params[:hasta].to_s.strip.presence || Date.today.to_s
 
+      # v3.3.76: swap defensivo si el cliente manda rango invertido (sintoma: 0 datos
+      # aunque la query corra OK). Log para diagnostico futuro.
+      Rails.logger.info("[CampaignValidator] Recibido desde=#{desde} hasta=#{hasta}")
+      if desde > hasta
+        Rails.logger.warn("[CampaignValidator] Rango invertido — swap: #{desde} ↔ #{hasta}")
+        desde, hasta = hasta, desde
+      end
+
       cache_key = "cv_#{desde}_#{hasta}"
       hit = @@load_jobs_mutex.synchronize do
         @@load_jobs.find { |_, j| j[:cache_key] == cache_key && j[:status] == :done }

@@ -1179,10 +1179,16 @@ function renderDet(country){
 async function cargarDesdeCH(){
   // v3.3.68: usar IDs reales (pay-from-COL/pay-to-COL). Antes leia from-COL/to-COL
   // que no existian → siempre caia al default "ultimos 7 dias".
-  const desde = (document.getElementById('pay-from-COL')||{}).value
-                || new Date(Date.now()-7*864e5).toISOString().slice(0,10);
-  const hasta  = (document.getElementById('pay-to-COL')||{}).value
-                || new Date().toISOString().slice(0,10);
+  let desde = (document.getElementById('pay-from-COL')||{}).value
+              || new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  let hasta  = (document.getElementById('pay-to-COL')||{}).value
+              || new Date().toISOString().slice(0,10);
+  // v3.3.76: si los inputs estan invertidos (desde > hasta), hacer swap.
+  // El usuario vio rango "2026-06-20 → 2026-06-11" que daba 0 datos.
+  if (desde > hasta) {
+    console.warn('[CV] Rango invertido: desde='+desde+', hasta='+hasta+' — haciendo swap');
+    [desde, hasta] = [hasta, desde];
+  }
   // v3.3.61: el portal Picap usa header 'X-Token', no 'Authorization: Bearer'.
   const hdrs = {'Content-Type':'application/json'};
   const tok = AUTH_TOKEN(); if(tok) hdrs['X-Token'] = tok;
