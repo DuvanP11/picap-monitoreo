@@ -1063,25 +1063,25 @@ function renderStatsDynamic(country){
       ['#','ID Campaña','Nombre Campaña','Pilotos Pagados',`Valor Total (${curr})`,'Con Fraude','% Fraude'],
       rrows,{filter:true}));
   }
-  // Monitoreo dinámico — v3.3.70: usar det (booking-level, distribucion real por servicio)
+  // Monitoreo dinámico — v3.3.69: usar seg (det esta vacio en payload backend) + clave 'monitoreo'
   const monitWrap=document.getElementById(`tbl-monit-${country}`);
   if(monitWrap){
     const mM={};
-    det.forEach(r=>{const t=r.monitoreo||'SIN_COORDENADAS';if(!mM[t])mM[t]={tipo:t,count:0};mM[t].count++;});
+    seg.forEach(r=>{const t=r.monitoreo||'(sin regla)';if(!mM[t])mM[t]={tipo:t,count:0};mM[t].count++;});
     const monits=Object.values(mM).sort((a,b)=>b.count-a.count);
-    const totM=det.length||1;
+    const totM=seg.length||1;
     const bM={'LLEGO_AL_DESTINO':'b-ok','NO_LLEGO_AL_DESTINO':'b-danger','SIN_COORDENADAS':'b-gray'};
     monitWrap.innerHTML='';
     const mrows=monits.map(r=>[badge(bM[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totM*100)]);
     monitWrap.appendChild(makeTable(`tmon-${country}`,['Regla Monitoreo','Cantidad','%'],mrows));
   }
-  // Trump dinámico — v3.3.70: usar det (booking-level)
+  // Trump dinámico — v3.3.69: usar seg + clave 'trump'
   const trumpWrap=document.getElementById(`tbl-trump-${country}`);
   if(trumpWrap){
     const tM={};
-    det.forEach(r=>{const t=r.trump||'(sin alerta)';if(!tM[t])tM[t]={tipo:t,count:0};tM[t].count++;});
+    seg.forEach(r=>{const t=r.trump||'(sin alerta)';if(!tM[t])tM[t]={tipo:t,count:0};tM[t].count++;});
     const trumps=Object.values(tM).sort((a,b)=>b.count-a.count);
-    const totT=det.length||1;
+    const totT=seg.length||1;
     const bT={'(sin alerta)':'b-ok','"fraud_booking"':'b-danger','"same_device"':'b-danger','"low_rating_booking"':'b-warn'};
     trumpWrap.innerHTML='';
     const trows=trumps.map(r=>[badge(bT[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totT*100)]);

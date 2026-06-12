@@ -3442,216 +3442,103 @@ module QueriesService
   SQL
 
   # ╔══════════════════════════════════════════════════════════════════════════╗
-  # ║ Q_CAMPAIGN_VALIDATOR  v2.0  (v3.3.70)                                    ║
+  # ║ Q_CAMPAIGN_VALIDATOR  v1.0                                               ║
   # ║ Endpoint: GET /api/campaign_validator/cargar_async?desde=&hasta=         ║
-  # ║                                                                          ║
-  # ║ Arquitectura: TX × booking. 1 fila por (transaccion campaña × servicio   ║
-  # ║ que la generó). Permite distribución real de regla_distancia / trump.    ║
-  # ║                                                                          ║
-  # ║ Flow:                                                                    ║
-  # ║   wat (PromoCampaign) → cycles (booking_ids) → bookings (status_cd=4)    ║
-  # ║   → joins con passengers, sessions, cities, countries, companies         ║
-  # ║   → IMEI fraud check, geoDistance umbral 450m COL / 280m MX,NI           ║
-  # ║                                                                          ║
-  # ║ Output: el controller agrega seg (TX-level deduplicado) y det (booking). ║
+  # ║ NOTAS DE SCHEMA:                                                         ║
+  # ║   • campaign_id: columna directa en wallet_account_transactions.         ║
+  # ║     Si no existe usar: toString(JSONExtractString(metadata,'campaign_id'))║
+  # ║   • picapmongoprod.campaigns: si no existe, reemplazar el CTE camp       ║
+  # ║     con '' AS nombre_camp, '' AS tyc en el SELECT final.                 ║
+  # ║   • monitoreo / trump / fraude: se añaden en v1.1 vía bookings+trump.   ║
   # ╚══════════════════════════════════════════════════════════════════════════╝
   Q_CAMPAIGN_VALIDATOR = <<~'SQL'
     WITH
     /* 1. Transacciones de pago de campaña en el rango */
-    q_wat AS (
+    wat_raw AS (
         SELECT
-            wat._id                                                          AS tx_id,
-            toTimeZone(wat.created_at, 'America/Bogota')                     AS fecha_tx,
-            intDiv(toInt64OrZero(JSONExtractString(wat.amount, 'cents')), 100) AS valor_bono,
-            JSONExtractString(wat.amount, 'currency_iso')                    AS moneda,
-            wat.confirmed_booking_cycle_campaign_cycle_id                    AS cycle_id
-        FROM (SELECT * FROM picapmongoprod.wallet_account_transactions FINAL) wat
-        WHERE toTimeZone(wat.created_at, 'America/Bogota')
-              BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
-              AND     toDateTime('%{fecha_hasta}', 'America/Bogota')
-          AND wat._type = 'WalletAccountTransactionPromoCampaign'
+            _id,
+            account_id,
+            toTimeZone(created_at, 'America/Bogota')                         AS fecha_tx,
+            toFloat64OrNull(JSONExtractString(amount, 'cents')) / 100        AS valor,
+            JSONExtractString(amount, 'currency_iso')                        AS moneda,
+            toString(campaign_id)                                            AS campaign_id,
+            ROW_NUMBER() OVER (
+                PARTITION BY _id
+                ORDER BY ifNull(_sdc_batched_at, created_at) DESC
+            ) AS rn
+        FROM picapmongoprod.wallet_account_transactions
+        WHERE lower(_type) = 'walletaccounttransactionpromocampaign'
+          AND created_at BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
+                             AND toDateTime('%{fecha_hasta}', 'America/Bogota')
+    ),
+    wat AS (SELECT * FROM wat_raw WHERE rn = 1),
+
+    /* 2. Wallet accounts → passenger_id del piloto */
+    wa AS (
+        SELECT _id,
+               argMax(passenger_id, ifNull(_sdc_batched_at, created_at)) AS passenger_id
+        FROM picapmongoprod.wallet_accounts
+        WHERE _id IN (SELECT DISTINCT account_id FROM wat WHERE notEmpty(account_id))
+        GROUP BY _id
     ),
 
-    /* 2. Cycles → campaign + booking_ids[] */
-    q_cycles AS (
-        SELECT cc._id, cc.confirmed_booking_cycle_campaign_id, cc.booking_ids
-        FROM picapmongoprod.confirmed_booking_cycle_campaign_cycles AS cc FINAL
-        INNER JOIN (SELECT DISTINCT cycle_id FROM q_wat WHERE notEmpty(toString(cycle_id))) cid
-            ON cc._id = cid.cycle_id
-    ),
-
-    /* 3. Campañas (defensivo para name plano vs JSON) */
-    q_camp AS (
+    /* 3. Nombre, país y ciudad del piloto */
+    drv AS (
         SELECT
-            c._id,
-            coalesce(nullIf(JSONExtractString(c.name, 'es'), ''), c.name) AS campaign_name,
-            c.terms_conditions                                            AS tyc
-        FROM picapmongoprod.campaigns AS c FINAL
-        INNER JOIN (SELECT DISTINCT confirmed_booking_cycle_campaign_id AS id FROM q_cycles WHERE notEmpty(toString(confirmed_booking_cycle_campaign_id))) cid
-            ON c._id = cid.id
+            _id,
+            argMax(
+                trim(CONCAT(name,
+                     if(notEmpty(ifNull(last_name, '')), CONCAT(' ', last_name), ''))),
+                _sdc_batched_at
+            )                                                        AS nombre,
+            argMax(g_country,       _sdc_batched_at)                 AS pais,
+            argMax(g_adm_area_lv_1, _sdc_batched_at)                 AS ciudad
+        FROM picapmongoprod.passengers
+        WHERE _id IN (SELECT DISTINCT passenger_id FROM wa WHERE notEmpty(passenger_id))
+        GROUP BY _id
     ),
 
-    /* 4. Expandir booking_ids: 1 fila por (tx × booking) */
-    q_tx_booking AS (
+    /* 4. Nombre de la campaña. v3.3.62: terms_url no existe en picapmongoprod.campaigns.
+       v3.3.67: campaigns.name suele ser string plano (no JSON). Defensivo:
+       intentar JSON con clave 'es'; si no aplica, usar name crudo. */
+    camp AS (
         SELECT
-            trimBoth(replaceAll(flattened, '"', ''))           AS booking_id,
-            cc._id                                              AS cycle_id,
-            cc.confirmed_booking_cycle_campaign_id              AS campaign_id,
-            w.tx_id, w.fecha_tx, w.valor_bono, w.moneda
-        FROM q_cycles cc
-        INNER JOIN q_wat w ON w.cycle_id = cc._id
-        ARRAY JOIN assumeNotNull(splitByString(
-            '","',
-            replaceAll(replaceAll(assumeNotNull(ifNull(cc.booking_ids, '[]')), '["', ''), '"]', '')
-        )) AS flattened
-        WHERE flattened != ''
-    ),
-
-    /* 5. Bookings finalizados (status_cd=4) — coords drop-off + destino */
-    q_bookings AS (
-        SELECT
-            b._id, b.driver_id, b.passenger_id, b.passenger_session_id, b.driver_session_id,
-            b.status_cd, b.requested_service_type_id, b.company_id, b.country_id, b.city_id,
-            toTimeZone(b.created_at, 'America/Bogota') AS booking_created_at,
-            intDiv(toInt64OrZero(JSONExtractString(b.final_cost, 'cents')), 100) AS final_cost,
-            JSONExtractString(b.final_cost, 'currency_iso')   AS currency_iso,
-            b.is_campaign_fraud_suspect                       AS fraud_suspect,
-            b.reasons_to_verify                               AS reasons_to_verify,
-            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.?coordinates":\[\s([+-]?\d+\.\d+)')) AS drop_lon,
-            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.?coordinates":\[.?,\s*([+-]?\d+\.\d+)')) AS drop_lat,
-            toFloat64OrNull(JSONExtractString(b.end_geojson, 'coordinates', 1)) AS end_lon,
-            toFloat64OrNull(JSONExtractString(b.end_geojson, 'coordinates', 2)) AS end_lat
-        FROM (SELECT * FROM picapmongoprod.bookings FINAL) b
-        INNER JOIN (SELECT DISTINCT booking_id AS id FROM q_tx_booking WHERE notEmpty(booking_id)) bid
-            ON b._id = bid.id
-        WHERE b.status_cd = 4
-    ),
-
-    /* 6. Passengers (drivers + pasajeros) */
-    q_passengers AS (
-        SELECT DISTINCT p._id, p.name
-        FROM (SELECT * FROM picapmongoprod.passengers FINAL) p
-        INNER JOIN (
-            SELECT driver_id AS id FROM q_bookings WHERE notEmpty(toString(driver_id))
-            UNION DISTINCT
-            SELECT passenger_id AS id FROM q_bookings WHERE notEmpty(toString(passenger_id))
-        ) pn ON p._id = pn.id
-    ),
-
-    /* 7. Sessions (IMEI) */
-    q_sessions AS (
-        SELECT DISTINCT s._id, s.imei AS imei, s.created_at AS session_created_at
-        FROM (SELECT * FROM picapmongoprod.sessions FINAL) s
-        INNER JOIN (
-            SELECT passenger_session_id AS id FROM q_bookings WHERE notEmpty(toString(passenger_session_id))
-            UNION DISTINCT
-            SELECT driver_session_id AS id FROM q_bookings WHERE notEmpty(toString(driver_session_id))
-        ) sn ON s._id = sn.id
-    ),
-
-    /* 8. dm_processed_events: ACEPTADO / CONDUCTOR_LLEGO / FINALIZADO */
-    q_events AS (
-        SELECT
-            booking_id,
-            max(tms_accepted)        AS tms_accepted,
-            max(tms_arrived)         AS tms_arrived,
-            max(tms_dropped_off)     AS tms_dropped_off,
-            max(tms_created_parent)  AS tms_created_parent
-        FROM (SELECT * FROM picapmongoprod.dm_processed_events FINAL)
-        WHERE booking_id IN (SELECT _id FROM q_bookings)
-        GROUP BY booking_id
-    ),
-
-    /* 9. Revisión IMEI: mismo entre user/driver o mismo IMEI con ≥2 cuentas */
-    imei_counts AS (
-        SELECT sp.imei AS imei_user, uniqExact(b.passenger_id) AS user_count
-        FROM q_bookings b
-        LEFT JOIN q_sessions sp ON sp._id = b.passenger_session_id
-        GROUP BY sp.imei
-    ),
-    q_revision_imei AS (
-        SELECT
-            b._id AS id_booking,
-            multiIf(
-                sd.imei = sp.imei,           'Mismo IMEI entre usuarios',
-                ic.user_count >= 2,           'IMEI con dos o más cuentas',
-                'OK'
-            ) AS revision_imei
-        FROM q_bookings b
-        LEFT JOIN q_sessions sd ON sd._id = b.driver_session_id
-        LEFT JOIN q_sessions sp ON sp._id = b.passenger_session_id
-        LEFT JOIN imei_counts ic ON sp.imei = ic.imei_user
+            _id,
+            argMax(
+                coalesce(
+                    nullIf(JSONExtractString(name, 'es'), ''),
+                    name
+                ),
+                updated_at
+            ) AS nombre_camp
+        FROM picapmongoprod.campaigns
+        WHERE notEmpty(_id)
+          AND _id IN (SELECT DISTINCT campaign_id FROM wat WHERE notEmpty(campaign_id))
+        GROUP BY _id
     )
 
-    /* 10. Resultado final: 1 fila por (tx × booking) con todo el contexto */
     SELECT
-        tb.tx_id                       AS id_tx,
-        tb.fecha_tx                    AS fecha_tx,
-        tb.valor_bono                  AS valor_bono,
-        tb.moneda                      AS moneda,
-        tb.campaign_id                 AS id_camp,
-        ifNull(cmp.campaign_name, '')  AS nombre_camp,
-        ifNull(cmp.tyc, '')            AS tyc,
-
-        b._id                          AS id_booking,
-        b.driver_id                    AS driver_id,
-        b.passenger_id                 AS passenger_id,
-        ifNull(drv.name, '')           AS nombre,
-        ifNull(pas.name, '')           AS passenger_name,
-
-        JSONExtractString(cit.name, 'en') AS ciudad,
-        JSONExtractString(coun.name, 'en') AS pais_nombre,
-        JSONExtractString(comp.name, 'en') AS empresa,
-        ifNull(b.currency_iso, '')      AS currency_iso,
-
-        ev.tms_accepted                AS tms_aceptado,
-        ev.tms_arrived                 AS tms_conductor_llego,
-        ev.tms_dropped_off             AS tms_finalizado,
-        ev.tms_created_parent          AS fecha_servicio,
-        b.final_cost                   AS valor_servicio,
-        ifNull(st.svc_name, '')        AS service_type,
-        b.fraud_suspect                AS fraud_suspect,
-
-        sed.imei                       AS imei_driver,
-        sep.imei                       AS imei_passenger,
-        ifNull(ri.revision_imei, 'OK') AS revision_imei,
-
-        /* Regla Trump: primer elemento del array reasons_to_verify */
-        if(
-            b.reasons_to_verify IS NOT NULL
-            AND length(JSONExtractArrayRaw(assumeNotNull(b.reasons_to_verify))) > 0,
-            arrayElement(JSONExtractArrayRaw(assumeNotNull(b.reasons_to_verify)), 1),
-            '(sin alerta)'
-        ) AS trump,
-
-        /* Regla Monitoreo: ¿drop-off cerca del destino? umbral 450m COL / 280m MX,NI */
-        multiIf(
-            b.drop_lon IS NULL OR b.drop_lat IS NULL OR b.end_lon IS NULL OR b.end_lat IS NULL,
-            'SIN_COORDENADAS',
-            geoDistance(
-                assumeNotNull(b.drop_lon), assumeNotNull(b.drop_lat),
-                assumeNotNull(b.end_lon),  assumeNotNull(b.end_lat)
-            ) <= if(b.currency_iso = 'COP', 450, 280),
-            'LLEGO_AL_DESTINO',
-            'NO_LLEGO_AL_DESTINO'
-        ) AS monitoreo
-
-    FROM q_tx_booking tb
-    LEFT JOIN q_bookings b   ON b._id = tb.booking_id
-    LEFT JOIN q_camp cmp     ON cmp._id = tb.campaign_id
-    LEFT JOIN q_events ev    ON ev.booking_id = b._id
-    LEFT JOIN q_passengers drv ON drv._id = b.driver_id
-    LEFT JOIN q_passengers pas ON pas._id = b.passenger_id
-    LEFT JOIN (SELECT _id, name FROM picapmongoprod.cities FINAL) cit ON cit._id = b.city_id
-    LEFT JOIN (SELECT _id, name FROM picapmongoprod.countries FINAL) coun ON coun._id = b.country_id
-    LEFT JOIN (SELECT _id, name FROM picapmongoprod.companies FINAL) comp ON comp._id = b.company_id
-    LEFT JOIN q_sessions sed ON sed._id = b.driver_session_id
-    LEFT JOIN q_sessions sep ON sep._id = b.passenger_session_id
-    LEFT JOIN (SELECT _id, JSONExtractString(name, 'en') AS svc_name FROM picapmongoprod.service_types FINAL) st
-           ON st._id = b.requested_service_type_id
-    LEFT JOIN q_revision_imei ri ON ri.id_booking = b._id
-    WHERE b._id IS NOT NULL   /* descarta filas donde el booking no es status_cd=4 (LEFT JOIN sin match) */
-    ORDER BY tb.fecha_tx DESC, tb.tx_id
+        w._id                          AS id_tx,
+        w.fecha_tx,
+        wa.passenger_id                AS driver_id,
+        ifNull(drv.nombre, '')         AS nombre,
+        ifNull(drv.pais,   '')         AS pais,
+        ifNull(drv.ciudad, '')         AS ciudad,
+        w.campaign_id                  AS id_camp,
+        ifNull(camp.nombre_camp, '')   AS nombre_camp,
+        w.valor,
+        w.moneda,
+        ''                             AS tyc,
+        0                              AS servicios,
+        ''                             AS monitoreo,
+        '(sin alerta)'                 AS trump,
+        0                              AS fraud_suspect
+    -- v3.3.63: INNER → LEFT en wa (no perder tx cuando wallet_account no está en CH).
+    FROM wat w
+    LEFT  JOIN wa   ON wa._id    = w.account_id
+    LEFT  JOIN drv  ON drv._id   = wa.passenger_id
+    LEFT  JOIN camp ON camp._id  = w.campaign_id
+    ORDER BY w.fecha_tx DESC
     SETTINGS join_use_nulls = 1
   SQL
 end
