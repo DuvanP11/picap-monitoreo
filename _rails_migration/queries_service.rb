@@ -3747,6 +3747,13 @@ module QueriesService
     LEFT JOIN q_revision_imei ri ON ri.id_booking = sn._id
     WHERE sn._id IS NOT NULL
     ORDER BY be.tms_created_parent DESC
-    SETTINGS join_use_nulls = 1
+    /* v3.3.73: spill a disco + 8 threads para reducir latencia con muchos joins FINAL */
+    SETTINGS
+        join_use_nulls       = 1,
+        join_algorithm       = 'grace_hash',
+        max_bytes_in_join    = 5000000000,
+        max_threads          = 8,
+        max_block_size       = 65536,
+        prefer_localhost_replica = 1
   SQL
 end

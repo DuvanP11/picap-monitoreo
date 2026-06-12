@@ -997,7 +997,9 @@ function renderStatsDynamic(country){
     const pilots_con_pago=new Set(seg.filter(r=>r.valor>0).map(r=>r.driver_id)).size;
     const total_pilots=new Set(seg.map(r=>r.driver_id)).size;
     const affected_zero=seg.filter(r=>r.valor===0).length;
-    const fraud_pilots=seg.filter(r=>r.fraude).length;
+    // v3.3.73: fraud_pilots ahora cuenta pilotos unicos en det con fraud_suspect=true
+    // (seg.fraude esta hardcoded a false en la query v1; det tiene el valor real).
+    const fraud_pilots=new Set(det.filter(r=>r.fraud_suspect).map(r=>r.driver_id)).size;
     const fraud_services=det.filter(r=>r.fraud_suspect).length;
     kpiEl.innerHTML=`
       <div class="kpi-card kpi-purple"><span class="kpi-icon">🧾</span><div class="kpi-body"><div class="kpi-value">${fmt(seg.length)}</div><div class="kpi-label">Campañas Pagadas (TX únicos)</div></div></div>
@@ -1063,25 +1065,25 @@ function renderStatsDynamic(country){
       ['#','ID Campaña','Nombre Campaña','Pilotos Pagados',`Valor Total (${curr})`,'Con Fraude','% Fraude'],
       rrows,{filter:true}));
   }
-  // Monitoreo dinámico — v3.3.69: usar seg (det esta vacio en payload backend) + clave 'monitoreo'
+  // Monitoreo dinámico — v3.3.73: leer de det (booking-level) con clave 'regla_distancia'
   const monitWrap=document.getElementById(`tbl-monit-${country}`);
   if(monitWrap){
     const mM={};
-    seg.forEach(r=>{const t=r.monitoreo||'(sin regla)';if(!mM[t])mM[t]={tipo:t,count:0};mM[t].count++;});
+    det.forEach(r=>{const t=r.regla_distancia||'SIN_COORDENADAS';if(!mM[t])mM[t]={tipo:t,count:0};mM[t].count++;});
     const monits=Object.values(mM).sort((a,b)=>b.count-a.count);
-    const totM=seg.length||1;
+    const totM=det.length||1;
     const bM={'LLEGO_AL_DESTINO':'b-ok','NO_LLEGO_AL_DESTINO':'b-danger','SIN_COORDENADAS':'b-gray'};
     monitWrap.innerHTML='';
     const mrows=monits.map(r=>[badge(bM[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totM*100)]);
     monitWrap.appendChild(makeTable(`tmon-${country}`,['Regla Monitoreo','Cantidad','%'],mrows));
   }
-  // Trump dinámico — v3.3.69: usar seg + clave 'trump'
+  // Trump dinámico — v3.3.73: leer de det con clave 'reason_text'
   const trumpWrap=document.getElementById(`tbl-trump-${country}`);
   if(trumpWrap){
     const tM={};
-    seg.forEach(r=>{const t=r.trump||'(sin alerta)';if(!tM[t])tM[t]={tipo:t,count:0};tM[t].count++;});
+    det.forEach(r=>{const t=r.reason_text||'(sin alerta)';if(!tM[t])tM[t]={tipo:t,count:0};tM[t].count++;});
     const trumps=Object.values(tM).sort((a,b)=>b.count-a.count);
-    const totT=seg.length||1;
+    const totT=det.length||1;
     const bT={'(sin alerta)':'b-ok','"fraud_booking"':'b-danger','"same_device"':'b-danger','"low_rating_booking"':'b-warn'};
     trumpWrap.innerHTML='';
     const trows=trumps.map(r=>[badge(bT[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totT*100)]);
@@ -1133,7 +1135,12 @@ function renderDet(country){
   if(!wrap) return;
   wrap.innerHTML='';
   const {det}=getFiltered(country);
-  const rows=det.map(r=>[
+  // v3.3.73: limitar render a 200 filas para evitar bloqueo del browser cuando hay
+  // 1000+ servicios. El listado completo se obtiene via Excel.
+  const MAX_DET = 200;
+  const total = det.length;
+  const detShown = det.slice(0, MAX_DET);
+  const rows=detShown.map(r=>[
     r.id_booking,r.aceptado,r.conductor_llego,r.finalizado,r.fecha,
     r.driver_name,r.passenger_name,r.driver_id,r.passenger_id,
     r.company_name||'—',r.country_name,r.city_name,
@@ -1147,6 +1154,12 @@ function renderDet(country){
     monitoreo_badge(r.regla_distancia),
     r.service_type,
   ]);
+  if (total > MAX_DET) {
+    const note = document.createElement('div');
+    note.style.cssText = 'padding:8px 14px;font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;margin-bottom:8px';
+    note.textContent = `Mostrando primeras ${MAX_DET} filas de ${fmt(total)} (descarga el Excel para el listado completo).`;
+    wrap.appendChild(note);
+  }
   wrap.appendChild(makeTable(`dettbl-${country}`,
     ['ID Booking','Aceptado','Conductor Llegó','Finalizado','Fecha','Conductor','Pasajero','ID Conductor','ID Pasajero',
      'Empresa','País','Ciudad','IMEI Conductor','IMEI Pasajero','Estado Carrera',
