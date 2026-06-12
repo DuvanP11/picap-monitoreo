@@ -35,14 +35,30 @@ module Api
       Thread.new do
         begin
           Rails.logger.info("[CampaignValidator #{job_id}] START desde=#{desde} hasta=#{hasta}")
-          rows   = ejecutar_query(desde, hasta)
-          result = procesar_data(rows, desde, hasta)
+
+          # v3.3.72: dos queries en paralelo. Q_CAMPAIGN_VALIDATOR llena Estadística;
+          # Q_CAMPAIGN_VALIDATOR_DETALLE llena Detallado. Si la 2a falla, Estadística sigue OK.
+          rows_seg = nil; rows_det = []; err_det = nil
+          t_seg = Thread.new { rows_seg = ejecutar_query(desde, hasta) }
+          t_det = Thread.new do
+            begin
+              rows_det = ejecutar_query_detalle(desde, hasta)
+            rescue => e
+              err_det = "#{e.class}: #{e.message}"
+              Rails.logger.error("[CampaignValidator #{job_id}] DETALLE FALLO: #{err_det}")
+            end
+          end
+          t_seg.join; t_det.join
+
+          result = procesar_data(rows_seg, rows_det, desde, hasta)
+          result[:warn_detalle] = err_det if err_det
+
           @@load_jobs_mutex.synchronize do
             @@load_jobs[job_id][:status]    = :done
             @@load_jobs[job_id][:result]    = result
             @@load_jobs[job_id][:t_elapsed] = (Time.now - @@load_jobs[job_id][:t0]).round(1)
           end
-          Rails.logger.info("[CampaignValidator #{job_id}] DONE #{rows.size} filas")
+          Rails.logger.info("[CampaignValidator #{job_id}] DONE seg=#{rows_seg.size} det=#{rows_det.size}")
         rescue => e
           Rails.logger.error("[CampaignValidator #{job_id}] #{e.class}: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
           @@load_jobs_mutex.synchronize do
@@ -88,11 +104,25 @@ module Api
       )
       t0 = Time.now
       rows = ch.query(sql, timeout: 300)
-      Rails.logger.info("[CampaignValidator] CH OK: #{rows.size} filas en #{(Time.now - t0).round(1)}s")
+      Rails.logger.info("[CampaignValidator] CH SEG OK: #{rows.size} filas en #{(Time.now - t0).round(1)}s")
       rows
     end
 
-    def procesar_data(rows, desde, hasta)
+    # v3.3.72: Q_CAMPAIGN_VALIDATOR_DETALLE pobla la tab Detallado (1 fila por
+    # booking finalizado, con timestamps, IMEI, regla_distancia, reason_text).
+    def ejecutar_query_detalle(desde, hasta)
+      sql = QueriesService.format(
+        QueriesService::Q_CAMPAIGN_VALIDATOR_DETALLE,
+        fecha_desde: "#{desde} 00:00:00",
+        fecha_hasta:  "#{hasta} 23:59:59"
+      )
+      t0 = Time.now
+      rows = ch.query(sql, timeout: 300)
+      Rails.logger.info("[CampaignValidator] CH DET OK: #{rows.size} filas en #{(Time.now - t0).round(1)}s")
+      rows
+    end
+
+    def procesar_data(rows, rows_det, desde, hasta)
       pais_map = { 'CO' => 'COL', 'MX' => 'MEX', 'NI' => 'NIC' }
       cur_map  = { 'COP' => 'COL', 'MXN' => 'MEX', 'NIO' => 'NIC' }
 
@@ -157,6 +187,42 @@ module Api
         buckets[cc][:pilots_acc][did][:valor]    += valor
         ult = r['fecha_tx'].to_s[0, 10]
         buckets[cc][:pilots_acc][did][:ultimo] = ult if ult > buckets[cc][:pilots_acc][did][:ultimo].to_s
+      end
+
+      # v3.3.72: poblar buckets[cc][:det] desde Q_CAMPAIGN_VALIDATOR_DETALLE.
+      # Solo trae bookings finalizados (status_cd=4); puede tener menos filas que seg.
+      (rows_det || []).each do |r|
+        cc = cur_map[r['currency_iso'].to_s] || next
+        next unless buckets.key?(cc)
+        buckets[cc][:det] << {
+          id_booking:      r['id_booking'].to_s,
+          aceptado:        r['aceptado'].to_s,
+          conductor_llego: r['conductor_llego'].to_s,
+          finalizado:      r['finalizado'].to_s,
+          fecha:           r['fecha'].to_s,
+          driver_name:     r['driver_name'].to_s,
+          passenger_name:  r['passenger_name'].to_s,
+          driver_id:       r['driver_id'].to_s,
+          passenger_id:    r['passenger_id'].to_s,
+          company_name:    r['company_name'].to_s,
+          country_name:    r['country_name'].to_s,
+          city_name:       r['city_name'].to_s,
+          imei_driver:     r['imei_driver'].to_s,
+          imei_passenger:  r['imei_passenger'].to_s,
+          status_carrera:  r['status_carrera'].to_s,
+          id_campana:      r['id_campana'].to_s,
+          nombre_campana:  r['nombre_campana'].to_s,
+          fecha_bono:      r['fecha_bono'].to_s,
+          valor_campana:   r['valor_campana'].to_f,
+          tyc:             r['tyc'].to_s,
+          revision_imei:   r['revision_imei'].to_s,
+          id_tx:           r['id_tx'].to_s,
+          valor:           r['valor'].to_f,
+          fraud_suspect:   r['fraud_suspect'].to_s == '1' || r['fraud_suspect'].to_s.downcase == 'true',
+          reason_text:     r['reason_text'].to_s.presence || '(sin alerta)',
+          regla_distancia: r['regla_distancia'].to_s.presence || 'SIN_COORDENADAS',
+          service_type:    r['service_type'].to_s,
+        }
       end
 
       data = {}
