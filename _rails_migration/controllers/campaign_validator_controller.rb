@@ -110,6 +110,7 @@ module Api
 
     # v3.3.72: Q_CAMPAIGN_VALIDATOR_DETALLE pobla la tab Detallado (1 fila por
     # booking finalizado, con timestamps, IMEI, regla_distancia, reason_text).
+    # v3.3.75: timeout 300 → 600 (query con muchos FINAL + joins).
     def ejecutar_query_detalle(desde, hasta)
       sql = QueriesService.format(
         QueriesService::Q_CAMPAIGN_VALIDATOR_DETALLE,
@@ -117,7 +118,7 @@ module Api
         fecha_hasta:  "#{hasta} 23:59:59"
       )
       t0 = Time.now
-      rows = ch.query(sql, timeout: 300)
+      rows = ch.query(sql, timeout: 600)
       Rails.logger.info("[CampaignValidator] CH DET OK: #{rows.size} filas en #{(Time.now - t0).round(1)}s")
       rows
     end

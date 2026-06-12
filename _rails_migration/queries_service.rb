@@ -3556,17 +3556,19 @@ module QueriesService
   # ╚══════════════════════════════════════════════════════════════════════════╝
   Q_CAMPAIGN_VALIDATOR_DETALLE = <<~'SQL'
     WITH
+    /* v3.3.75: PREWHERE en _type — PromoCampaign es solo una fracción de wat,
+       permite a CH skip la mayoría de bloques antes de aplicar el FINAL. */
     q_wat AS (
         SELECT
             wat._id,
             toTimeZone(wat.created_at, 'America/Bogota')                         AS created_at,
             intDiv(toInt64OrZero(JSONExtractString(wat.amount, 'cents')), 100)   AS amount,
             wat.confirmed_booking_cycle_campaign_cycle_id                        AS cycle_id
-        FROM (SELECT * FROM picapmongoprod.wallet_account_transactions FINAL) wat
+        FROM picapmongoprod.wallet_account_transactions AS wat FINAL
+        PREWHERE wat._type = 'WalletAccountTransactionPromoCampaign'
         WHERE toTimeZone(wat.created_at, 'America/Bogota')
               BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
               AND     toDateTime('%{fecha_hasta}', 'America/Bogota')
-          AND wat._type = 'WalletAccountTransactionPromoCampaign'
     ),
     q_cycles AS (
         SELECT cc._id, cc.confirmed_booking_cycle_campaign_id, cc.booking_ids
@@ -3612,6 +3614,11 @@ module QueriesService
         LEFT JOIN q_camp c ON c._id = cde.campaign_id
         GROUP BY cde.booking_id, c.campaign_name, c._id, c.tyc, cde.transaction_id, cde.amount
     ),
+    /* v3.3.75: PREWHERE permite a CH skip bloques antes de leer todas las
+       columnas. Mucho más rápido que el patrón (SELECT * FROM x FINAL) JOIN. */
+    q_booking_ids AS (
+        SELECT DISTINCT booking_id FROM campaign_data_expanded WHERE notEmpty(booking_id)
+    ),
     q_bookings AS (
         SELECT
             b._id, b.driver_id, b.passenger_id, b.passenger_session_id, b.driver_session_id,
@@ -3624,28 +3631,33 @@ module QueriesService
             toFloat64OrNull(JSONExtractString(b.end_geojson, 'coordinates', 1)) AS end_lon,
             toFloat64OrNull(JSONExtractString(b.end_geojson, 'coordinates', 2)) AS end_lat,
             JSONExtractString(b.final_cost, 'currency_iso') AS currency_iso
-        FROM (SELECT * FROM picapmongoprod.bookings FINAL) b
-        INNER JOIN (SELECT DISTINCT booking_id AS id FROM campaign_data_expanded WHERE notEmpty(booking_id)) bid
-            ON b._id = bid.id
+        FROM picapmongoprod.bookings AS b FINAL
+        PREWHERE b._id IN (SELECT booking_id FROM q_booking_ids)
         WHERE b.status_cd = 4
     ),
-    q_passengers AS (
-        SELECT DISTINCT p._id, p.name
-        FROM (SELECT * FROM picapmongoprod.passengers FINAL) p
-        INNER JOIN (
-            SELECT driver_id AS id FROM q_bookings WHERE notEmpty(toString(driver_id))
-            UNION DISTINCT
+    q_user_ids AS (
+        SELECT DISTINCT id FROM (
+            SELECT driver_id    AS id FROM q_bookings WHERE notEmpty(toString(driver_id))
+            UNION ALL
             SELECT passenger_id AS id FROM q_bookings WHERE notEmpty(toString(passenger_id))
-        ) pn ON p._id = pn.id
+        )
+    ),
+    q_passengers AS (
+        SELECT p._id, p.name
+        FROM picapmongoprod.passengers AS p FINAL
+        PREWHERE p._id IN (SELECT id FROM q_user_ids)
+    ),
+    q_session_ids AS (
+        SELECT DISTINCT id FROM (
+            SELECT passenger_session_id AS id FROM q_bookings WHERE notEmpty(toString(passenger_session_id))
+            UNION ALL
+            SELECT driver_session_id    AS id FROM q_bookings WHERE notEmpty(toString(driver_session_id))
+        )
     ),
     q_sessions AS (
-        SELECT DISTINCT s._id, s.imei
-        FROM (SELECT * FROM picapmongoprod.sessions FINAL) s
-        INNER JOIN (
-            SELECT passenger_session_id AS id FROM q_bookings WHERE notEmpty(toString(passenger_session_id))
-            UNION DISTINCT
-            SELECT driver_session_id AS id FROM q_bookings WHERE notEmpty(toString(driver_session_id))
-        ) sn ON s._id = sn.id
+        SELECT s._id, s.imei
+        FROM picapmongoprod.sessions AS s FINAL
+        PREWHERE s._id IN (SELECT id FROM q_session_ids)
     ),
     q_events AS (
         SELECT
@@ -3654,8 +3666,8 @@ module QueriesService
             max(tms_arrived)         AS tms_arrived,
             max(tms_dropped_off)     AS tms_dropped_off,
             max(tms_created_parent)  AS tms_created_parent
-        FROM (SELECT * FROM picapmongoprod.dm_processed_events FINAL)
-        WHERE booking_id IN (SELECT _id FROM q_bookings)
+        FROM picapmongoprod.dm_processed_events FINAL
+        PREWHERE booking_id IN (SELECT _id FROM q_bookings)
         GROUP BY booking_id
     ),
     imei_counts AS (
