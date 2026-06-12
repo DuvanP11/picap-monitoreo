@@ -120,12 +120,13 @@ module Api
           fecha_tx:    r['fecha_tx'].to_s,
           driver_id:   r['driver_id'].to_s,
           nombre:      r['nombre'].to_s.strip,
+          ciudad:      r['ciudad'].to_s,                        # v3.3.69: necesario para tabla Estadistica por Ciudad
           id_camp:     r['id_camp'].to_s,
           nombre_camp: r['nombre_camp'].to_s,
           servicios:   r['servicios'].to_i,
           valor:       valor,
           tyc:         r['tyc'].to_s,
-          monitoreo:   r['monitoreo'].to_s.presence || '',
+          monitoreo:   r['monitoreo'].to_s.presence || '(sin regla)',  # v3.3.69: default visible
           trump:       r['trump'].to_s.presence || '(sin alerta)',
           fraude:      fraude,
         }

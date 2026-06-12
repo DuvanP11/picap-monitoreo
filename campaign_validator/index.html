@@ -1007,11 +1007,11 @@ function renderStatsDynamic(country){
       <div class="kpi-card kpi-red"><span class="kpi-icon">🚫</span><div class="kpi-body"><div class="kpi-value">${fmt(fraud_pilots)}</div><div class="kpi-label">Pilotos con Fraude</div></div></div>
       <div class="kpi-card kpi-teal"><span class="kpi-icon">📋</span><div class="kpi-body"><div class="kpi-value">${fmt(fraud_services)}</div><div class="kpi-label">Servicios con Fraude</div></div></div>`;
   }
-  // Cities
+  // Cities — v3.3.69: usar seg (tiene datos reales del backend) y claves correctas (ciudad, valor)
   const cityWrap=document.getElementById(`city-tbl-${country}`);
   if(cityWrap){
     const cm={};
-    det.forEach(r=>{const c=r.city_name||'—';if(!cm[c])cm[c]={ciudad:c,campanas:0,valor:0,pilotos:new Set()};cm[c].campanas++;cm[c].valor+=(r.valor_campana||0);cm[c].pilotos.add(r.driver_id);});
+    seg.forEach(r=>{const c=r.ciudad||'(sin ciudad)';if(!cm[c])cm[c]={ciudad:c,campanas:0,valor:0,pilotos:new Set()};cm[c].campanas++;cm[c].valor+=(r.valor||0);cm[c].pilotos.add(r.driver_id);});
     const cities=Object.values(cm).sort((a,b)=>b.valor-a.valor);
     cityWrap.innerHTML='';
     const rows=cities.length?cities.map(c=>[c.ciudad,fmt(c.campanas),`${curr} ${fmt(c.valor)}`,fmt(c.pilotos.size)]):[];
@@ -1063,25 +1063,25 @@ function renderStatsDynamic(country){
       ['#','ID Campaña','Nombre Campaña','Pilotos Pagados',`Valor Total (${curr})`,'Con Fraude','% Fraude'],
       rrows,{filter:true}));
   }
-  // Monitoreo dinámico (desde det filtrado)
+  // Monitoreo dinámico — v3.3.69: usar seg (det esta vacio en payload backend) + clave 'monitoreo'
   const monitWrap=document.getElementById(`tbl-monit-${country}`);
   if(monitWrap){
     const mM={};
-    det.forEach(r=>{const t=r.regla_distancia||'—';if(!mM[t])mM[t]={tipo:t,count:0};mM[t].count++;});
+    seg.forEach(r=>{const t=r.monitoreo||'(sin regla)';if(!mM[t])mM[t]={tipo:t,count:0};mM[t].count++;});
     const monits=Object.values(mM).sort((a,b)=>b.count-a.count);
-    const totM=det.length||1;
+    const totM=seg.length||1;
     const bM={'LLEGO_AL_DESTINO':'b-ok','NO_LLEGO_AL_DESTINO':'b-danger','SIN_COORDENADAS':'b-gray'};
     monitWrap.innerHTML='';
     const mrows=monits.map(r=>[badge(bM[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totM*100)]);
     monitWrap.appendChild(makeTable(`tmon-${country}`,['Regla Monitoreo','Cantidad','%'],mrows));
   }
-  // Trump dinámico (desde det filtrado)
+  // Trump dinámico — v3.3.69: usar seg + clave 'trump'
   const trumpWrap=document.getElementById(`tbl-trump-${country}`);
   if(trumpWrap){
     const tM={};
-    det.forEach(r=>{const t=r.reason_text||'(sin alerta)';if(!tM[t])tM[t]={tipo:t,count:0};tM[t].count++;});
+    seg.forEach(r=>{const t=r.trump||'(sin alerta)';if(!tM[t])tM[t]={tipo:t,count:0};tM[t].count++;});
     const trumps=Object.values(tM).sort((a,b)=>b.count-a.count);
-    const totT=det.length||1;
+    const totT=seg.length||1;
     const bT={'(sin alerta)':'b-ok','"fraud_booking"':'b-danger','"same_device"':'b-danger','"low_rating_booking"':'b-warn'};
     trumpWrap.innerHTML='';
     const trows=trumps.map(r=>[badge(bT[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totT*100)]);
