@@ -3498,12 +3498,19 @@ module QueriesService
         GROUP BY _id
     ),
 
-    /* 4. Nombre de la campaña. v3.3.62: terms_url no existe en picapmongoprod.campaigns
-       → quitarlo y dejar tyc='' en el SELECT final. */
+    /* 4. Nombre de la campaña. v3.3.62: terms_url no existe en picapmongoprod.campaigns.
+       v3.3.67: campaigns.name suele ser string plano (no JSON). Defensivo:
+       intentar JSON con clave 'es'; si no aplica, usar name crudo. */
     camp AS (
         SELECT
             _id,
-            argMax(JSONExtractString(name, 'es'), updated_at) AS nombre_camp
+            argMax(
+                coalesce(
+                    nullIf(JSONExtractString(name, 'es'), ''),
+                    name
+                ),
+                updated_at
+            ) AS nombre_camp
         FROM picapmongoprod.campaigns
         WHERE notEmpty(_id)
           AND _id IN (SELECT DISTINCT campaign_id FROM wat WHERE notEmpty(campaign_id))
