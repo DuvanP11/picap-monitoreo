@@ -1211,7 +1211,10 @@ async function cargarDesdeCH(){
     }
     if(lj.status==='done'&&lj.data){
       aplicarDataCH(lj.data);
-      banner(`✅ Datos reales cargados (${desde} → ${hasta})`, '#065f46', '#dcfce7');
+      if(lj.warn_detalle)
+        banner(`⚠ Detallado fallo (Estadistica OK): ${lj.warn_detalle}`, '#92400e', '#fef3c7');
+      else
+        banner(`✅ Datos reales cargados (${desde} → ${hasta})`, '#065f46', '#dcfce7');
       return;
     }
 
@@ -1221,7 +1224,10 @@ async function cargarDesdeCH(){
         if(sj.status==='done'){
           clearInterval(poll);
           if(sj.data) aplicarDataCH(sj.data);
-          banner(`✅ Datos reales cargados (${desde} → ${hasta})`, '#065f46', '#dcfce7');
+          if(sj.warn_detalle)
+            banner(`⚠ Detallado fallo (Estadistica OK): ${sj.warn_detalle}`, '#92400e', '#fef3c7');
+          else
+            banner(`✅ Datos reales cargados (${desde} → ${hasta})`, '#065f46', '#dcfce7');
         }
         else if(sj.status==='error'){
           clearInterval(poll);

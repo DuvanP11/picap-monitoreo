@@ -191,8 +191,12 @@ module Api
 
       # v3.3.72: poblar buckets[cc][:det] desde Q_CAMPAIGN_VALIDATOR_DETALLE.
       # Solo trae bookings finalizados (status_cd=4); puede tener menos filas que seg.
+      # v3.3.74: bucketing defensivo — si currency_iso vacio, intentar mapear por country_name.
+      country_map = { 'Colombia' => 'COL', 'Mexico' => 'MEX', 'Nicaragua' => 'NIC' }
       (rows_det || []).each do |r|
-        cc = cur_map[r['currency_iso'].to_s] || next
+        cc = cur_map[r['currency_iso'].to_s] ||
+             country_map[r['country_name'].to_s] ||
+             'COL'  # default a Colombia si todo vacio (mejor mostrar fila que descartarla)
         next unless buckets.key?(cc)
         buckets[cc][:det] << {
           id_booking:      r['id_booking'].to_s,
