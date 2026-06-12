@@ -250,9 +250,9 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
       <input type="date" class="filter-input" id="svc-to-COL" value="2026-06-11" onchange="renderAll('COL')">
       <span class="filter-sep"></span>
       <button class="date-toggle active" id="dt-pay-COL" onclick="toggleDateFilter('COL','pay')">💳 Pago TX</button>
-      <input type="date" class="filter-input" id="pay-from-COL" value="2026-06-04" onchange="renderAll('COL')">
+      <input type="date" class="filter-input" id="pay-from-COL" value="2026-06-04" onchange="renderAll('COL'); cargarDesdeCH()">
       <span style="font-size:11px;color:var(--text3)">—</span>
-      <input type="date" class="filter-input" id="pay-to-COL" value="2026-06-11" onchange="renderAll('COL')">
+      <input type="date" class="filter-input" id="pay-to-COL" value="2026-06-11" onchange="renderAll('COL'); cargarDesdeCH()">
     </div>
     <div class="filter-row">
       <span class="filter-label">🔎 Buscar ID:</span>
@@ -1164,9 +1164,11 @@ function renderDet(country){
 
 /* ── FETCH DATOS REALES DESDE CH (activo cuando API_BASE != '') ─ */
 async function cargarDesdeCH(){
-  const desde = (document.getElementById('from-COL')||{}).value
+  // v3.3.68: usar IDs reales (pay-from-COL/pay-to-COL). Antes leia from-COL/to-COL
+  // que no existian → siempre caia al default "ultimos 7 dias".
+  const desde = (document.getElementById('pay-from-COL')||{}).value
                 || new Date(Date.now()-7*864e5).toISOString().slice(0,10);
-  const hasta  = (document.getElementById('to-COL')||{}).value
+  const hasta  = (document.getElementById('pay-to-COL')||{}).value
                 || new Date().toISOString().slice(0,10);
   // v3.3.61: el portal Picap usa header 'X-Token', no 'Authorization: Bearer'.
   const hdrs = {'Content-Type':'application/json'};
