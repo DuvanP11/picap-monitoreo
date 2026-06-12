@@ -92,81 +92,131 @@ module Api
       rows
     end
 
+    # v3.3.70: nueva query devuelve 1 fila por (tx × booking). Construimos:
+    #   seg = 1 fila por TX (deduplicado, ciudad/monitoreo/trump del primer booking)
+    #   det = 1 fila por (tx × booking) con detalle completo del servicio
     def procesar_data(rows, desde, hasta)
-      pais_map = { 'CO' => 'COL', 'MX' => 'MEX', 'NI' => 'NIC' }
-      cur_map  = { 'COP' => 'COL', 'MXN' => 'MEX', 'NIO' => 'NIC' }
+      cur_map = { 'COP' => 'COL', 'MXN' => 'MEX', 'NIO' => 'NIC' }
 
       buckets = {}
       %w[COL MEX NIC].each do |cc|
         buckets[cc] = {
-          seg:         [],
-          det:         [],
-          kpi:         { total_txs: 0, total_valor: 0.0, total_pilots: Set.new,
-                         affected_zero: 0, fraud_pilots: Set.new, fraud_services: 0 },
-          cities:      Hash.new { |h, k| h[k] = { ciudad: k, campanas: 0, valor: 0.0, pilotos: Set.new } },
-          camps:       Hash.new { |h, k| h[k] = { rank: 0, id: k, nombre: '', pagos: 0, valor: 0.0 } },
-          pilots_acc:  Hash.new { |h, k| h[k] = { rank: 0, id: k, nombre: '', campanas: 0, valor: 0.0, ultimo: '' } },
+          seg_by_tx:  {},     # id_tx => fila agregada
+          det:        [],
+          kpi:        { total_valor: 0.0, total_pilots: Set.new,
+                        affected_zero: 0, fraud_pilots: Set.new, fraud_services: 0 },
+          cities:     Hash.new { |h, k| h[k] = { ciudad: k, campanas: 0, valor: 0.0, pilotos: Set.new } },
+          camps:      Hash.new { |h, k| h[k] = { rank: 0, id: k, nombre: '', pagos: 0, valor: 0.0 } },
+          pilots_acc: Hash.new { |h, k| h[k] = { rank: 0, id: k, nombre: '', campanas: 0, valor: 0.0, ultimo: '' } },
         }
       end
 
       rows.each do |r|
-        cc = pais_map[r['pais'].to_s] || cur_map[r['moneda'].to_s] || next
+        cc = cur_map[r['moneda'].to_s] || cur_map[r['currency_iso'].to_s] || next
         next unless buckets.key?(cc)
 
-        valor  = r['valor'].to_f
-        fraude = r['fraud_suspect'].to_s == '1' || r['fraude'].to_s.downcase == 'true'
+        b = buckets[cc]
 
-        buckets[cc][:seg] << {
-          fecha_tx:    r['fecha_tx'].to_s,
-          driver_id:   r['driver_id'].to_s,
-          nombre:      r['nombre'].to_s.strip,
-          ciudad:      r['ciudad'].to_s,                        # v3.3.69: necesario para tabla Estadistica por Ciudad
-          id_camp:     r['id_camp'].to_s,
-          nombre_camp: r['nombre_camp'].to_s,
-          servicios:   r['servicios'].to_i,
-          valor:       valor,
-          tyc:         r['tyc'].to_s,
-          monitoreo:   r['monitoreo'].to_s.presence || '(sin regla)',  # v3.3.69: default visible
-          trump:       r['trump'].to_s.presence || '(sin alerta)',
-          fraude:      fraude,
+        id_tx       = r['id_tx'].to_s
+        id_booking  = r['id_booking'].to_s
+        valor_bono  = r['valor_bono'].to_f
+        valor_svc   = r['valor_servicio'].to_f
+        driver_id   = r['driver_id'].to_s
+        nombre      = r['nombre'].to_s.strip
+        ciudad      = r['ciudad'].to_s.presence || '(sin ciudad)'
+        id_camp     = r['id_camp'].to_s
+        nombre_camp = r['nombre_camp'].to_s
+        monitoreo   = r['monitoreo'].to_s.presence || 'SIN_COORDENADAS'
+        trump       = r['trump'].to_s.presence || '(sin alerta)'
+        fraude      = r['fraud_suspect'].to_s == '1' || r['fraud_suspect'].to_s.downcase == 'true'
+
+        # det = 1 fila por booking (para distribución de reglas)
+        b[:det] << {
+          id_tx:          id_tx,
+          id_booking:     id_booking,
+          fecha_tx:       r['fecha_tx'].to_s,
+          fecha_servicio: r['fecha_servicio'].to_s,
+          tms_aceptado:   r['tms_aceptado'].to_s,
+          tms_finalizado: r['tms_finalizado'].to_s,
+          driver_id:      driver_id,
+          nombre:         nombre,
+          passenger_id:   r['passenger_id'].to_s,
+          passenger_name: r['passenger_name'].to_s,
+          ciudad:         ciudad,
+          empresa:        r['empresa'].to_s,
+          id_camp:        id_camp,
+          nombre_camp:    nombre_camp,
+          valor_bono:     valor_bono,
+          valor_servicio: valor_svc,
+          tyc:            r['tyc'].to_s,
+          service_type:   r['service_type'].to_s,
+          imei_driver:    r['imei_driver'].to_s,
+          imei_passenger: r['imei_passenger'].to_s,
+          revision_imei:  r['revision_imei'].to_s,
+          monitoreo:      monitoreo,
+          trump:          trump,
+          fraude:         fraude,
         }
 
-        k = buckets[cc][:kpi]
-        k[:total_txs]    += 1
-        k[:total_valor]  += valor
-        k[:total_pilots].add(r['driver_id'])
-        k[:affected_zero] += 1 if valor.zero?
-        if fraude
-          k[:fraud_pilots].add(r['driver_id'])
-          k[:fraud_services] += 1
+        # seg = 1 fila por TX (primera vez que la vemos, persiste ciudad/monitoreo/trump del 1er booking)
+        unless b[:seg_by_tx].key?(id_tx)
+          b[:seg_by_tx][id_tx] = {
+            id_tx:       id_tx,
+            fecha_tx:    r['fecha_tx'].to_s,
+            driver_id:   driver_id,
+            nombre:      nombre,
+            ciudad:      ciudad,
+            id_camp:     id_camp,
+            nombre_camp: nombre_camp,
+            servicios:   0,
+            valor:       valor_bono,
+            tyc:         r['tyc'].to_s,
+            monitoreo:   monitoreo,
+            trump:       trump,
+            fraude:      fraude,
+          }
         end
-
-        city = r['ciudad'].to_s.presence || '(sin ciudad)'
-        buckets[cc][:cities][city][:campanas] += 1
-        buckets[cc][:cities][city][:valor]    += valor
-        buckets[cc][:cities][city][:pilotos].add(r['driver_id'])
-
-        ic = r['id_camp'].to_s
-        buckets[cc][:camps][ic][:nombre] = r['nombre_camp'].to_s
-        buckets[cc][:camps][ic][:pagos]  += 1
-        buckets[cc][:camps][ic][:valor]  += valor
-
-        did = r['driver_id'].to_s
-        buckets[cc][:pilots_acc][did][:nombre]   = r['nombre'].to_s.strip
-        buckets[cc][:pilots_acc][did][:campanas] += 1
-        buckets[cc][:pilots_acc][did][:valor]    += valor
-        ult = r['fecha_tx'].to_s[0, 10]
-        buckets[cc][:pilots_acc][did][:ultimo] = ult if ult > buckets[cc][:pilots_acc][did][:ultimo].to_s
+        b[:seg_by_tx][id_tx][:servicios] += 1
+        b[:seg_by_tx][id_tx][:fraude]    ||= fraude
       end
 
       data = {}
-      %w[COL MEX NIC].each_with_index do |cc, _|
+      %w[COL MEX NIC].each do |cc|
         b = buckets[cc]
         currency = { 'COL' => 'COP', 'MEX' => 'MXN', 'NIC' => 'NIO' }[cc]
 
-        b[:kpi][:total_pilots]  = b[:kpi][:total_pilots].size
-        b[:kpi][:fraud_pilots]  = b[:kpi][:fraud_pilots].size
-        b[:kpi][:total_valor]   = b[:kpi][:total_valor].round(0)
+        seg = b[:seg_by_tx].values
+
+        # KPIs sobre seg (TX-level: $ no se infla)
+        seg.each do |s|
+          k = b[:kpi]
+          k[:total_valor]  += s[:valor]
+          k[:total_pilots].add(s[:driver_id])
+          k[:affected_zero] += 1 if s[:valor].zero?
+          if s[:fraude]
+            k[:fraud_pilots].add(s[:driver_id])
+            k[:fraud_services] += 1
+          end
+
+          b[:cities][s[:ciudad]][:campanas] += 1
+          b[:cities][s[:ciudad]][:valor]    += s[:valor]
+          b[:cities][s[:ciudad]][:pilotos].add(s[:driver_id])
+
+          b[:camps][s[:id_camp]][:nombre] = s[:nombre_camp]
+          b[:camps][s[:id_camp]][:pagos]  += 1
+          b[:camps][s[:id_camp]][:valor]  += s[:valor]
+
+          b[:pilots_acc][s[:driver_id]][:nombre]   = s[:nombre]
+          b[:pilots_acc][s[:driver_id]][:campanas] += 1
+          b[:pilots_acc][s[:driver_id]][:valor]    += s[:valor]
+          ult = s[:fecha_tx][0, 10]
+          b[:pilots_acc][s[:driver_id]][:ultimo] = ult if ult > b[:pilots_acc][s[:driver_id]][:ultimo].to_s
+        end
+
+        b[:kpi][:total_pilots] = b[:kpi][:total_pilots].size
+        b[:kpi][:fraud_pilots] = b[:kpi][:fraud_pilots].size
+        b[:kpi][:total_valor]  = b[:kpi][:total_valor].round(0)
+        b[:kpi][:total_txs]    = seg.size
 
         cities = b[:cities].values
                            .map  { |c| c.merge(pilotos: c[:pilotos].size) }
@@ -190,7 +240,7 @@ module Api
           top_pilots: top_pilots,
           monitoreo:  [],
           trump:      [],
-          seg:        b[:seg],
+          seg:        seg,
           det:        b[:det],
         }
       end
