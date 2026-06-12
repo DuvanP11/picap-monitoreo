@@ -3526,8 +3526,9 @@ module QueriesService
         ''                             AS monitoreo,
         '(sin alerta)'                 AS trump,
         0                              AS fraud_suspect
+    -- v3.3.63: INNER → LEFT en wa (no perder tx cuando wallet_account no está en CH).
     FROM wat w
-    INNER JOIN wa   ON wa._id    = w.account_id
+    LEFT  JOIN wa   ON wa._id    = w.account_id
     LEFT  JOIN drv  ON drv._id   = wa.passenger_id
     LEFT  JOIN camp ON camp._id  = w.campaign_id
     ORDER BY w.fecha_tx DESC
