@@ -926,14 +926,23 @@ async function buscarConsultaServicios(country){
   const params = new URLSearchParams({ desde, hasta });
   if (driverId) params.append('driver_id', driverId);
 
+  const url = `${API_BASE}/api/campaign_validator/servicios_piloto?${params.toString()}`;
+  console.log('[CV cs] fetching:', url);
+
   try {
-    const r = await fetch(`${API_BASE}/api/campaign_validator/servicios_piloto?${params.toString()}`, { headers: hdrs });
+    const r = await fetch(url, { headers: hdrs });
+    console.log('[CV cs] response status:', r.status);
     const text = await r.text();
     let json;
     try { json = JSON.parse(text); }
-    catch(e){ setStatus(`❌ Respuesta no-JSON del servidor (HTTP ${r.status})`, '#991b1b', '#fee2e2'); return; }
+    catch(e){
+      const preview = text.slice(0, 200).replace(/</g, '&lt;');
+      setStatus(`❌ Respuesta no-JSON (HTTP ${r.status}). Probablemente la ruta /api/campaign_validator/servicios_piloto no está disponible (el pod del backend aún no rotó con v3.3.89). Espera 1-2 min y reintenta. Preview: ${preview}`,
+                '#991b1b', '#fee2e2');
+      return;
+    }
     if (!json.ok) {
-      setStatus(`❌ Error: ${json.error || 'desconocido'}`, '#991b1b', '#fee2e2');
+      setStatus(`❌ Error (HTTP ${r.status}): ${json.error || 'desconocido'}`, '#991b1b', '#fee2e2');
       return;
     }
     const rows = json.data || [];
@@ -942,7 +951,12 @@ async function buscarConsultaServicios(country){
               '#065f46', '#dcfce7');
     renderConsultaServicios(country, rows);
   } catch (e) {
-    setStatus(`❌ Error de red: ${e.message}`, '#991b1b', '#fee2e2');
+    // v3.3.91: 'Failed to fetch' suele ser endpoint inexistente / pod sin rotar / proxy timeout.
+    const causa = (e.message === 'Failed to fetch')
+      ? 'el endpoint no respondió. Causas comunes: (1) el pod backend no rotó aún tras v3.3.89, (2) la ruta /api/campaign_validator/servicios_piloto no existe en producción, (3) timeout del proxy. Espera 1-2 min y reintenta; si persiste, pide reinicio del rollout.'
+      : e.message;
+    setStatus(`❌ ${causa} URL intentada: ${url}`, '#991b1b', '#fee2e2');
+    console.error('[CV cs] fetch error:', e);
   }
 }
 
