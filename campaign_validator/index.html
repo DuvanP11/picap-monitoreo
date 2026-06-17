@@ -375,7 +375,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
         <button class="btn-search">Buscar</button>
       </div>
       <span class="filter-sep"></span>
-      <button class="btn-excel">⬇ Excel</button>
+      <button class="btn-excel" onclick="exportExcel('MEX')">⬇ Excel</button>
       <button class="btn-email">✉ Correo</button>
     </div>
     <div class="period-row">
@@ -450,7 +450,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
         <button class="btn-search">Buscar</button>
       </div>
       <span class="filter-sep"></span>
-      <button class="btn-excel">⬇ Excel</button>
+      <button class="btn-excel" onclick="exportExcel('NIC')">⬇ Excel</button>
       <button class="btn-email">✉ Correo</button>
     </div>
     <div class="period-row">
@@ -827,7 +827,72 @@ function searchById(country){
     if(tab==='est'||!tab) openTab(country,'seg');
   }
 }
-function exportExcel(country){ alert(`[DEMO] Exportando datos de ${country} a Excel…`); }
+// v3.3.88: export real a CSV (Excel-compatible con BOM UTF-8).
+// Genera 2 archivos: <pais>_estadistica_<rango>.csv y <pais>_detallado_<rango>.csv
+function exportExcel(country){
+  const d = DATA[country];
+  const {seg, det} = getFiltered(country);
+  if(!seg.length && !det.length){
+    alert('No hay datos para exportar en el rango seleccionado.');
+    return;
+  }
+  const desde = (document.getElementById(`pay-from-${country}`)?.value) || '';
+  const hasta = (document.getElementById(`pay-to-${country}`)?.value) || '';
+  const stamp = (desde && hasta) ? `_${desde}_${hasta}` : `_${new Date().toISOString().slice(0,10)}`;
+
+  // CSV escaper — encapsula valores con comas, comillas o saltos de línea
+  const escapeCsv = (v) => {
+    if(v === null || v === undefined) return '';
+    const s = String(v);
+    if(/[",\n;\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const toCsv = (headers, rows) => {
+    const BOM = '﻿';   // UTF-8 BOM para que Excel abra con acentos
+    const sep = ';';        // separador ; (más amigable en LATAM para Excel)
+    const lines = [headers.map(escapeCsv).join(sep)];
+    rows.forEach(r => lines.push(r.map(escapeCsv).join(sep)));
+    return BOM + lines.join('\r\n');
+  };
+  const downloadCsv = (filename, csv) => {
+    const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // Hoja 1: Estadística (TX-level)
+  if(seg.length){
+    const headers = ['Fecha TX','ID TX','ID Piloto','Nombre Piloto','Ciudad','ID Campaña','Nombre Campaña','Servicios','Valor ('+d.currency+')','TyC','Monitoreo','Trump','Fraude'];
+    const rows = seg.map(r => [
+      r.fecha_tx, r.id_tx || '', r.driver_id, r.nombre, normalizeCity(r.ciudad),
+      r.id_camp, r.nombre_camp, r.servicios || 1, r.valor,
+      r.tyc, r.monitoreo, r.trump, r.fraude ? 'SI' : 'NO'
+    ]);
+    downloadCsv(`${country}_estadistica${stamp}.csv`, toCsv(headers, rows));
+  }
+
+  // Hoja 2: Detallado (booking-level) — solo si hay datos
+  if(det.length){
+    const headers = ['ID Booking','Aceptado','Conductor Llegó','Finalizado','Fecha Servicio','Conductor','Pasajero','ID Conductor','ID Pasajero','Empresa','País','Ciudad','IMEI Conductor','IMEI Pasajero','Estado Carrera','ID Campaña','Nombre Campaña','Fecha Bono','Valor Campaña ('+d.currency+')','TyC','Revisión IMEI','ID TX','Valor Servicio ('+d.currency+')','Fraude','Regla Trump','Regla Monitoreo','Tipo Servicio'];
+    const rows = det.map(r => [
+      r.id_booking, r.aceptado, r.conductor_llego, r.finalizado, r.fecha,
+      r.driver_name, r.passenger_name, r.driver_id, r.passenger_id,
+      r.company_name || '', r.country_name, r.city_name,
+      r.imei_driver, r.imei_passenger, r.status_carrera,
+      r.id_campana, r.nombre_campana, r.fecha_bono, r.valor_campana, r.tyc,
+      r.revision_imei, r.id_tx, r.valor, r.fraud_suspect ? 'SI' : 'NO',
+      r.reason_text || '', r.regla_distancia || '', r.service_type || ''
+    ]);
+    // Pequeño delay para que el browser procese ambas descargas
+    setTimeout(() => downloadCsv(`${country}_detallado${stamp}.csv`, toCsv(headers, rows)), 250);
+  }
+}
 function sendEmail(country){ alert(`[DEMO] Enviando reporte de ${country} por correo a ${location.hostname}…`); }
 
 /* ── TABLE SORT ──────────────────────────────────────────────── */
