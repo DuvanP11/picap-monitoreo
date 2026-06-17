@@ -3635,10 +3635,16 @@ module QueriesService
             intDiv(toInt64OrZero(JSONExtractString(b.final_cost, 'cents')), 100) AS final_cost,
             b.is_campaign_fraud_suspect,
             b.reasons_to_verify,
-            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.?coordinates":\[\s([+-]?\d+\.\d+)')) AS drop_lon,
-            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.?coordinates":\[.?,\s*([+-]?\d+\.\d+)')) AS drop_lat,
-            toFloat64OrNull(JSONExtractString(b.end_geojson, 'coordinates', 1)) AS end_lon,
-            toFloat64OrNull(JSONExtractString(b.end_geojson, 'coordinates', 2)) AS end_lat,
+            /* v3.3.85: regex previo (.?) solo permitía 0-1 chars entre 24 y coordinates,
+               así que casi nunca matcheaba → todos los servicios salían SIN_COORDENADAS.
+               Ahora .*? (non-greedy) salta cualquier número de chars hasta coordinates.
+               También \s* (cero o más espacios) en vez de \s (exactamente uno). */
+            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.*?coordinates":\s*\[\s*([+-]?\d+\.\d+)')) AS drop_lon,
+            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.*?coordinates":\s*\[\s*[+-]?\d+\.\d+\s*,\s*([+-]?\d+\.\d+)')) AS drop_lat,
+            /* JSONExtractFloat devuelve Float64 directo. nullIf(.,0) trata coords
+               faltantes (0.0 default) como NULL para el check multiIf más abajo. */
+            nullIf(JSONExtractFloat(b.end_geojson, 'coordinates', 1), 0) AS end_lon,
+            nullIf(JSONExtractFloat(b.end_geojson, 'coordinates', 2), 0) AS end_lat,
             JSONExtractString(b.final_cost, 'currency_iso') AS currency_iso
         FROM picapmongoprod.bookings AS b FINAL
         PREWHERE b._id IN (SELECT booking_id FROM q_booking_ids)

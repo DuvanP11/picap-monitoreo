@@ -987,43 +987,120 @@ function getFiltered(country){
 }
 
 /* ── RENDER STATS DYNAMIC (from filtered data) ────────────────── */
+// v3.3.85: normaliza variantes de ciudad ("Bogotá", "Bogotá D.C", "Bogota", "Bogotá, D.C.") en un nombre canónico.
+function normalizeCity(raw){
+  if(!raw) return '(sin ciudad)';
+  const lower = raw.toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  if(lower.includes('bogot'))         return 'Bogotá D.C';
+  if(lower.includes('cundinamarca'))  return 'Cundinamarca';
+  if(lower.includes('antioqu'))       return 'Antioquia';
+  if(lower.includes('risarald'))      return 'Risaralda';
+  if(lower.includes('santander') && lower.includes('norte')) return 'Norte de Santander';
+  if(lower.includes('santander'))     return 'Santander';
+  if(lower.includes('valle'))         return 'Valle del Cauca';
+  if(lower.includes('boyac'))         return 'Boyacá';
+  if(lower.includes('atl'))           return 'Atlántico';
+  if(lower.includes('meta'))          return 'Meta';
+  if(lower.includes('tolima'))        return 'Tolima';
+  if(lower.includes('huila'))         return 'Huila';
+  if(lower.includes('cauca'))         return 'Cauca';
+  if(lower.includes('nari'))          return 'Nariño';
+  if(lower.includes('bol'))           return 'Bolívar';
+  if(lower.includes('caldas'))        return 'Caldas';
+  if(lower.includes('quind'))         return 'Quindío';
+  if(lower.includes('cordoba'))       return 'Córdoba';
+  if(lower.includes('magdalena'))     return 'Magdalena';
+  if(lower.includes('cesar'))         return 'Cesar';
+  return raw.toString().replace(/[.,]/g,'').trim();
+}
+
 function renderStatsDynamic(country){
   const {seg,det}=getFiltered(country);
   const d=DATA[country], curr=d.currency;
-  // KPIs
+  // KPIs — v3.3.85: TODOS los conteos de pilotos usan Set para dedup. Agregamos
+  // tooltips explicativos (atributo title) en cada card.
   const kpiEl=document.getElementById(`kpi-${country}`);
   if(kpiEl){
-    const total_valor=seg.reduce((s,r)=>s+r.valor,0);
-    const pilots_con_pago=new Set(seg.filter(r=>r.valor>0).map(r=>r.driver_id)).size;
-    const total_pilots=new Set(seg.map(r=>r.driver_id)).size;
-    const affected_zero=seg.filter(r=>r.valor===0).length;
-    // v3.3.73: fraud_pilots ahora cuenta pilotos unicos en det con fraud_suspect=true
-    // (seg.fraude esta hardcoded a false en la query v1; det tiene el valor real).
-    const fraud_pilots=new Set(det.filter(r=>r.fraud_suspect).map(r=>r.driver_id)).size;
-    const fraud_services=det.filter(r=>r.fraud_suspect).length;
+    const validDriverIds = (rows) => rows.map(r=>r.driver_id).filter(id => id && id !== 'NULL');
+    const total_valor       = seg.reduce((s,r)=>s+r.valor,0);
+    const pilots_con_pago   = new Set(validDriverIds(seg.filter(r=>r.valor>0))).size;
+    const total_pilots      = new Set(validDriverIds(seg)).size;
+    // v3.3.85: affected_zero ahora cuenta PILOTOS ÚNICOS con TX a $0 (antes contaba TXs).
+    const affected_zero     = new Set(validDriverIds(seg.filter(r=>r.valor===0))).size;
+    const fraud_pilots      = new Set(validDriverIds(det.filter(r=>r.fraud_suspect))).size;
+    const fraud_services    = new Set(det.filter(r=>r.fraud_suspect).map(r=>r.id_booking).filter(Boolean)).size;
     kpiEl.innerHTML=`
-      <div class="kpi-card kpi-purple"><span class="kpi-icon">🧾</span><div class="kpi-body"><div class="kpi-value">${fmt(seg.length)}</div><div class="kpi-label">Campañas Pagadas (TX únicos)</div></div></div>
-      <div class="kpi-card kpi-green"><span class="kpi-icon">💰</span><div class="kpi-body"><div class="kpi-value">${curr} ${fmt(total_valor)}</div><div class="kpi-label">Total Pagado en el Periodo</div></div></div>
-      <div class="kpi-card kpi-blue"><span class="kpi-icon">🏍️</span><div class="kpi-body"><div class="kpi-value">${fmt(pilots_con_pago)} <small style="font-size:12px;opacity:.7">/ ${fmt(total_pilots)}</small></div><div class="kpi-label">Pilotos con Pago (de Total)</div></div></div>
-      <div class="kpi-card kpi-amber"><span class="kpi-icon">⚠️</span><div class="kpi-body"><div class="kpi-value">${fmt(affected_zero)}</div><div class="kpi-label">Pilotos Afectados (Pago $0)</div></div></div>
-      <div class="kpi-card kpi-red"><span class="kpi-icon">🚫</span><div class="kpi-body"><div class="kpi-value">${fmt(fraud_pilots)}</div><div class="kpi-label">Pilotos con Fraude</div></div></div>
-      <div class="kpi-card kpi-teal"><span class="kpi-icon">📋</span><div class="kpi-body"><div class="kpi-value">${fmt(fraud_services)}</div><div class="kpi-label">Servicios con Fraude</div></div></div>`;
+      <div class="kpi-card kpi-purple" title="Cantidad de transacciones (TX) únicas de pago de campañas en el periodo. 1 TX = 1 pago. Si un piloto recibió 3 pagos, se cuentan 3 TX.">
+        <span class="kpi-icon">🧾</span>
+        <div class="kpi-body">
+          <div class="kpi-value">${fmt(seg.length)}</div>
+          <div class="kpi-label">Campañas Pagadas (TX únicos) ℹ️</div>
+        </div>
+      </div>
+      <div class="kpi-card kpi-green" title="Suma total de dinero pagado en campañas durante el periodo (todas las TX).">
+        <span class="kpi-icon">💰</span>
+        <div class="kpi-body">
+          <div class="kpi-value">${curr} ${fmt(total_valor)}</div>
+          <div class="kpi-label">Total Pagado en el Periodo ℹ️</div>
+        </div>
+      </div>
+      <div class="kpi-card kpi-blue" title="Pilotos ÚNICOS que recibieron al menos un pago > $0 / Pilotos ÚNICOS con alguna TX (aunque sea $0). Un piloto con varias TX cuenta UNA SOLA VEZ.">
+        <span class="kpi-icon">🏍️</span>
+        <div class="kpi-body">
+          <div class="kpi-value">${fmt(pilots_con_pago)} <small style="font-size:12px;opacity:.7">/ ${fmt(total_pilots)}</small></div>
+          <div class="kpi-label">Pilotos con Pago (de Total) ℹ️</div>
+        </div>
+      </div>
+      <div class="kpi-card kpi-amber" title="Pilotos ÚNICOS con al menos una TX en $0 (campaña con valor nulo). Cuenta pilotos, no TX.">
+        <span class="kpi-icon">⚠️</span>
+        <div class="kpi-body">
+          <div class="kpi-value">${fmt(affected_zero)}</div>
+          <div class="kpi-label">Pilotos Afectados (Pago $0) ℹ️</div>
+        </div>
+      </div>
+      <div class="kpi-card kpi-red" title="Pilotos ÚNICOS con al menos un servicio marcado como fraud_suspect=true por el sistema (campo is_campaign_fraud_suspect en bookings).">
+        <span class="kpi-icon">🚫</span>
+        <div class="kpi-body">
+          <div class="kpi-value">${fmt(fraud_pilots)}</div>
+          <div class="kpi-label">Pilotos con Fraude ℹ️</div>
+        </div>
+      </div>
+      <div class="kpi-card kpi-teal" title="Servicios (bookings) ÚNICOS con fraud_suspect=true. Si el mismo booking tuvo varias filas en el detalle, cuenta UNA VEZ.">
+        <span class="kpi-icon">📋</span>
+        <div class="kpi-body">
+          <div class="kpi-value">${fmt(fraud_services)}</div>
+          <div class="kpi-label">Servicios con Fraude ℹ️</div>
+        </div>
+      </div>`;
   }
-  // Cities — v3.3.69: usar seg (tiene datos reales del backend) y claves correctas (ciudad, valor)
+  // Cities — v3.3.85: normalizeCity() consolida variantes de Bogotá / Antioquia / etc.
   const cityWrap=document.getElementById(`city-tbl-${country}`);
   if(cityWrap){
     const cm={};
-    seg.forEach(r=>{const c=r.ciudad||'(sin ciudad)';if(!cm[c])cm[c]={ciudad:c,campanas:0,valor:0,pilotos:new Set()};cm[c].campanas++;cm[c].valor+=(r.valor||0);cm[c].pilotos.add(r.driver_id);});
+    seg.forEach(r=>{
+      const c = normalizeCity(r.ciudad);
+      if(!cm[c]) cm[c]={ciudad:c,campanas:0,valor:0,pilotos:new Set()};
+      cm[c].campanas++;
+      cm[c].valor += (r.valor || 0);
+      if(r.driver_id) cm[c].pilotos.add(r.driver_id);
+    });
     const cities=Object.values(cm).sort((a,b)=>b.valor-a.valor);
     cityWrap.innerHTML='';
     const rows=cities.length?cities.map(c=>[c.ciudad,fmt(c.campanas),`${curr} ${fmt(c.valor)}`,fmt(c.pilotos.size)]):[];
     cityWrap.appendChild(makeTable(`citytbl-${country}`,['Ciudad','Campañas','Valor Total','Pilotos'],rows,{filter:true}));
   }
-  // Top Pilots
+  // Top Pilots — v3.3.85: filtrar driver_id vacíos para no agruparlos en uno solo grande.
   const pilWrap=document.getElementById(`top-pilots-${country}`);
   if(pilWrap){
     const pm={};
-    seg.forEach(r=>{if(!pm[r.driver_id])pm[r.driver_id]={id:r.driver_id,nombre:r.nombre,campanas:0,valor:0,ultimo:''};pm[r.driver_id].campanas++;pm[r.driver_id].valor+=r.valor;const d8=r.fecha_tx?r.fecha_tx.slice(0,10):'';if(d8>pm[r.driver_id].ultimo)pm[r.driver_id].ultimo=d8;});
+    seg.forEach(r=>{
+      if(!r.driver_id || r.driver_id === 'NULL') return;     // descarta TX sin piloto identificado
+      if(!pm[r.driver_id]) pm[r.driver_id]={id:r.driver_id,nombre:r.nombre||'(sin nombre)',campanas:0,valor:0,ultimo:''};
+      pm[r.driver_id].campanas++;
+      pm[r.driver_id].valor += r.valor;
+      const d8 = r.fecha_tx ? r.fecha_tx.slice(0,10) : '';
+      if(d8 > pm[r.driver_id].ultimo) pm[r.driver_id].ultimo = d8;
+    });
     const pilots=Object.values(pm).sort((a,b)=>b.valor-a.valor);
     pilWrap.innerHTML='';
     const rows=pilots.map((p,i)=>[`<b>${i+1}</b>`,`<small style="color:var(--text3)">${p.id}</small>`,p.nombre,fmt(p.campanas),`${curr} ${fmt(p.valor)}`,p.ultimo||'—']);
