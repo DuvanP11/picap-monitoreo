@@ -3781,4 +3781,67 @@ module QueriesService
         join_algorithm    = 'grace_hash',
         max_bytes_in_join = 5000000000
   SQL
+
+  # ╔══════════════════════════════════════════════════════════════════════════╗
+  # ║ Q_CV_SERVICIOS_PILOTO  v3.3.89                                           ║
+  # ║ Endpoint: GET /api/campaign_validator/servicios_piloto                   ║
+  # ║ Consulta de servicios finalizados (status_cd=4) de un piloto en un rango ║
+  # ║ con regla_trump (de reasons_to_verify) y regla_monitoreo (geoDistance).  ║
+  # ║ Filtro opcional por driver_id vía %{filtro_driver}.                       ║
+  # ╚══════════════════════════════════════════════════════════════════════════╝
+  Q_CV_SERVICIOS_PILOTO = <<~'SQL'
+    WITH base AS (
+        SELECT
+            b._id                                                                AS id_booking,
+            b.created_at                                                         AS fecha,
+            b.driver_id                                                          AS id_driver,
+            p.name                                                               AS nombre_piloto,
+            b.status_cd                                                          AS cd_servicio,
+            if(
+                b.reasons_to_verify IS NULL
+                OR length(JSONExtractArrayRaw(assumeNotNull(b.reasons_to_verify))) = 0,
+                'Sin Novedad',
+                arrayStringConcat(
+                    arrayMap(x -> trim(BOTH '"' FROM x), JSONExtractArrayRaw(assumeNotNull(b.reasons_to_verify))),
+                    ', '
+                )
+            )                                                                    AS regla_trump,
+            count(b._id) OVER (PARTITION BY b.driver_id)                         AS numero_de_servicios,
+            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.*?"coordinates":\[\s*([+-]?\d+\.\d+)'))  AS drop_lon,
+            toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.*?"coordinates":\[[^,]+,\s*([+-]?\d+\.\d+)')) AS drop_lat,
+            nullIf(JSONExtractFloat(b.end_geojson, 'coordinates', 1), 0)         AS end_lon,
+            nullIf(JSONExtractFloat(b.end_geojson, 'coordinates', 2), 0)         AS end_lat,
+            JSONExtractString(b.final_cost, 'currency_iso')                      AS currency_iso,
+            ROW_NUMBER() OVER (PARTITION BY b._id ORDER BY b.created_at DESC)    AS rn
+        FROM picapmongoprod.bookings AS b
+        LEFT JOIN picapmongoprod.passengers AS p ON b.driver_id = p._id
+        WHERE b.status_cd = 4
+          AND toTimeZone(b.created_at, 'America/Bogota')
+              BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
+              AND     toDateTime('%{fecha_hasta}', 'America/Bogota')
+          %{filtro_driver}
+    )
+    SELECT
+        id_booking,
+        formatDateTime(toTimeZone(fecha, 'America/Bogota'), '%%Y-%%m-%%d %%H:%%i:%%s') AS fecha,
+        id_driver,
+        nombre_piloto,
+        cd_servicio,
+        regla_trump,
+        numero_de_servicios,
+        multiIf(
+            drop_lon IS NULL OR drop_lat IS NULL OR end_lon IS NULL OR end_lat IS NULL,
+            'SIN_COORDENADAS',
+            geoDistance(
+                assumeNotNull(drop_lon), assumeNotNull(drop_lat),
+                assumeNotNull(end_lon),  assumeNotNull(end_lat)
+            ) <= if(currency_iso = 'COP', 450, 280),
+            'LLEGO_AL_DESTINO',
+            'NO_LLEGO_AL_DESTINO'
+        ) AS regla_monitoreo
+    FROM base
+    WHERE rn = 1
+    ORDER BY fecha DESC
+    LIMIT 5000
+  SQL
 end

@@ -97,6 +97,36 @@ module Api
       end
     end
 
+    # v3.3.89: GET /api/campaign_validator/servicios_piloto
+    # Consulta sincrónica de servicios finalizados con regla_trump + regla_monitoreo.
+    # Params: desde, hasta (obligatorios), driver_id (opcional para filtrar 1 piloto).
+    def consulta_servicios
+      desde      = params[:desde].to_s.strip.presence || (Date.today - 7).to_s
+      hasta      = params[:hasta].to_s.strip.presence || Date.today.to_s
+      driver_id  = params[:driver_id].to_s.strip
+      # whitelist: solo hex de Mongo (24 chars) para evitar SQL injection
+      driver_id  = driver_id =~ /\A[a-fA-F0-9]{24}\z/ ? driver_id : ""
+
+      filtro = driver_id.present? ? "AND b.driver_id = '#{driver_id}'" : ""
+
+      sql = QueriesService.format(
+        QueriesService::Q_CV_SERVICIOS_PILOTO,
+        fecha_desde:    "#{desde} 00:00:00",
+        fecha_hasta:    "#{hasta} 23:59:59",
+        filtro_driver:  filtro
+      )
+
+      t0 = Time.now
+      begin
+        rows = ch.query(sql, timeout: 120)
+        Rails.logger.info("[CV servicios_piloto] #{rows.size} filas en #{(Time.now - t0).round(1)}s (driver=#{driver_id.presence || '*todos*'})")
+        render json: { ok: true, rows: rows.size, data: rows, desde: desde, hasta: hasta, driver_id: driver_id }
+      rescue => e
+        Rails.logger.error("[CV servicios_piloto] #{e.class}: #{e.message}")
+        render json: { ok: false, error: e.message }, status: :internal_server_error
+      end
+    end
+
     private
 
     def validar_rol

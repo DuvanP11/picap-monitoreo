@@ -126,6 +126,8 @@ Rails.application.routes.draw do
     namespace :campaign_validator do
       get  "cargar_async",          to: "/api/campaign_validator#cargar_async"
       get  "cargar_status/:job_id", to: "/api/campaign_validator#cargar_status"
+      # v3.3.89: sincrónica para consulta de servicios de un piloto
+      get  "servicios_piloto",      to: "/api/campaign_validator#consulta_servicios"
     end
 
     # v3.3.56: Consolidado Cash Out (submódulo Cash Out)
