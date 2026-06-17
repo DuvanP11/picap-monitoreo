@@ -117,6 +117,15 @@ body{font-family:var(--font);background:linear-gradient(145deg,#f0ecf8 0%,#e8e0f
 .kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
 .kpi-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;transition:.2s;}
 .kpi-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(107,33,168,.12);}
+/* v3.3.86: Insight Card — análisis narrativo del periodo, debajo de los KPIs. */
+.insight-card{background:linear-gradient(135deg,#faf5ff 0%,#f0e7ff 100%);border:1px solid #d8c3ee;border-radius:16px;padding:18px 22px;margin-bottom:18px;box-shadow:0 4px 18px rgba(107,33,168,.08);}
+.insight-card-title{font-size:14px;font-weight:800;color:#5b21b6;margin-bottom:10px;display:flex;align-items:center;gap:8px;letter-spacing:.3px;}
+.insight-card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 24px;}
+.insight-line{font-size:13px;color:#3b1762;line-height:1.5;display:flex;align-items:flex-start;gap:8px;}
+.insight-line strong{color:#5b21b6;font-weight:700;}
+.insight-line .bullet{color:#7c3aed;font-weight:bold;flex-shrink:0;}
+.insight-card-empty{font-size:12px;color:#6b5f8a;font-style:italic;text-align:center;padding:8px 0;}
+@media(max-width:780px){.insight-card-grid{grid-template-columns:1fr;}}
 .kpi-icon{font-size:26px;line-height:1;flex-shrink:0;}
 .kpi-body{}
 .kpi-value{font-size:20px;font-weight:800;color:var(--text1);line-height:1.1;}
@@ -286,6 +295,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
     <!-- ── ESTADÍSTICA ── -->
     <div class="tab-panel active" id="COL-est">
       <div class="kpi-grid" id="kpi-COL"></div>
+      <div class="insight-card" id="insight-COL"></div>
       <div class="section-title">📋 Resumen por Campaña</div>
       <div class="table-wrap scrollable-y" id="camp-resume-COL"></div>
       <div class="section-title">📍 Estadística por Ciudad</div>
@@ -382,6 +392,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
   <div class="tab-panels">
     <div class="tab-panel active" id="MEX-est">
       <div class="kpi-grid" id="kpi-MEX"></div>
+      <div class="insight-card" id="insight-MEX"></div>
       <div class="section-title">📋 Resumen por Campaña</div>
       <div class="table-wrap scrollable-y" id="camp-resume-MEX"></div>
       <div class="section-title">📍 Estadística por Ciudad</div>
@@ -456,6 +467,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
   <div class="tab-panels">
     <div class="tab-panel active" id="NIC-est">
       <div class="kpi-grid" id="kpi-NIC"></div>
+      <div class="insight-card" id="insight-NIC"></div>
       <div class="section-title">📋 Resumen por Campaña</div>
       <div class="table-wrap scrollable-y" id="camp-resume-NIC"></div>
       <div class="section-title">📍 Estadística por Ciudad</div>
@@ -1166,6 +1178,102 @@ function renderStatsDynamic(country){
     const trows=trumps.map(r=>[badge(bT[r.tipo]||'b-gray',r.tipo),fmt(r.count),pct(r.count/totT*100)]);
     trumpWrap.appendChild(makeTable(`ttrp-${country}`,['Regla Trump','Cantidad','%'],trows));
   }
+  // v3.3.86: Insight Card al final (después de calcular todas las stats)
+  renderInsight(country, seg, det, curr);
+}
+
+// v3.3.86: Insight Card — análisis narrativo del periodo con datos derivados.
+function renderInsight(country, seg, det, curr){
+  const wrap = document.getElementById(`insight-${country}`);
+  if(!wrap) return;
+
+  if(!seg.length){
+    wrap.innerHTML = `
+      <div class="insight-card-title">📊 Resumen del periodo</div>
+      <div class="insight-card-empty">No hay datos en el rango seleccionado. Ajusta el filtro "Pago TX" o el período.</div>`;
+    return;
+  }
+
+  const validIds = (rows) => rows.map(r=>r.driver_id).filter(id=>id && id!=='NULL');
+
+  // Datos agregados
+  const totalValor       = seg.reduce((s,r)=>s+r.valor,0);
+  const totalTx          = seg.length;
+  const totalPilotos     = new Set(validIds(seg)).size;
+  const pilotosConPago   = new Set(validIds(seg.filter(r=>r.valor>0))).size;
+  const pilotosPagoZero  = new Set(validIds(seg.filter(r=>r.valor===0))).size;
+  const fraudePilotos    = new Set(validIds(det.filter(r=>r.fraud_suspect))).size;
+  const fraudeServicios  = new Set(det.filter(r=>r.fraud_suspect).map(r=>r.id_booking).filter(Boolean)).size;
+  const promedioPorTx    = totalTx ? Math.round(totalValor/totalTx) : 0;
+  const promedioPorPiloto = totalPilotos ? Math.round(totalValor/totalPilotos) : 0;
+
+  // Top piloto
+  const pm={};
+  seg.forEach(r=>{
+    if(!r.driver_id||r.driver_id==='NULL') return;
+    if(!pm[r.driver_id]) pm[r.driver_id]={id:r.driver_id,nombre:r.nombre||'(sin nombre)',valor:0,tx:0};
+    pm[r.driver_id].valor += r.valor;
+    pm[r.driver_id].tx++;
+  });
+  const topPiloto = Object.values(pm).sort((a,b)=>b.valor-a.valor)[0];
+
+  // Top ciudad (usando normalizeCity)
+  const cm={};
+  seg.forEach(r=>{
+    const c = normalizeCity(r.ciudad);
+    if(!cm[c]) cm[c]={ciudad:c,valor:0,tx:0,pilotos:new Set()};
+    cm[c].valor += r.valor;
+    cm[c].tx++;
+    if(r.driver_id) cm[c].pilotos.add(r.driver_id);
+  });
+  const topCiudad = Object.values(cm).sort((a,b)=>b.valor-a.valor)[0];
+
+  // Top campaña
+  const campM={};
+  seg.forEach(r=>{
+    if(!campM[r.id_camp]) campM[r.id_camp]={id:r.id_camp,nombre:r.nombre_camp||'(sin nombre)',valor:0,pilotos:new Set()};
+    campM[r.id_camp].valor += r.valor;
+    if(r.driver_id) campM[r.id_camp].pilotos.add(r.driver_id);
+  });
+  const topCamp = Object.values(campM).sort((a,b)=>b.valor-a.valor)[0];
+
+  // % fraude vs total
+  const pctFraude    = totalPilotos ? (fraudePilotos / totalPilotos * 100) : 0;
+  const pctPagoZero  = totalPilotos ? (pilotosPagoZero / totalPilotos * 100) : 0;
+
+  // Construcción del HTML
+  const lines = [];
+  lines.push(`<div class="insight-line"><span class="bullet">▶</span><div>En este periodo se ejecutaron <strong>${fmt(totalTx)} pagos</strong> de campañas por un total de <strong>${curr} ${fmt(totalValor)}</strong> a <strong>${fmt(totalPilotos)} pilotos únicos</strong>.</div></div>`);
+
+  if(topPiloto){
+    lines.push(`<div class="insight-line"><span class="bullet">🏆</span><div>Piloto más beneficiado: <strong>${topPiloto.nombre}</strong> con <strong>${curr} ${fmt(topPiloto.valor)}</strong> en ${fmt(topPiloto.tx)} pago${topPiloto.tx>1?'s':''}.</div></div>`);
+  }
+
+  if(topCiudad){
+    lines.push(`<div class="insight-line"><span class="bullet">📍</span><div>Ciudad líder: <strong>${topCiudad.ciudad}</strong> con <strong>${fmt(topCiudad.tx)}</strong> pagos y <strong>${fmt(topCiudad.pilotos.size)}</strong> pilotos.</div></div>`);
+  }
+
+  if(topCamp){
+    lines.push(`<div class="insight-line"><span class="bullet">🎯</span><div>Campaña con mayor inversión: <strong>${topCamp.nombre}</strong> (${curr} ${fmt(topCamp.valor)}, ${fmt(topCamp.pilotos.size)} pilotos).</div></div>`);
+  }
+
+  lines.push(`<div class="insight-line"><span class="bullet">💸</span><div>Promedio por piloto: <strong>${curr} ${fmt(promedioPorPiloto)}</strong> · Promedio por TX: <strong>${curr} ${fmt(promedioPorTx)}</strong>.</div></div>`);
+
+  if(pilotosPagoZero > 0){
+    lines.push(`<div class="insight-line"><span class="bullet">⚠️</span><div><strong>${fmt(pilotosPagoZero)} pilotos</strong> (${pctPagoZero.toFixed(1)}%) recibieron alguna campaña con pago $0 — revisar elegibilidad.</div></div>`);
+  }
+
+  if(fraudePilotos > 0){
+    lines.push(`<div class="insight-line"><span class="bullet">🚨</span><div><strong>${fmt(fraudePilotos)} pilotos</strong> (${pctFraude.toFixed(1)}%) con servicios marcados como fraude — total <strong>${fmt(fraudeServicios)} servicios</strong> bajo revisión.</div></div>`);
+  } else {
+    lines.push(`<div class="insight-line"><span class="bullet">✅</span><div>Sin servicios marcados como fraude en el periodo.</div></div>`);
+  }
+
+  wrap.innerHTML = `
+    <div class="insight-card-title">📊 Resumen del periodo · Insight Card</div>
+    <div class="insight-card-grid">
+      ${lines.join('')}
+    </div>`;
 }
 
 function renderAll(country){ renderStatsDynamic(country); renderSeg(country); renderDet(country); }
