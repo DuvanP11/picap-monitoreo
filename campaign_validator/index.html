@@ -800,13 +800,15 @@ function handleModalClick(e){
 
 /* ── TAB SWITCH ──────────────────────────────────────────────── */
 function openTab(country, tab){
-  const panels={est:'est',seg:'seg',det:'det'};
+  // v3.3.90: incluir 'cs' (Consulta Servicios) en el array. Antes solo conocía
+  // 3 tabs hardcoded, asi que al clickear el 4to ningun panel se activaba.
+  const TABS = ['est','seg','det','cs'];
   document.querySelectorAll(`#tabs-${country} .tab-btn`).forEach((b,i)=>{
-    b.classList.toggle('active',['est','seg','det'][i]===tab);
+    b.classList.toggle('active', TABS[i] === tab);
   });
-  ['est','seg','det'].forEach(t=>{
-    const el=document.getElementById(`${country}-${t}`);
-    if(el) el.classList.toggle('active',t===tab);
+  TABS.forEach(t=>{
+    const el = document.getElementById(`${country}-${t}`);
+    if (el) el.classList.toggle('active', t === tab);
   });
 }
 
