@@ -1143,18 +1143,27 @@ module QueriesService
   # ════════════════════════════════════════════════════════════════════════
   Q_PIBOX_BASE = <<~'SQL'
     WITH
-    /* 1) Companies: filtro anti-test EMPUJADO + dedup. Tabla chica. */
+    /* 1) Companies: filtro anti-test + dedup.
+       v3.3.84: el filtro se aplica DENTRO de un sub-SELECT (sobre la columna
+       física `name`), y luego el GROUP BY + argMax actúa sobre las filas ya
+       filtradas. Esto evita el error intermitente del analyzer de CH 25.9
+       "Aggregate function argMax(name, ...) AS name is found in WHERE in query"
+       que aparecía cuando el optimizador confundía el alias agregado con la
+       columna física. */
     companies_clean AS (
         SELECT
             _id,
             argMax(name, _sdc_batched_at) AS name
-        FROM picapmongoprod.companies
-        WHERE LOWER(name) NOT LIKE '%tada%'
-          AND LOWER(name) NOT LIKE '%test%'
-          AND LOWER(name) NOT LIKE '%prueba%'
-          AND LOWER(name) NOT LIKE '%qa%'
-          AND LOWER(name) NOT LIKE '%onboarding%'
-          AND LOWER(name) NOT LIKE '%demo%'
+        FROM (
+            SELECT _id, name, _sdc_batched_at
+            FROM picapmongoprod.companies
+            WHERE LOWER(name) NOT LIKE '%tada%'
+              AND LOWER(name) NOT LIKE '%test%'
+              AND LOWER(name) NOT LIKE '%prueba%'
+              AND LOWER(name) NOT LIKE '%qa%'
+              AND LOWER(name) NOT LIKE '%onboarding%'
+              AND LOWER(name) NOT LIKE '%demo%'
+        )
         GROUP BY _id
     ),
 
