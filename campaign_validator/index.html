@@ -1657,6 +1657,15 @@ async function cargarDesdeCH(){
     }
     el.style.background = bg; el.style.color = color; el.textContent = msg;
   };
+  // v3.3.92: cancelar polling activo antes de iniciar otro. Antes cada cambio
+  // de fecha disparaba un nuevo cargarDesdeCH() que creaba un setInterval sin
+  // limpiar el anterior → tras varios cambios había N polls en paralelo
+  // actualizando el banner cada uno.
+  if(window.__cvActivePoll){
+    clearInterval(window.__cvActivePoll);
+    console.log('[CV] cancelando poll anterior');
+    window.__cvActivePoll = null;
+  }
   banner('⏳ Cargando datos reales desde ClickHouse…');
 
   try {
@@ -1677,14 +1686,20 @@ async function cargarDesdeCH(){
       return;
     }
 
-    // v3.3.87: polling robusto. Antes cualquier excepción (incluyendo respuestas
-    // no-JSON tipo "no available server" de proxy 502/503) mataba el polling con
-    // clearInterval. Ahora: parse error o network temporal → solo retry. Solo
-    // matamos el polling si pasamos 20 reintentos consecutivos (≈1 min) sin
-    // respuesta válida.
+    // v3.3.92: polling con timeout absoluto de 3 min (60 iteraciones × 3s).
+    // Antes podía quedarse polling indefinidamente si el job no terminaba.
     let pollErrors = 0;
+    let pollIterations = 0;
     const POLL_MAX_ERRORS = 20;
+    const POLL_MAX_ITERATIONS = 60;  // 60 × 3s = 3 min
     const poll=setInterval(async()=>{
+      pollIterations++;
+      if(pollIterations > POLL_MAX_ITERATIONS){
+        clearInterval(poll);
+        window.__cvActivePoll = null;
+        banner(`❌ Timeout: el job no completó en 3 min. Recarga la página o reduce el rango de fechas.`, '#991b1b', '#fee2e2');
+        return;
+      }
       try{
         const r = await fetch(`${API_BASE}/api/campaign_validator/cargar_status/${lj.job_id}`,{headers:hdrs});
         const text = await r.text();
@@ -1694,14 +1709,14 @@ async function cargarDesdeCH(){
           pollErrors++;
           console.warn(`[CV] respuesta no-JSON (${pollErrors}/${POLL_MAX_ERRORS}):`, text.slice(0,80));
           if(pollErrors >= POLL_MAX_ERRORS){
-            clearInterval(poll);
+            clearInterval(poll); window.__cvActivePoll = null;
             banner(`❌ Servidor no responde con JSON tras ${POLL_MAX_ERRORS} intentos. Recarga la página.`, '#991b1b', '#fee2e2');
           }
           return;
         }
         pollErrors = 0;   // reset al recibir JSON válido
         if(sj.status==='done'){
-          clearInterval(poll);
+          clearInterval(poll); window.__cvActivePoll = null;
           if(sj.data) aplicarDataCH(sj.data);
           if(sj.warn_detalle)
             banner(`⚠ Detallado fallo (Estadistica OK): ${sj.warn_detalle}`, '#92400e', '#fef3c7');
@@ -1709,7 +1724,7 @@ async function cargarDesdeCH(){
             banner(`✅ Datos reales cargados (${desde} → ${hasta})`, '#065f46', '#dcfce7');
         }
         else if(sj.status==='error'){
-          clearInterval(poll);
+          clearInterval(poll); window.__cvActivePoll = null;
           banner(`❌ Job error: ${sj.error || 'desconocido'}`, '#991b1b', '#fee2e2');
           console.error('[CV] Job error:',sj.error);
         }
@@ -1717,11 +1732,13 @@ async function cargarDesdeCH(){
         pollErrors++;
         console.warn(`[CV] error de red en polling (${pollErrors}/${POLL_MAX_ERRORS}):`, e.message);
         if(pollErrors >= POLL_MAX_ERRORS){
-          clearInterval(poll);
+          clearInterval(poll); window.__cvActivePoll = null;
           banner(`❌ Polling falló tras ${POLL_MAX_ERRORS} intentos: ${e.message}`, '#991b1b', '#fee2e2');
         }
       }
     }, 3000);
+    // v3.3.92: trackear poll global para que el siguiente cargarDesdeCH lo pueda cancelar
+    window.__cvActivePoll = poll;
   } catch(e){
     banner(`❌ API no disponible: ${e.message}. Mostrando datos demo.`, '#991b1b', '#fee2e2');
     console.warn('[CV] API no disponible, usando datos mock:',e.message);
