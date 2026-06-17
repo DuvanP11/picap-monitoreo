@@ -1320,11 +1320,14 @@ function renderDet(country){
   if(!wrap) return;
   wrap.innerHTML='';
   const {det}=getFiltered(country);
-  // v3.3.73: limitar render a 200 filas para evitar bloqueo del browser cuando hay
-  // 1000+ servicios. El listado completo se obtiene via Excel.
+  // v3.3.87: si hay filtro de búsqueda activo (piloto, booking, etc), mostramos
+  // TODOS los resultados filtrados (sin tope de 200). Solo cortamos cuando el
+  // usuario está navegando sin filtro (para no trabar el browser con 15k filas).
+  const hasSearchFilter = !!(searchState?.[country]?.val);
   const MAX_DET = 200;
   const total = det.length;
-  const detShown = det.slice(0, MAX_DET);
+  const limit = hasSearchFilter ? total : MAX_DET;
+  const detShown = det.slice(0, limit);
   const rows=detShown.map(r=>[
     r.id_booking,r.aceptado,r.conductor_llego,r.finalizado,r.fecha,
     r.driver_name,r.passenger_name,r.driver_id,r.passenger_id,
@@ -1339,10 +1342,23 @@ function renderDet(country){
     monitoreo_badge(r.regla_distancia),
     r.service_type,
   ]);
-  if (total > MAX_DET) {
+  if (total === 0 && hasSearchFilter) {
     const note = document.createElement('div');
-    note.style.cssText = 'padding:8px 14px;font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;margin-bottom:8px';
-    note.textContent = `Mostrando primeras ${MAX_DET} filas de ${fmt(total)} (descarga el Excel para el listado completo).`;
+    note.style.cssText = 'padding:10px 14px;font-size:12px;color:#991b1b;background:#fef2f2;border-radius:6px;margin-bottom:8px;border-left:3px solid #ef4444';
+    note.textContent = 'No se encontraron servicios con ese filtro. Verifica el ID o el tipo de búsqueda.';
+    wrap.appendChild(note);
+  }
+  else if (total > MAX_DET && !hasSearchFilter) {
+    const note = document.createElement('div');
+    note.style.cssText = 'padding:10px 14px;font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;margin-bottom:8px;line-height:1.4';
+    note.innerHTML = `<strong>Mostrando primeras ${MAX_DET} de ${fmt(total)} filas.</strong><br>
+      <span style="font-size:11px;opacity:.85">Cada fila representa <strong>1 servicio</strong> del piloto que aportó al ciclo de la campaña (no 1 pago de campaña — esos están en la pestaña Estadística como TX únicos). Filtra por ID de Piloto o descarga el Excel para ver el listado completo.</span>`;
+    wrap.appendChild(note);
+  }
+  else if (hasSearchFilter && total > 0) {
+    const note = document.createElement('div');
+    note.style.cssText = 'padding:8px 14px;font-size:12px;color:#065f46;background:#dcfce7;border-radius:6px;margin-bottom:8px';
+    note.textContent = `Mostrando ${fmt(total)} servicios filtrados.`;
     wrap.appendChild(note);
   }
   wrap.appendChild(makeTable(`dettbl-${country}`,
@@ -1409,9 +1425,29 @@ async function cargarDesdeCH(){
       return;
     }
 
+    // v3.3.87: polling robusto. Antes cualquier excepción (incluyendo respuestas
+    // no-JSON tipo "no available server" de proxy 502/503) mataba el polling con
+    // clearInterval. Ahora: parse error o network temporal → solo retry. Solo
+    // matamos el polling si pasamos 20 reintentos consecutivos (≈1 min) sin
+    // respuesta válida.
+    let pollErrors = 0;
+    const POLL_MAX_ERRORS = 20;
     const poll=setInterval(async()=>{
       try{
-        const sj=await fetch(`${API_BASE}/api/campaign_validator/cargar_status/${lj.job_id}`,{headers:hdrs}).then(r=>r.json());
+        const r = await fetch(`${API_BASE}/api/campaign_validator/cargar_status/${lj.job_id}`,{headers:hdrs});
+        const text = await r.text();
+        let sj;
+        try { sj = JSON.parse(text); }
+        catch(parseErr){
+          pollErrors++;
+          console.warn(`[CV] respuesta no-JSON (${pollErrors}/${POLL_MAX_ERRORS}):`, text.slice(0,80));
+          if(pollErrors >= POLL_MAX_ERRORS){
+            clearInterval(poll);
+            banner(`❌ Servidor no responde con JSON tras ${POLL_MAX_ERRORS} intentos. Recarga la página.`, '#991b1b', '#fee2e2');
+          }
+          return;
+        }
+        pollErrors = 0;   // reset al recibir JSON válido
         if(sj.status==='done'){
           clearInterval(poll);
           if(sj.data) aplicarDataCH(sj.data);
@@ -1425,7 +1461,14 @@ async function cargarDesdeCH(){
           banner(`❌ Job error: ${sj.error || 'desconocido'}`, '#991b1b', '#fee2e2');
           console.error('[CV] Job error:',sj.error);
         }
-      }catch(e){ clearInterval(poll); banner(`❌ Polling falló: ${e.message}`, '#991b1b', '#fee2e2'); }
+      } catch(e){
+        pollErrors++;
+        console.warn(`[CV] error de red en polling (${pollErrors}/${POLL_MAX_ERRORS}):`, e.message);
+        if(pollErrors >= POLL_MAX_ERRORS){
+          clearInterval(poll);
+          banner(`❌ Polling falló tras ${POLL_MAX_ERRORS} intentos: ${e.message}`, '#991b1b', '#fee2e2');
+        }
+      }
     }, 3000);
   } catch(e){
     banner(`❌ API no disponible: ${e.message}. Mostrando datos demo.`, '#991b1b', '#fee2e2');
