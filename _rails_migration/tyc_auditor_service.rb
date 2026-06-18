@@ -119,10 +119,10 @@ class TycAuditorService
     end.compact.join(" OR ")
     service_name_clauses = "true" if service_name_clauses.empty?
 
-    # País
-    pais_filter = pais.include?("colombia") ? "AND upper(b.g_country) = 'CO'" :
-                  pais.include?("mexic")    ? "AND upper(b.g_country) = 'MX'" :
-                  pais.include?("nicaragua")? "AND upper(b.g_country) = 'NI'" : ""
+    # País — bd es alias en bookings_con_tipo (no b)
+    pais_filter = pais.include?("colombia") ? "AND upper(bd.g_country) = 'CO'" :
+                  pais.include?("mexic")    ? "AND upper(bd.g_country) = 'MX'" :
+                  pais.include?("nicaragua")? "AND upper(bd.g_country) = 'NI'" : ""
 
     # multiIf de tier alcanzado (orden descendente)
     tiers_sorted = @tyc["tiers"].sort_by { |t| -t["count"].to_i }
