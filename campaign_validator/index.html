@@ -2196,13 +2196,14 @@ function renderVeredicto(country, d, driver_id){
       <td>${x.campaign_name || '<i>(sin nombre)</i>'}</td>
     </tr>`).join('');
 
-  // Render lista de pagos (con flag de match a la familia detectada)
+  // Render lista de pagos (flags: post-periodo y match familia)
   const pagosRows = (pc.pagos_list || []).map(p => `
-    <tr>
+    <tr style="${p.post_periodo ? '' : 'opacity:.55;background:rgba(245,158,11,.06)'}">
       <td class="mono">${p.campaign_id}</td>
       <td>${fmt$(p.amount_cop)}</td>
       <td>${(p.fecha || '').substring(0,19).replace('T',' ')}</td>
-      <td>${p.in_familia ? '<span style="color:#10b981;font-weight:700">✓ Sí</span>' : '<span style="color:#f59e0b">⚠ No</span>'}</td>
+      <td>${p.post_periodo ? '<span style="color:#10b981;font-weight:700">✓ Post</span>' : '<span style="color:#f59e0b">⚠ Durante</span>'}</td>
+      <td>${p.in_familia ? '<span style="color:#10b981;font-weight:700">✓ Sí</span>' : '<span style="color:#94a3b8">— No</span>'}</td>
     </tr>`).join('');
 
   const html = `
@@ -2258,9 +2259,12 @@ function renderVeredicto(country, d, driver_id){
 
       ${(pc.pagos_count || 0) > 0 ? `
       <details class="tyc-verdict-detail" open>
-        <summary>Pagos al piloto en el rango (${pc.pagos_count} · ${pc.pagos_familia_match_count || 0} matchean familia detectada)</summary>
+        <summary>Pagos al piloto en el rango (${pc.pagos_count} total · <b>${pc.pagos_post_periodo_count || 0} post-periodo cuentan</b>)</summary>
+        <div style="font-size:11px;color:var(--text-muted);margin:4px 0">
+          ⚠ Solo los pagos POST fecha_fin del TyC cuentan para "Pagado realmente" — los pagos durante el periodo son anticipos/reversales/otras promos.
+        </div>
         <table class="tyc-mini-table">
-          <thead><tr><th>ID Campaña</th><th>Monto</th><th>Fecha</th><th>Match familia</th></tr></thead>
+          <thead><tr><th>ID Campaña</th><th>Monto</th><th>Fecha</th><th>Tipo</th><th>Match familia</th></tr></thead>
           <tbody>${pagosRows}</tbody>
         </table>
       </details>` : ''}
