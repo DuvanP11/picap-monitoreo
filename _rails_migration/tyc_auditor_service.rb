@@ -50,8 +50,10 @@ class TycAuditorService
 
   def call
     sql = build_query
-    Rails.logger.info("[TycAuditor] SQL generado (#{sql.length} chars), driver=#{@driver_id}")
+    Rails.logger.info("[TycAuditor] driver=#{@driver_id} override=#{@campaign_override.presence || '-'}")
+    Rails.logger.info("[TycAuditor] SQL:\n#{sql}")
     rows = @ch.query(sql, timeout: 60)
+    Rails.logger.info("[TycAuditor] Row: #{(rows.first || {}).inspect[0, 800]}")
     build_result(rows.first || {})
   end
 
@@ -162,16 +164,17 @@ class TycAuditorService
           GROUP BY _id
       ),
       pagos_piloto AS (
-          -- v3.3.99: SIN filtro 'campaign_id IN campanas_familia' — capturamos
-          -- TODOS los promos del piloto en el rango (TyC + 14 días post para los
-          -- pagos retroactivos típicos). El flag in_familia indica si el ID matchea.
+          -- v3.3.99: SIN filtro 'campaign_id IN campanas_familia'.
+          -- v3.3.100: case exacto en _type (como la query funcional del user) + LEFT JOIN
+          -- (no INNER) por si hay TX huérfanas. El passenger_id en wallet_accounts
+          -- es donde vive la relación con el piloto.
           SELECT toString(wat.campaign_id) AS campaign_id,
                  intDiv(toInt64OrZero(JSONExtractString(wat.amount, 'cents')), 100) AS amount_cop,
                  wat.created_at,
                  if(toString(wat.campaign_id) IN (SELECT campaign_id FROM campanas_familia), 1, 0) AS in_familia
           FROM picapmongoprod.wallet_account_transactions AS wat
-          INNER JOIN picapmongoprod.wallet_accounts AS wa ON wa._id = wat.account_id
-          WHERE lower(wat._type) = 'walletaccounttransactionpromocampaign'
+          LEFT JOIN picapmongoprod.wallet_accounts AS wa ON wa._id = wat.account_id
+          WHERE wat._type = 'WalletAccountTransactionPromoCampaign'
             AND toString(wa.passenger_id) = '#{@driver_id}'
             AND wat.created_at >= toDateTime('#{fecha_ini}', 'America/Bogota')
             AND wat.created_at <= toDateTime('#{fecha_fin}', 'America/Bogota') + INTERVAL 14 DAY
