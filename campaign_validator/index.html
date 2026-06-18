@@ -140,6 +140,20 @@ body{font-family:var(--font);background:linear-gradient(145deg,#f0ecf8 0%,#e8e0f
 .tyc-verdict-detail{margin-top:10px;font-size:12px;}
 .tyc-verdict-detail summary{cursor:pointer;color:var(--text-muted);}
 .tyc-verdict-detail ul{margin:6px 0 0 0;padding-left:18px;color:var(--text2);}
+
+/* v3.3.97 — comparación de pago + tablas asociadas */
+.tyc-pago-box{margin:14px 0;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);}
+.tyc-pago-box.pago-ok       {border-color:#10b981;background:rgba(16,185,129,.06);}
+.tyc-pago-box.pago-sobre    {border-color:#ef4444;background:rgba(239,68,68,.06);}
+.tyc-pago-box.pago-sub      {border-color:#f59e0b;background:rgba(245,158,11,.08);}
+.tyc-pago-box.pago-pendiente{border-color:#94a3b8;background:rgba(148,163,184,.08);}
+.tyc-pago-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;}
+.tyc-pago-lbl{font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;}
+.tyc-pago-val{font-size:16px;font-weight:700;color:var(--text1);}
+.tyc-mini-table{width:100%;font-size:11px;margin-top:6px;border-collapse:collapse;}
+.tyc-mini-table th{text-align:left;background:var(--surface2);color:var(--text-muted);font-weight:600;padding:5px 8px;border-bottom:1px solid var(--border);}
+.tyc-mini-table td{padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text2);}
+.tyc-mini-table .mono{font-family:monospace;font-size:10px;}
 .btn-email{font-size:11px;padding:5px 13px;border-radius:20px;border:1.5px solid var(--purple-md);background:var(--purple-lt);color:var(--purple);cursor:pointer;font-weight:700;transition:.15s;}
 .btn-email:hover{background:#ddd6fe;}
 .month-year-group{display:flex;gap:4px;}
@@ -407,6 +421,10 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
           <label>ID Piloto:</label>
           <input type="text" id="tyc-driver-COL" placeholder="24 hex chars del driver_id" maxlength="24" style="font-family:monospace;font-size:11px;flex:1">
           <button class="btn-search" onclick="auditarTyC('COL')" id="tyc-btn-audit-COL" disabled>⚖️ Auditar piloto</button>
+        </div>
+        <div class="cs-row" title="Si lo dejas vacío, el backend busca la familia de campañas automáticamente por nombre del TyC.">
+          <label>ID Campaña (override, opcional):</label>
+          <input type="text" id="tyc-campaign-override-COL" placeholder="hex 24 chars o slug — ej: vuelve-y-llevate-el-bono-2026-06-06" style="font-family:monospace;font-size:11px;flex:1">
         </div>
         <details style="margin-top:8px">
           <summary style="cursor:pointer;font-size:11px;color:var(--text-muted)">¿No puedes descargar el PDF? (CORS) — pegar texto manualmente</summary>
@@ -2130,11 +2148,15 @@ async function auditarTyC(country){
   try {
     const hdrs = { 'Content-Type':'application/json' };
     const tok = AUTH_TOKEN(); if (tok) hdrs['X-Token'] = tok;
+    // v3.3.97: pasar override del ID de campaña si el user lo llenó
+    const override = (document.getElementById(`tyc-campaign-override-${country}`)?.value || '').trim();
+    const tycPayload = { ...state.tyc };
+    if (override) tycPayload.campaign_id_override = override;
     const r = await fetch(`${API_BASE}/api/campaign_validator/auditar_tyc`, {
       method:  'POST',
       headers: hdrs,
       body:    JSON.stringify({
-        tyc:           state.tyc,
+        tyc:           tycPayload,
         driver_id:     driver_id,
         ignored_rules: Array.from(state.ignored),
       })
@@ -2153,8 +2175,35 @@ async function auditarTyC(country){
 
 function renderVeredicto(country, d, driver_id){
   const gana = d.veredicto === 'GANA';
-  const fmt$ = n => '$' + (n||0).toLocaleString('es-CO');
-  const c = d.conteos || {};
+  const fmt$ = n => '$' + (Number(n) || 0).toLocaleString('es-CO');
+  const c    = d.conteos || {};
+  const pc   = d.pago_comparacion || {};
+  const ca   = d.campanas_asociadas || {};
+  const tr   = d.tiers_resumen || {};
+  const tmin = tr.tier_minimo || {};
+  const tmax = tr.tier_maximo || {};
+
+  // Color del estado de pago
+  const estadoCls = (pc.diferencia > 0) ? 'pago-sobre'
+                  : (pc.diferencia < 0) ? 'pago-sub'
+                  : (pc.pagado > 0)     ? 'pago-ok'
+                  : 'pago-pendiente';
+
+  // Render lista de campañas asociadas
+  const campanasRows = (ca.list || []).map(x => `
+    <tr>
+      <td class="mono">${x.campaign_id}</td>
+      <td>${x.campaign_name || '<i>(sin nombre)</i>'}</td>
+    </tr>`).join('');
+
+  // Render lista de pagos
+  const pagosRows = (pc.pagos_list || []).map(p => `
+    <tr>
+      <td class="mono">${p.campaign_id}</td>
+      <td>${fmt$(p.amount_cop)}</td>
+      <td>${(p.fecha || '').substring(0,19).replace('T',' ')}</td>
+    </tr>`).join('');
+
   const html = `
     <div class="tyc-card tyc-verdict ${gana ? 'gana' : 'noGana'}">
       <div class="tyc-verdict-head">
@@ -2162,23 +2211,58 @@ function renderVeredicto(country, d, driver_id){
         <span class="tyc-verdict-driver">${driver_id}</span>
       </div>
       <div class="tyc-verdict-reason">${d.razon_veredicto || ''}</div>
+
       <div class="tyc-verdict-grid">
         <div><b>Tier alcanzado</b><br>${d.tier_alcanzado}</div>
-        <div><b>Bono que debería recibir</b><br>${fmt$(d.bono_que_deberia_recibir)}</div>
-        <div><b>Pagado realmente</b><br>${fmt$(d.valor_efectivamente_pagado)}</div>
-        <div><b>Servicios válidos finales</b><br>${c.servicios_validos_finales || 0}</div>
+        <div><b>Servicios reales del piloto</b><br>${c.servicios_validos_finales || 0}<span style="font-size:10px;color:var(--text-muted)"> / ${tmax.count || 0} (máx campaña)</span></div>
+        <div><b>Tier mínimo (campaña)</b><br>${tmin.count || 0}v → ${fmt$(tmin.bono)}</div>
+        <div><b>Tier máximo (campaña)</b><br>${tmax.count || 0}v → ${fmt$(tmax.bono)}</div>
       </div>
-      <details class="tyc-verdict-detail">
+
+      <!-- v3.3.97: comparación pago -->
+      <div class="tyc-pago-box ${estadoCls}">
+        <div class="tyc-pago-row">
+          <div><span class="tyc-pago-lbl">Bono debido</span><br><span class="tyc-pago-val">${fmt$(pc.debido)}</span></div>
+          <div><span class="tyc-pago-lbl">Pagado realmente</span><br><span class="tyc-pago-val">${fmt$(pc.pagado)}</span> <span style="font-size:10px;color:var(--text-muted)">(${pc.pagos_count || 0} tx)</span></div>
+          <div><span class="tyc-pago-lbl">Diferencia</span><br><span class="tyc-pago-val">${(pc.diferencia >= 0 ? '+' : '') + fmt$(pc.diferencia)}</span></div>
+          <div><span class="tyc-pago-lbl">Estado</span><br><span class="tyc-pago-val">${pc.estado || '—'}</span></div>
+        </div>
+      </div>
+
+      <details class="tyc-verdict-detail" open>
         <summary>Ver desglose de conteos</summary>
         <ul>
-          <li>Total status_cd=4 en periodo: <b>${c.total_servicios_status4_en_periodo || 0}</b></li>
+          <li>Total servicios status_cd=4 en periodo (piloto): <b>${c.total_servicios_status4_en_periodo || 0}</b></li>
           <li>Tras filtro tipo/país/moneda: <b>${c.servicios_tipo_pais_validos || 0}</b></li>
-          <li>Servicios válidos finales: <b>${c.servicios_validos_finales || 0}</b></li>
+          <li>Servicios válidos finales (piloto): <b>${c.servicios_validos_finales || 0}</b></li>
+          <li>Servicios necesarios para tier mínimo (campaña): <b>${tmin.count || 0}</b></li>
+          <li>Servicios necesarios para tier máximo (campaña): <b>${tmax.count || 0}</b></li>
           <li>Servicios en inactividad previa: <b>${c.servicios_en_inactividad_previa || 0}</b></li>
           <li>Pasajeros repetidos: <b>${c.pasajeros_repetidos || 0}</b></li>
         </ul>
         ${d.reglas_ignoradas?.length ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">Reglas ignoradas: ${d.reglas_ignoradas.join(', ')}</div>` : ''}
       </details>
+
+      ${ca.count ? `
+      <details class="tyc-verdict-detail" open>
+        <summary>Campañas asociadas al TyC (${ca.count})</summary>
+        <table class="tyc-mini-table">
+          <thead><tr><th>ID Campaña</th><th>Nombre</th></tr></thead>
+          <tbody>${campanasRows}</tbody>
+        </table>
+      </details>` : `
+      <div style="margin-top:8px;padding:8px;background:rgba(245,158,11,.1);border-radius:6px;font-size:11px;color:#b45309">
+        ⚠️ No se encontraron campañas conectadas al TyC. Prueba pegar el slug en "ID Campaña (override)" — ej: <code>vuelve-y-llevate-el-bono-2026-06-06</code>
+      </div>`}
+
+      ${(pc.pagos_count || 0) > 0 ? `
+      <details class="tyc-verdict-detail" open>
+        <summary>Pagos al piloto (${pc.pagos_count})</summary>
+        <table class="tyc-mini-table">
+          <thead><tr><th>ID Campaña</th><th>Monto</th><th>Fecha</th></tr></thead>
+          <tbody>${pagosRows}</tbody>
+        </table>
+      </details>` : ''}
     </div>`;
   document.getElementById(`tyc-veredicto-${country}`).innerHTML = html;
 }

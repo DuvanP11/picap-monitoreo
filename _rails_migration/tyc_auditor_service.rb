@@ -43,6 +43,8 @@ class TycAuditorService
     @driver_id = driver_id.to_s.strip
     @ch        = ch
     @ignored   = (ignored_rules || []).map(&:to_s) & IGNORABLES
+    # v3.3.97: override manual de ID/slug de campaña (si el frontend lo pasa)
+    @campaign_override = @tyc["campaign_id_override"].to_s.strip
     validate!
   end
 
@@ -145,22 +147,32 @@ class TycAuditorService
       "0"
     end
 
-    # Pago real (si el TyC incluye id_campana)
-    pago_real_sql = if @tyc["id_campana"].to_s =~ /\A[a-fA-F0-9]{24}\z/
-      <<~SQL
-        (SELECT ifNull(sum(intDiv(toInt64OrZero(JSONExtractString(wat.amount, 'cents')), 100)), 0)
-         FROM picapmongoprod.wallet_account_transactions wat
-         INNER JOIN picapmongoprod.wallet_accounts wa ON wa._id = wat.account_id
-         WHERE lower(wat._type) = 'walletaccounttransactionpromocampaign'
-           AND toString(wat.campaign_id) = '#{@tyc["id_campana"]}'
-           AND toString(wa.passenger_id) = '#{@driver_id}')
-      SQL
-    else
-      "0"
-    end
+    # v3.3.97: filtro de familia de campañas — busca en picapmongoprod.campaigns
+    # por hex (si el TyC trae id_campana o el user pasó override) o por palabras
+    # clave del nombre del TyC (matchea "VUELVE Y LLEVATE EL BONO" → todos los escalones).
+    campanas_filter = build_campanas_filter
 
     <<~SQL
       WITH
+      campanas_familia AS (
+          SELECT toString(_id)              AS campaign_id,
+                 any(name)                  AS campaign_name,
+                 any(begin_at)              AS campaign_begin,
+                 any(finish_at)             AS campaign_finish
+          FROM picapmongoprod.campaigns
+          WHERE 1=1 #{campanas_filter}
+          GROUP BY _id
+      ),
+      pagos_piloto AS (
+          SELECT toString(wat.campaign_id) AS campaign_id,
+                 intDiv(toInt64OrZero(JSONExtractString(wat.amount, 'cents')), 100) AS amount_cop,
+                 wat.created_at
+          FROM picapmongoprod.wallet_account_transactions AS wat
+          INNER JOIN picapmongoprod.wallet_accounts AS wa ON wa._id = wat.account_id
+          WHERE lower(wat._type) = 'walletaccounttransactionpromocampaign'
+            AND toString(wa.passenger_id) = '#{@driver_id}'
+            AND toString(wat.campaign_id) IN (SELECT campaign_id FROM campanas_familia)
+      ),
       service_types_validos AS (
           SELECT _id FROM picapmongoprod.service_types FINAL
           WHERE #{service_name_clauses}
@@ -217,8 +229,65 @@ class TycAuditorService
           multiIf(#{multiif_tier},
                   'NO ALCANZÓ TIER MÍNIMO')             AS tier_alcanzado,
           multiIf(#{multiif_bono}, 0)                   AS bono_que_deberia_recibir,
-          #{pago_real_sql}                              AS valor_efectivamente_pagado
+
+          -- v3.3.97: campañas conectadas al TyC
+          (SELECT count() FROM campanas_familia)        AS campanas_familia_count,
+          (SELECT arrayStringConcat(
+                    arrayMap(x -> concat(x.1, '|', x.2),
+                             groupArray((campaign_id, campaign_name))),
+                    '\\n')
+             FROM campanas_familia)                     AS campanas_familia_raw,
+
+          -- v3.3.97: pagos del piloto a la familia
+          (SELECT count() FROM pagos_piloto)            AS pagos_count,
+          (SELECT ifNull(sum(amount_cop), 0) FROM pagos_piloto) AS valor_efectivamente_pagado,
+          (SELECT arrayStringConcat(
+                    arrayMap(x -> concat(x.1, '|', toString(x.2), '|', toString(x.3)),
+                             groupArray((campaign_id, amount_cop, created_at))),
+                    '\\n')
+             FROM pagos_piloto)                         AS pagos_raw
     SQL
+  end
+
+  # v3.3.97: construye el filtro WHERE para campanas_familia.
+  # Estrategia:
+  #   1) Si user pasó override hex 24 → match exacto por _id
+  #   2) Si user pasó slug → LIKE por nombre/slug
+  #   3) Si TyC trae id_campana hex 24 → match exacto
+  #   4) Si TyC trae slug → LIKE por nombre/slug
+  #   5) Fallback: 2-3 palabras clave del nombre del TyC
+  def build_campanas_filter
+    override = @campaign_override
+    return "AND toString(_id) = '#{override}'" if override =~ /\A[a-fA-F0-9]{24}\z/
+
+    slug = override.presence ||
+           (@tyc["id_campana"].to_s if @tyc["id_campana"].to_s !~ /\A[a-fA-F0-9]{24}\z/)
+
+    if slug && slug.length > 8
+      slug_root = slug.gsub(/-target\d+$/, '')   # 'vuelve-y-...-target40' → 'vuelve-y-...'
+      return "AND positionCaseInsensitive(name, '#{slug_root}') > 0"
+    end
+
+    if @tyc["id_campana"].to_s =~ /\A[a-fA-F0-9]{24}\z/
+      return "AND toString(_id) = '#{@tyc["id_campana"]}'"
+    end
+
+    # Fallback: 2-3 palabras significativas del nombre
+    stop = %w[para con sobre como solo bono campana campaña the and los las del]
+    words = @tyc["nombre"].to_s.downcase
+                              .gsub(/[¡!¿?·\.\,]/, ' ')
+                              .split(/\s+/)
+                              .map { |w| w.gsub(/[^a-záéíóúñ]/i, '') }
+                              .reject { |w| w.length < 4 || stop.include?(w) }
+                              .first(3)
+    return "AND 1 = 0" if words.empty?
+
+    fecha_ini_d = normalize_dt(@tyc["fecha_inicio"])[0..9]
+    fecha_fin_d = normalize_dt(@tyc["fecha_fin"])[0..9]
+
+    words.map { |w| "AND positionCaseInsensitive(name, '#{w}') > 0" }.join("\n        ") +
+      "\n        AND toDate(begin_at) >= toDate('#{fecha_ini_d}') - 2" \
+      "\n        AND toDate(begin_at) <= toDate('#{fecha_fin_d}') + 2"
   end
 
   def build_result(row)
@@ -242,12 +311,52 @@ class TycAuditorService
         ["GANA", "#{tier} con #{val_ok} servicios válidos"]
       end
 
+    # v3.3.97: parse de listas codificadas como string (CH no devuelve arrays directos)
+    campanas_list = parse_pipe_list(r["campanas_familia_raw"], 2)
+      .map { |c| { campaign_id: c[0], campaign_name: c[1] } }
+    pagos_list = parse_pipe_list(r["pagos_raw"], 3)
+      .map { |p| { campaign_id: p[0], amount_cop: p[1].to_i, fecha: p[2] } }
+
+    tiers_sorted_asc = @tyc["tiers"].sort_by { |t| t["count"].to_i }
+    tier_min = tiers_sorted_asc.first
+    tier_max = tiers_sorted_asc.last
+
+    # v3.3.97: comparación pago debido vs pago real
+    diferencia    = pagado - bono
+    estado_pago = if pagado == 0 && bono > 0
+                    "Sin pago aún"
+                  elsif pagado == 0 && bono == 0
+                    "No aplica (no ganó)"
+                  elsif diferencia == 0
+                    "Pagado correcto"
+                  elsif diferencia > 0
+                    "Sobrepago de $#{fmt_money(diferencia)}"
+                  else
+                    "Subpago de $#{fmt_money(-diferencia)}"
+                  end
+
     {
       veredicto:                  veredicto,
       razon_veredicto:            razon,
       tier_alcanzado:             tier,
       bono_que_deberia_recibir:   bono,
       valor_efectivamente_pagado: pagado,
+      pago_comparacion: {
+        debido:      bono,
+        pagado:      pagado,
+        diferencia:  diferencia,
+        estado:      estado_pago,
+        pagos_count: r["pagos_count"].to_i,
+        pagos_list:  pagos_list,
+      },
+      campanas_asociadas: {
+        count: r["campanas_familia_count"].to_i,
+        list:  campanas_list,
+      },
+      tiers_resumen: {
+        tier_minimo: tier_min ? { count: tier_min["count"].to_i, bono: tier_min["bono"].to_i } : nil,
+        tier_maximo: tier_max ? { count: tier_max["count"].to_i, bono: tier_max["bono"].to_i } : nil,
+      },
       reglas_aplicadas: {
         inactividad_check:        @tyc["requiere_inactividad"]    && !ignored?("inactividad"),
         distancia_check:          @tyc["distancia_minima_m"].to_i > 0 && !ignored?("distancia"),
@@ -263,5 +372,11 @@ class TycAuditorService
         pasajeros_repetidos:                pasrep,
       }
     }
+  end
+
+  # v3.3.97: parsea "v1|v2\nv1|v2\n…" en arreglo de arreglos
+  def parse_pipe_list(raw, fields)
+    return [] if raw.to_s.empty?
+    raw.to_s.split("\n").map { |line| line.split("|", fields) }.reject { |a| a.empty? || a.first.to_s.empty? }
   end
 end
