@@ -162,14 +162,19 @@ class TycAuditorService
           GROUP BY _id
       ),
       pagos_piloto AS (
+          -- v3.3.99: SIN filtro 'campaign_id IN campanas_familia' — capturamos
+          -- TODOS los promos del piloto en el rango (TyC + 14 días post para los
+          -- pagos retroactivos típicos). El flag in_familia indica si el ID matchea.
           SELECT toString(wat.campaign_id) AS campaign_id,
                  intDiv(toInt64OrZero(JSONExtractString(wat.amount, 'cents')), 100) AS amount_cop,
-                 wat.created_at
+                 wat.created_at,
+                 if(toString(wat.campaign_id) IN (SELECT campaign_id FROM campanas_familia), 1, 0) AS in_familia
           FROM picapmongoprod.wallet_account_transactions AS wat
           INNER JOIN picapmongoprod.wallet_accounts AS wa ON wa._id = wat.account_id
           WHERE lower(wat._type) = 'walletaccounttransactionpromocampaign'
             AND toString(wa.passenger_id) = '#{@driver_id}'
-            AND toString(wat.campaign_id) IN (SELECT campaign_id FROM campanas_familia)
+            AND wat.created_at >= toDateTime('#{fecha_ini}', 'America/Bogota')
+            AND wat.created_at <= toDateTime('#{fecha_fin}', 'America/Bogota') + INTERVAL 14 DAY
       ),
       service_types_validos AS (
           SELECT _id FROM picapmongoprod.service_types FINAL
@@ -238,10 +243,11 @@ class TycAuditorService
 
           -- v3.3.97: pagos del piloto a la familia
           (SELECT count() FROM pagos_piloto)            AS pagos_count,
+          (SELECT countIf(in_familia = 1) FROM pagos_piloto) AS pagos_familia_match_count,
           (SELECT ifNull(sum(amount_cop), 0) FROM pagos_piloto) AS valor_efectivamente_pagado,
           (SELECT arrayStringConcat(
-                    arrayMap(x -> concat(x.1, '|', toString(x.2), '|', toString(x.3)),
-                             groupArray((campaign_id, amount_cop, created_at))),
+                    arrayMap(x -> concat(x.1, '|', toString(x.2), '|', toString(x.3), '|', toString(x.4)),
+                             groupArray((campaign_id, amount_cop, created_at, in_familia))),
                     '\\n')
              FROM pagos_piloto)                         AS pagos_raw
     SQL
@@ -309,8 +315,8 @@ class TycAuditorService
     # v3.3.97: parse de listas codificadas como string (CH no devuelve arrays directos)
     campanas_list = parse_pipe_list(r["campanas_familia_raw"], 2)
       .map { |c| { campaign_id: c[0], campaign_name: c[1] } }
-    pagos_list = parse_pipe_list(r["pagos_raw"], 3)
-      .map { |p| { campaign_id: p[0], amount_cop: p[1].to_i, fecha: p[2] } }
+    pagos_list = parse_pipe_list(r["pagos_raw"], 4)
+      .map { |p| { campaign_id: p[0], amount_cop: p[1].to_i, fecha: p[2], in_familia: p[3].to_i == 1 } }
 
     tiers_sorted_asc = @tyc["tiers"].sort_by { |t| t["count"].to_i }
     tier_min = tiers_sorted_asc.first
@@ -337,12 +343,13 @@ class TycAuditorService
       bono_que_deberia_recibir:   bono,
       valor_efectivamente_pagado: pagado,
       pago_comparacion: {
-        debido:      bono,
-        pagado:      pagado,
-        diferencia:  diferencia,
-        estado:      estado_pago,
-        pagos_count: r["pagos_count"].to_i,
-        pagos_list:  pagos_list,
+        debido:                    bono,
+        pagado:                    pagado,
+        diferencia:                diferencia,
+        estado:                    estado_pago,
+        pagos_count:               r["pagos_count"].to_i,
+        pagos_familia_match_count: r["pagos_familia_match_count"].to_i,
+        pagos_list:                pagos_list,
       },
       campanas_asociadas: {
         count: r["campanas_familia_count"].to_i,

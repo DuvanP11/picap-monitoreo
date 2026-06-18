@@ -2196,12 +2196,13 @@ function renderVeredicto(country, d, driver_id){
       <td>${x.campaign_name || '<i>(sin nombre)</i>'}</td>
     </tr>`).join('');
 
-  // Render lista de pagos
+  // Render lista de pagos (con flag de match a la familia detectada)
   const pagosRows = (pc.pagos_list || []).map(p => `
     <tr>
       <td class="mono">${p.campaign_id}</td>
       <td>${fmt$(p.amount_cop)}</td>
       <td>${(p.fecha || '').substring(0,19).replace('T',' ')}</td>
+      <td>${p.in_familia ? '<span style="color:#10b981;font-weight:700">✓ Sí</span>' : '<span style="color:#f59e0b">⚠ No</span>'}</td>
     </tr>`).join('');
 
   const html = `
@@ -2257,9 +2258,9 @@ function renderVeredicto(country, d, driver_id){
 
       ${(pc.pagos_count || 0) > 0 ? `
       <details class="tyc-verdict-detail" open>
-        <summary>Pagos al piloto (${pc.pagos_count})</summary>
+        <summary>Pagos al piloto en el rango (${pc.pagos_count} · ${pc.pagos_familia_match_count || 0} matchean familia detectada)</summary>
         <table class="tyc-mini-table">
-          <thead><tr><th>ID Campaña</th><th>Monto</th><th>Fecha</th></tr></thead>
+          <thead><tr><th>ID Campaña</th><th>Monto</th><th>Fecha</th><th>Match familia</th></tr></thead>
           <tbody>${pagosRows}</tbody>
         </table>
       </details>` : ''}
