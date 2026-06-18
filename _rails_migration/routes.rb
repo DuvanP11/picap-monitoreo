@@ -128,6 +128,8 @@ Rails.application.routes.draw do
       get  "cargar_status/:job_id", to: "/api/campaign_validator#cargar_status"
       # v3.3.89: sincrónica para consulta de servicios de un piloto
       get  "servicios_piloto",      to: "/api/campaign_validator#consulta_servicios"
+      # v3.3.94: auditor de TyC — recibe estructura parseada + driver_id, devuelve veredicto
+      post "auditar_tyc",           to: "/api/campaign_validator#auditar_tyc"
     end
 
     # v3.3.56: Consolidado Cash Out (submódulo Cash Out)

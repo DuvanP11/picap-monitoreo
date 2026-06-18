@@ -127,6 +127,32 @@ module Api
       end
     end
 
+    # v3.3.94: POST /api/campaign_validator/auditar_tyc
+    # Recibe estructura del TyC (parseada en frontend desde el PDF) + driver_id,
+    # genera SQL dinámica y devuelve veredicto GANA/NO GANA con detalles.
+    # Params:
+    #   tyc            -> hash con fecha_inicio, fecha_fin, tiers, servicios_validos, etc.
+    #   driver_id      -> hex 24 chars
+    #   ignored_rules  -> [] de strings (reglas a IGNORAR para el veredicto)
+    def auditar_tyc
+      tyc       = params[:tyc].respond_to?(:to_unsafe_h) ? params[:tyc].to_unsafe_h : params[:tyc].to_h
+      driver_id = params[:driver_id].to_s.strip
+      ignored   = Array(params[:ignored_rules]).map(&:to_s)
+
+      result = TycAuditorService.auditar(
+        tyc:           tyc,
+        driver_id:     driver_id,
+        ch:            ch,
+        ignored_rules: ignored
+      )
+      render json: { ok: true, **result }
+    rescue ArgumentError => e
+      render json: { ok: false, error: e.message }, status: :bad_request
+    rescue => e
+      Rails.logger.error("[CV auditar_tyc] #{e.class}: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
     private
 
     def validar_rol

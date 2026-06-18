@@ -110,6 +110,36 @@ body{font-family:var(--font);background:linear-gradient(145deg,#f0ecf8 0%,#e8e0f
 .cs-row label{font-size:12px;font-weight:600;color:var(--text2);white-space:nowrap;}
 .cs-row input[type=date],.cs-row input[type=text]{padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text1);}
 .cs-row input[type=text]:focus{outline:none;border-color:var(--purple);}
+
+/* v3.3.94 — Auditor TyC */
+.tyc-form{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;}
+.tyc-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;}
+.tyc-card-head{font-size:14px;font-weight:700;color:var(--text1);margin-bottom:10px;}
+.tyc-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 16px;font-size:12px;color:var(--text2);margin-bottom:10px;}
+.tyc-tiers{font-size:12px;color:var(--text2);margin-bottom:14px;}
+.tyc-tier-chip{display:inline-block;background:rgba(139,92,246,.15);color:#8b5cf6;padding:3px 9px;border-radius:12px;font-weight:600;font-size:11px;margin:2px 4px 2px 0;}
+.tyc-rules-head{font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 6px;}
+.tyc-rule{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer;background:var(--surface2);transition:background .15s;}
+.tyc-rule:hover{background:var(--surface);}
+.tyc-rule-off{opacity:.45;cursor:not-allowed;}
+.tyc-rule input[type=checkbox]{width:16px;height:16px;cursor:pointer;flex-shrink:0;}
+.tyc-rule-body{flex:1;}
+.tyc-rule-label{font-size:12px;font-weight:600;color:var(--text1);}
+.tyc-rule-value{font-size:11px;color:var(--text-muted);margin-top:1px;}
+.tyc-rule-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,.15);color:#10b981;text-transform:uppercase;}
+.tyc-rule-off .tyc-rule-tag{background:rgba(120,120,120,.2);color:var(--text-muted);}
+.tyc-verdict.gana{border-color:#10b981;background:rgba(16,185,129,.06);}
+.tyc-verdict.noGana{border-color:#ef4444;background:rgba(239,68,68,.06);}
+.tyc-verdict-head{font-size:22px;font-weight:800;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.tyc-verdict.gana .tyc-verdict-head{color:#10b981;}
+.tyc-verdict.noGana .tyc-verdict-head{color:#ef4444;}
+.tyc-verdict-driver{font-family:monospace;font-size:11px;background:var(--surface2);padding:3px 8px;border-radius:6px;color:var(--text2);}
+.tyc-verdict-reason{font-size:13px;color:var(--text1);margin-bottom:12px;font-style:italic;}
+.tyc-verdict-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px;}
+.tyc-verdict-grid b{color:var(--text-muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px;}
+.tyc-verdict-detail{margin-top:10px;font-size:12px;}
+.tyc-verdict-detail summary{cursor:pointer;color:var(--text-muted);}
+.tyc-verdict-detail ul{margin:6px 0 0 0;padding-left:18px;color:var(--text2);}
 .btn-email{font-size:11px;padding:5px 13px;border-radius:20px;border:1.5px solid var(--purple-md);background:var(--purple-lt);color:var(--purple);cursor:pointer;font-weight:700;transition:.15s;}
 .btn-email:hover{background:#ddd6fe;}
 .month-year-group{display:flex;gap:4px;}
@@ -258,6 +288,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
     <button class="tab-btn" onclick="openTab('COL','seg')">📡 Seguimiento</button>
     <button class="tab-btn" onclick="openTab('COL','det')">🔍 Detallado</button>
     <button class="tab-btn" onclick="openTab('COL','cs')">🔧 Consulta Servicios</button>
+    <button class="tab-btn" onclick="openTab('COL','tyc')">📄 Auditor TyC</button>
   </div>
   <div class="filters-bar" id="fbar-COL">
     <div class="filter-row">
@@ -362,6 +393,31 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
       </div>
       <div id="cs-status-COL" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px"></div>
       <div class="table-wrap" style="max-height:480px;overflow-y:auto;margin-top:10px;" id="cs-tbl-COL"></div>
+    </div>
+
+    <!-- v3.3.94: Auditor de TyC — descarga PDF, extrae texto, parsea reglas, audita -->
+    <div class="tab-panel" id="COL-tyc">
+      <div class="tyc-form">
+        <div class="cs-row">
+          <label>URL del PDF:</label>
+          <input type="text" id="tyc-url-COL" placeholder="https://static.picap.co/campaigns/.../TyC_...pdf" style="font-family:monospace;font-size:11px;flex:1">
+          <button class="btn-search" onclick="cargarTyC('COL')">📥 Cargar TyC</button>
+        </div>
+        <div class="cs-row">
+          <label>ID Piloto:</label>
+          <input type="text" id="tyc-driver-COL" placeholder="24 hex chars del driver_id" maxlength="24" style="font-family:monospace;font-size:11px;flex:1">
+          <button class="btn-search" onclick="auditarTyC('COL')" id="tyc-btn-audit-COL" disabled>⚖️ Auditar piloto</button>
+        </div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:11px;color:var(--text-muted)">¿No puedes descargar el PDF? (CORS) — pegar texto manualmente</summary>
+          <textarea id="tyc-text-COL" placeholder="Pega aquí el texto del TyC del PDF..." rows="8"
+            style="width:100%;margin-top:6px;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)"></textarea>
+          <button class="btn-search" onclick="parsearTextoTyC('COL')" style="margin-top:6px">🔍 Parsear texto</button>
+        </details>
+      </div>
+      <div id="tyc-status-COL" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px"></div>
+      <div id="tyc-reglas-COL" style="margin-top:12px"></div>
+      <div id="tyc-veredicto-COL" style="margin-top:12px"></div>
     </div>
   </div>
   </div><!-- /card-body COL -->
@@ -802,7 +858,7 @@ function handleModalClick(e){
 function openTab(country, tab){
   // v3.3.90: incluir 'cs' (Consulta Servicios) en el array. Antes solo conocía
   // 3 tabs hardcoded, asi que al clickear el 4to ningun panel se activaba.
-  const TABS = ['est','seg','det','cs'];
+  const TABS = ['est','seg','det','cs','tyc'];
   document.querySelectorAll(`#tabs-${country} .tab-btn`).forEach((b,i)=>{
     b.classList.toggle('active', TABS[i] === tab);
   });
@@ -1762,6 +1818,370 @@ function aplicarDataCH(apiData){
 
 // v3.3.61: siempre llamar al API. API_BASE='' significa mismo origen (portal Picap).
 cargarDesdeCH();
+
+/* ═════════════════════════════════════════════════════════════════════
+   v3.3.94 — AUDITOR DE TyC
+   Flujo:  URL del PDF  →  pdf.js extrae texto  →  regex parser  →
+           checkboxes por regla  →  POST /api/campaign_validator/auditar_tyc
+   ═════════════════════════════════════════════════════════════════════ */
+
+const TYC_STATE = {};   // { COL: { tyc: {...}, ignored: Set, parsed: bool } }
+
+// Carga pdf.js bajo demanda (no aumenta peso de primera carga)
+let __pdfjsLoading = null;
+function ensurePdfJs(){
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (__pdfjsLoading) return __pdfjsLoading;
+  __pdfjsLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve(window.pdfjsLib);
+    };
+    s.onerror = () => reject(new Error('No se pudo cargar pdf.js'));
+    document.head.appendChild(s);
+  });
+  return __pdfjsLoading;
+}
+
+function tycStatus(country, msg, type){
+  const el = document.getElementById(`tyc-status-${country}`);
+  if (!el) return;
+  if (!msg){ el.style.display = 'none'; return; }
+  const colors = {
+    info:    ['rgba(59,130,246,.15)', '#3b82f6'],
+    ok:      ['rgba(16,185,129,.15)', '#10b981'],
+    warn:    ['rgba(245,158,11,.15)', '#f59e0b'],
+    error:   ['rgba(239,68,68,.15)',  '#ef4444'],
+  };
+  const [bg, fg] = colors[type || 'info'];
+  el.style.display = 'block';
+  el.style.background = bg;
+  el.style.color = fg;
+  el.textContent = msg;
+}
+
+async function cargarTyC(country){
+  const url = (document.getElementById(`tyc-url-${country}`).value || '').trim();
+  if (!url){ tycStatus(country, '⚠️ Pega la URL del PDF', 'warn'); return; }
+  if (!/^https?:\/\//i.test(url)){ tycStatus(country, '⚠️ URL inválida (debe empezar con http/https)', 'warn'); return; }
+
+  tycStatus(country, '⏳ Cargando pdf.js...', 'info');
+  try {
+    const pdfjs = await ensurePdfJs();
+    tycStatus(country, '📥 Descargando PDF...', 'info');
+
+    const resp = await fetch(url, { mode: 'cors' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+
+    tycStatus(country, '📄 Extrayendo texto...', 'info');
+    const pdf = await pdfjs.getDocument({ data: buf }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++){
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText += content.items.map(it => it.str).join(' ') + '\n';
+    }
+    parsearTyCDesdeTexto(country, fullText, url);
+  } catch (e) {
+    console.error('[TyC] cargarTyC error:', e);
+    const isCors = /Failed to fetch|CORS|NetworkError/i.test(e.message);
+    tycStatus(country,
+      isCors
+        ? `❌ Bloqueado por CORS. Abre la sección "pegar texto manualmente" más abajo.`
+        : `❌ Error: ${e.message}`,
+      'error');
+  }
+}
+
+function parsearTextoTyC(country){
+  const txt = (document.getElementById(`tyc-text-${country}`).value || '').trim();
+  if (!txt){ tycStatus(country, '⚠️ Pega el texto del TyC', 'warn'); return; }
+  parsearTyCDesdeTexto(country, txt, null);
+}
+
+/* ─────── PARSER REGEX ─────── */
+function parsearTyCDesdeTexto(country, rawText, sourceUrl){
+  // Log para debug — se ve en consola del browser (F12)
+  console.log('[TyC] rawText length:', rawText.length);
+  console.log('[TyC] rawText:', rawText);
+  try {
+    const tyc = parseTyCText(rawText);
+    if (sourceUrl) tyc._source_url = sourceUrl;
+    TYC_STATE[country] = { tyc, ignored: new Set(), parsed: true };
+    renderReglasExtraidas(country);
+    document.getElementById(`tyc-btn-audit-${country}`).disabled = false;
+    tycStatus(country, '✓ TyC parseado. Revisa las reglas extraídas y pulsa "Auditar piloto".', 'ok');
+  } catch (e){
+    console.error('[TyC] parser error', e, '\nrawText:', rawText);
+    // Muestra preview del texto para diagnosticar
+    const preview = rawText.slice(0, 300).replace(/\s+/g,' ');
+    tycStatus(country, `❌ ${e.message}\n\nTexto detectado (primeros 300 chars):\n"${preview}..."\n\nAbre la consola del browser (F12 → Console) para ver el texto completo.`, 'error');
+  }
+}
+
+function parseTyCText(rawText){
+  // pdf.js extrae texto con espacios entre letras: "P ica p", "M e n s aje r ía".
+  // Heurística: en el PDF las palabras reales están separadas por 2+ espacios,
+  // las pseudo-palabras (letra-espacio-letra-espacio…) por 1 espacio.
+  // Algoritmo: split por \s{2,} → cada chunk; si el chunk tiene 3+ tokens con
+  // promedio de longitud ≤2.5, es pseudo-palabra → colapsar.
+  const denoise = s => s.split(/\s{2,}/).map(chunk => {
+    const tokens = chunk.trim().split(/\s+/);
+    if (tokens.length >= 3){
+      const avg = tokens.reduce((a,t) => a + t.length, 0) / tokens.length;
+      if (avg <= 2.5) return tokens.join('');
+    }
+    return chunk.trim();
+  }).join(' ');
+
+  const denoised = denoise(rawText);
+  const text     = denoised.replace(/\s+/g, ' ').trim();
+
+  const out = {
+    nombre:                 null,
+    id_campana:             null,
+    pais:                   'Colombia',
+    fecha_inicio:           null,
+    fecha_fin:              null,
+    tiers:                  [],
+    servicios_validos:      [],
+    requiere_inactividad:   false,
+    dias_inactividad:       0,
+    excluye_picap_max:      false,
+    distancia_minima_m:     0,
+    anula_pasajero_repetido: false,
+    mensajeria_no_corp:     false,
+    _raw_excerpt:           rawText.slice(0, 500),
+  };
+
+  // Nombre — todos los candidatos "¡Algo!" en texto denoised; elijo el primero
+  // con minúsculas (texto natural, no encabezado de pseudo-letras)
+  const nameCandidates = [...text.matchAll(/¡\s*([^!¡]{5,100}?)\s*!/g)]
+    .map(m => m[1].replace(/\s+/g,' ').trim())
+    .filter(s => /[a-záéíóúñ]/.test(s));
+  if (nameCandidates.length) out.nombre = nameCandidates[0];
+
+  // ID campaña (24 hex chars)
+  const mId = rawText.match(/\b([a-f0-9]{24})\b/i);
+  if (mId) out.id_campana = mId[1];
+
+  // País
+  if (/m[eé]xico|MX\b/i.test(text)) out.pais = 'México';
+  else if (/nicaragua|NI\b/i.test(text)) out.pais = 'Nicaragua';
+  else out.pais = 'Colombia';
+
+  // Fechas — busca formato YYYY-MM-DD HH:MM:SS o YYYY-MM-DD
+  const fechas = [...rawText.matchAll(/(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/g)]
+    .map(m => m[1] + (m[2] ? ' ' + (m[2].length === 5 ? m[2] + ':00' : m[2]) : ' 00:00:00'));
+  if (fechas.length >= 2){
+    out.fecha_inicio = fechas[0];
+    out.fecha_fin    = fechas[fechas.length - 1];
+  }
+
+  // Tiers — varias estrategias (de más específica a más amplia)
+  const seen = new Set();
+  const pushTier = (count, bono) => {
+    if (count <= 0 || count > 500 || bono <= 1000) return;
+    const k = `${count}:${bono}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.tiers.push({ count, bono });
+  };
+
+  // Estrategia 1a: "X viajes ... 50.000 COP" o "X viajes ... $50,000" (con/sin $, monto con miles)
+  // Cifras de la forma 50.000 / 50,000 / 1.500.000 / $50.000
+  const MONEY = '(?:\\$\\s*)?(\\d{1,3}(?:[\\.,]\\d{3})+)\\s*(?:COP|MXN|NIO|pesos)?';
+  [...rawText.matchAll(new RegExp('(\\d{1,3})\\s*(?:viajes?|servicios?|carreras?|trayectos?|entregas?)[\\s\\S]{0,100}?' + MONEY, 'gi'))]
+    .forEach(m => pushTier(parseInt(m[1],10), parseInt(m[2].replace(/[.,]/g,''),10)));
+
+  // Estrategia 1b: monto antes — "50.000 COP ... 20 viajes" (orden inverso)
+  if (out.tiers.length === 0){
+    [...rawText.matchAll(new RegExp(MONEY + '[\\s\\S]{0,100}?(\\d{1,3})\\s*(?:viajes?|servicios?|carreras?|trayectos?)', 'gi'))]
+      .forEach(m => pushTier(parseInt(m[2],10), parseInt(m[1].replace(/[.,]/g,''),10)));
+  }
+
+  // Estrategia 3: tabla — "20 ... 50.000" sin palabra clave (números pequeños + montos grandes en la misma línea/celda)
+  if (out.tiers.length === 0){
+    rawText.split(/[\n\r]+/).forEach(line => {
+      const ms = [...line.matchAll(/\b(\d{1,3})\b[^\d]{1,30}\$?\s*([\d]{1,3}[\.,][\d]{3,})/g)];
+      ms.forEach(m => {
+        const c = parseInt(m[1],10), b = parseInt(m[2].replace(/[.,]/g,''),10);
+        if (c >= 5 && c <= 200 && b >= 10000) pushTier(c, b);
+      });
+    });
+  }
+
+  // Estrategia 4 (fallback): "bono de hasta $X" — bono único sin escalones
+  if (out.tiers.length === 0){
+    const mBonoUnico = rawText.match(/(?:bono|pi-?bono|premio|gana(?:r)?)\s+(?:extra\s+)?(?:de\s+)?(?:hasta\s+)?\$?\s*([\d.,]+)\s*(?:COP|MXN|NIO|pesos)?/i);
+    if (mBonoUnico){
+      const bono = parseInt(mBonoUnico[1].replace(/[.,]/g,''),10);
+      if (bono >= 10000){
+        // Bono único — asignamos un "1 servicio" para que el sistema lo trate como 1 tier mínimo
+        pushTier(1, bono);
+      }
+    }
+  }
+  out.tiers.sort((a,b) => a.count - b.count);
+
+  // Servicios válidos — heurística por palabras conocidas
+  const serviciosKnown = ['Espero tranqui','Mensajería','Mensajeria','Picap Moto','Picap Auto',
+                          'Picap MAX','PicapMAX','Recoge y Lleva','Vuelve y'];
+  serviciosKnown.forEach(s => {
+    if (new RegExp(s.replace(/ /g,'\\s+'), 'i').test(text)) out.servicios_validos.push(s);
+  });
+  if (out.servicios_validos.length === 0) out.servicios_validos = ['Picap Moto'];
+
+  // Reglas
+  out.excluye_picap_max       = /(excluy|no aplica|no v[aá]lid).{0,40}picap\s*max/i.test(text);
+  out.mensajeria_no_corp      = /mensajer[ií]a.{0,60}(no\s+corporativa|no\s+empresarial|sin\s+empresa)/i.test(text)
+                              || /(no\s+corporativa|excluye\s+empresa).{0,40}mensajer/i.test(text);
+  out.anula_pasajero_repetido = /(no\s+(se\s+)?(repit|cuent).{0,30}pasajer|pasajero[^.]{0,30}repetid|mismo\s+pasajero)/i.test(text);
+
+  const mInac = text.match(/(?:inactiv|sin\s+actividad).{0,40}?(\d{1,3})\s*d[ií]as/i);
+  if (mInac){ out.requiere_inactividad = true; out.dias_inactividad = parseInt(mInac[1],10); }
+
+  const mDist = text.match(/(?:distancia\s+m[ií]nima|trayecto\s+m[ií]nimo|m[ií]nimo\s+de\s+distancia).{0,30}?(\d{2,5})\s*m(?:etros)?/i);
+  if (mDist) out.distancia_minima_m = parseInt(mDist[1],10);
+
+  // Validación mínima
+  if (!out.fecha_inicio || !out.fecha_fin)
+    throw new Error('No se encontraron fechas inicio/fin en el TyC.');
+  if (out.tiers.length === 0)
+    throw new Error('No se encontraron tiers (cantidad de servicios + bono $).');
+
+  return out;
+}
+
+/* ─────── RENDER REGLAS EXTRAÍDAS ─────── */
+function renderReglasExtraidas(country){
+  const state = TYC_STATE[country];
+  if (!state) return;
+  const tyc = state.tyc;
+  const fmt$ = n => '$' + (n||0).toLocaleString('es-CO');
+
+  const filaRegla = (key, label, valor, activa) => `
+    <label class="tyc-rule${activa ? '' : ' tyc-rule-off'}">
+      <input type="checkbox" data-rule="${key}"
+        ${state.ignored.has(key) ? 'checked' : ''}
+        ${activa ? '' : 'disabled'}
+        onchange="toggleReglaTyC('${country}','${key}', this.checked)">
+      <div class="tyc-rule-body">
+        <div class="tyc-rule-label">${label}</div>
+        <div class="tyc-rule-value">${valor}</div>
+      </div>
+      <span class="tyc-rule-tag">${activa ? 'aplica' : 'no aplica'}</span>
+    </label>`;
+
+  const html = `
+    <div class="tyc-card">
+      <div class="tyc-card-head">📄 Estructura extraída del TyC</div>
+      <div class="tyc-meta">
+        <div><b>Nombre:</b> ${tyc.nombre || '<i>(no detectado)</i>'}</div>
+        <div><b>ID campaña:</b> ${tyc.id_campana || '<i>(no detectado)</i>'}</div>
+        <div><b>País:</b> ${tyc.pais}</div>
+        <div><b>Vigencia:</b> ${tyc.fecha_inicio} → ${tyc.fecha_fin}</div>
+        <div><b>Servicios válidos:</b> ${tyc.servicios_validos.join(', ')}</div>
+      </div>
+      <div class="tyc-tiers">
+        <b>Tiers:</b>
+        ${tyc.tiers.map(t => `<span class="tyc-tier-chip">${t.count}v → ${fmt$(t.bono)}</span>`).join(' ')}
+      </div>
+      <div class="tyc-rules-head">⚙️ Reglas — marca el checkbox para <b>IGNORAR</b>:</div>
+      ${filaRegla('inactividad',        'Inactividad previa requerida',
+                  tyc.requiere_inactividad ? `${tyc.dias_inactividad} días` : '—',
+                  tyc.requiere_inactividad)}
+      ${filaRegla('distancia',          'Distancia mínima por servicio',
+                  tyc.distancia_minima_m > 0 ? `${tyc.distancia_minima_m} m` : '—',
+                  tyc.distancia_minima_m > 0)}
+      ${filaRegla('mensajeria_no_corp', 'Mensajería sin empresa (no corporativa)',
+                  tyc.mensajeria_no_corp ? 'sí' : '—', tyc.mensajeria_no_corp)}
+      ${filaRegla('pasajero_repetido',  'Anula pasajero repetido',
+                  tyc.anula_pasajero_repetido ? 'sí' : '—', tyc.anula_pasajero_repetido)}
+      ${filaRegla('picap_max',          'Excluye Picap MAX',
+                  tyc.excluye_picap_max ? 'sí' : '—', tyc.excluye_picap_max)}
+    </div>`;
+  document.getElementById(`tyc-reglas-${country}`).innerHTML = html;
+}
+
+function toggleReglaTyC(country, key, ignored){
+  const state = TYC_STATE[country];
+  if (!state) return;
+  if (ignored) state.ignored.add(key); else state.ignored.delete(key);
+}
+
+/* ─────── AUDITAR (manda al backend) ─────── */
+async function auditarTyC(country){
+  const state = TYC_STATE[country];
+  if (!state || !state.parsed){ tycStatus(country, '⚠️ Carga primero un TyC.', 'warn'); return; }
+  const driver_id = (document.getElementById(`tyc-driver-${country}`).value || '').trim();
+  if (!/^[a-f0-9]{24}$/i.test(driver_id)){
+    tycStatus(country, '⚠️ driver_id debe ser hex de 24 caracteres', 'warn'); return;
+  }
+
+  const btn = document.getElementById(`tyc-btn-audit-${country}`);
+  btn.disabled = true; btn.textContent = '⏳ Auditando...';
+  tycStatus(country, '🔎 Consultando ClickHouse...', 'info');
+
+  try {
+    const hdrs = { 'Content-Type':'application/json' };
+    const tok = AUTH_TOKEN(); if (tok) hdrs['X-Token'] = tok;
+    const r = await fetch(`${API_BASE}/api/campaign_validator/auditar_tyc`, {
+      method:  'POST',
+      headers: hdrs,
+      body:    JSON.stringify({
+        tyc:           state.tyc,
+        driver_id:     driver_id,
+        ignored_rules: Array.from(state.ignored),
+      })
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    renderVeredicto(country, data, driver_id);
+    tycStatus(country, '✓ Auditoría completada', 'ok');
+  } catch (e){
+    console.error('[TyC] auditarTyC error', e);
+    tycStatus(country, `❌ ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '⚖️ Auditar piloto';
+  }
+}
+
+function renderVeredicto(country, d, driver_id){
+  const gana = d.veredicto === 'GANA';
+  const fmt$ = n => '$' + (n||0).toLocaleString('es-CO');
+  const c = d.conteos || {};
+  const html = `
+    <div class="tyc-card tyc-verdict ${gana ? 'gana' : 'noGana'}">
+      <div class="tyc-verdict-head">
+        ${gana ? '✅ GANA' : '❌ NO GANA'}
+        <span class="tyc-verdict-driver">${driver_id}</span>
+      </div>
+      <div class="tyc-verdict-reason">${d.razon_veredicto || ''}</div>
+      <div class="tyc-verdict-grid">
+        <div><b>Tier alcanzado</b><br>${d.tier_alcanzado}</div>
+        <div><b>Bono que debería recibir</b><br>${fmt$(d.bono_que_deberia_recibir)}</div>
+        <div><b>Pagado realmente</b><br>${fmt$(d.valor_efectivamente_pagado)}</div>
+        <div><b>Servicios válidos finales</b><br>${c.servicios_validos_finales || 0}</div>
+      </div>
+      <details class="tyc-verdict-detail">
+        <summary>Ver desglose de conteos</summary>
+        <ul>
+          <li>Total status_cd=4 en periodo: <b>${c.total_servicios_status4_en_periodo || 0}</b></li>
+          <li>Tras filtro tipo/país/moneda: <b>${c.servicios_tipo_pais_validos || 0}</b></li>
+          <li>Servicios válidos finales: <b>${c.servicios_validos_finales || 0}</b></li>
+          <li>Servicios en inactividad previa: <b>${c.servicios_en_inactividad_previa || 0}</b></li>
+          <li>Pasajeros repetidos: <b>${c.pasajeros_repetidos || 0}</b></li>
+        </ul>
+        ${d.reglas_ignoradas?.length ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">Reglas ignoradas: ${d.reglas_ignoradas.join(', ')}</div>` : ''}
+      </details>
+    </div>`;
+  document.getElementById(`tyc-veredicto-${country}`).innerHTML = html;
+}
 </script>
 </body>
 </html>
