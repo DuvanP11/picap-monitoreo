@@ -156,9 +156,7 @@ class TycAuditorService
       WITH
       campanas_familia AS (
           SELECT toString(_id)              AS campaign_id,
-                 any(name)                  AS campaign_name,
-                 any(begin_at)              AS campaign_begin,
-                 any(finish_at)             AS campaign_finish
+                 any(name)                  AS campaign_name
           FROM picapmongoprod.campaigns
           WHERE 1=1 #{campanas_filter}
           GROUP BY _id
@@ -282,12 +280,9 @@ class TycAuditorService
                               .first(3)
     return "AND 1 = 0" if words.empty?
 
-    fecha_ini_d = normalize_dt(@tyc["fecha_inicio"])[0..9]
-    fecha_fin_d = normalize_dt(@tyc["fecha_fin"])[0..9]
-
-    words.map { |w| "AND positionCaseInsensitive(name, '#{w}') > 0" }.join("\n        ") +
-      "\n        AND toDate(begin_at) >= toDate('#{fecha_ini_d}') - 2" \
-      "\n        AND toDate(begin_at) <= toDate('#{fecha_fin_d}') + 2"
+    # v3.3.98: no filtramos por begin_at (no existe en el schema de campaigns)
+    # Si hay falsos positivos por palabras genéricas, el user puede usar override.
+    words.map { |w| "AND positionCaseInsensitive(name, '#{w}') > 0" }.join("\n        ")
   end
 
   def build_result(row)
