@@ -193,10 +193,10 @@ class TycAuditorService
                     AND bd.end_lon IS NOT NULL AND bd.end_lat IS NOT NULL,
                     round(geoDistance(bd.origin_lon, bd.origin_lat, bd.end_lon, bd.end_lat), 0),
                     NULL) AS distancia_m
-          FROM bookings_dedup bd
-          INNER JOIN picapmongoprod.service_types FINAL AS st
+          FROM bookings_dedup AS bd
+          INNER JOIN picapmongoprod.service_types AS st FINAL
               ON st._id = bd.service_type_id
-          INNER JOIN service_types_validos sv ON sv._id = bd.service_type_id
+          INNER JOIN service_types_validos AS sv ON sv._id = bd.service_type_id
           WHERE 1=1
             #{pais_filter}
             AND bd.currency_iso = 'COP'
