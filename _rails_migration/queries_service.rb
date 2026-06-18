@@ -3806,7 +3806,6 @@ module QueriesService
                     ', '
                 )
             )                                                                    AS regla_trump,
-            count(b._id) OVER (PARTITION BY b.driver_id)                         AS numero_de_servicios,
             toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.*?"coordinates":\[\s*([+-]?\d+\.\d+)'))  AS drop_lon,
             toFloat64OrNull(extract(ifNull(b.events, ''), 'event_cd":24.*?"coordinates":\[[^,]+,\s*([+-]?\d+\.\d+)')) AS drop_lat,
             nullIf(JSONExtractFloat(b.end_geojson, 'coordinates', 1), 0)         AS end_lon,
@@ -3820,15 +3819,24 @@ module QueriesService
               BETWEEN toDateTime('%{fecha_desde}', 'America/Bogota')
               AND     toDateTime('%{fecha_hasta}', 'America/Bogota')
           %{filtro_driver}
+    ),
+    /* v3.3.93: dedup primero (rn=1), DESPUÉS contar servicios únicos por driver.
+       Antes count() OVER (PARTITION BY driver_id) se calculaba sobre filas raw
+       (incluyendo duplicados de _sdc_batched_at) → daba 116 cuando los servicios
+       reales eran 29. */
+    dedup AS (
+        SELECT * FROM base WHERE rn = 1
     )
     SELECT
         id_booking,
-        formatDateTime(toTimeZone(fecha, 'America/Bogota'), '%%Y-%%m-%%d %%H:%%i:%%s') AS fecha,
+        /* v3.3.93: formato fecha con UN solo % (QueriesService.format usa gsub,
+           no String#%, así que '%%' quedaba literal y CH mostraba '%Y-%m-%d...'). */
+        formatDateTime(toTimeZone(fecha, 'America/Bogota'), '%Y-%m-%d %H:%i:%s') AS fecha,
         id_driver,
         nombre_piloto,
         cd_servicio,
         regla_trump,
-        numero_de_servicios,
+        count() OVER (PARTITION BY id_driver) AS numero_de_servicios,
         multiIf(
             drop_lon IS NULL OR drop_lat IS NULL OR end_lon IS NULL OR end_lat IS NULL,
             'SIN_COORDENADAS',
@@ -3839,8 +3847,7 @@ module QueriesService
             'LLEGO_AL_DESTINO',
             'NO_LLEGO_AL_DESTINO'
         ) AS regla_monitoreo
-    FROM base
-    WHERE rn = 1
+    FROM dedup
     ORDER BY fecha DESC
     LIMIT 5000
   SQL
