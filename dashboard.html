@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.112-ROLES-MARKETING-CV-CARD-20260619</title>
+<title>Picap · Monitoreo · v3.3.113-PIBOX-FILTRO-ID-PILOTO-FIX-20260619</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -2333,8 +2333,8 @@ window.fetch = function(url, opts) {
         <label>Cliente:</label>
         <input type="text" class="filter-select" id="pibox-cliente" placeholder="Nombre cliente..." style="width:150px">
         
-        <label>Piloto:</label>
-        <input type="text" class="filter-select" id="pibox-piloto" placeholder="Nombre piloto..." style="width:150px">
+        <label>ID Piloto:</label>
+        <input type="text" class="filter-select" id="pibox-piloto" placeholder="hex 24 chars" maxlength="24" style="width:200px;font-family:monospace;font-size:11px">
 
         <div class="sep"></div>
 
@@ -17513,7 +17513,14 @@ async function buscarAlertasPibox() {
   const hasta = document.getElementById('pibox-hasta').value;
   const pais = document.getElementById('pibox-pais').value;
   const cliente = document.getElementById('pibox-cliente').value;
-  const piloto = document.getElementById('pibox-piloto').value;
+  // v3.3.113: el backend espera 'piloto_id' (hex 24 chars), no 'piloto' (nombre).
+  // El parametro 'piloto' que se enviaba antes se ignoraba en el server.
+  const pilotoIdRaw = (document.getElementById('pibox-piloto').value || '').trim();
+  const pilotoId = /^[a-fA-F0-9]{24}$/.test(pilotoIdRaw) ? pilotoIdRaw : '';
+  if (pilotoIdRaw && !pilotoId) {
+    alert('⚠️ ID Piloto inválido — debe ser hex de 24 caracteres');
+    return;
+  }
 
   const tbody = document.getElementById('pibox-tbody');
   tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px">⏳ Cargando alertas...</td></tr>';
@@ -17527,7 +17534,7 @@ async function buscarAlertasPibox() {
     let url = `/api/pibox/alertas?desde=${desde}&hasta=${hasta}`;
     if (pais) url += `&pais=${pais}`;
     if (cliente) url += `&cliente=${encodeURIComponent(cliente)}`;
-    if (piloto) url += `&piloto=${encodeURIComponent(piloto)}`;
+    if (pilotoId) url += `&piloto_id=${pilotoId}`;
 
     const res = await fetch(url, { headers: { 'X-Token': token } });
     const data = await safeJson(res);
@@ -17676,9 +17683,12 @@ async function exportarPiboxExcel(btn) {
   const desde = document.getElementById('pibox-desde').value;
   const hasta = document.getElementById('pibox-hasta').value;
   const pais  = document.getElementById('pibox-pais').value;
-  // Usar el helper genérico: fetch + blob + X-Token header (NO window.open,
-  // que no manda headers personalizados y causaba 401).
-  exportarExcel('api/pibox/export', {desde, hasta, pais}, btn, 'Picap_Pibox_Alertas');
+  // v3.3.113: incluir filtro de piloto_id en el export
+  const pilotoIdRaw = (document.getElementById('pibox-piloto').value || '').trim();
+  const piloto_id = /^[a-fA-F0-9]{24}$/.test(pilotoIdRaw) ? pilotoIdRaw : '';
+  const params = {desde, hasta, pais};
+  if (piloto_id) params.piloto_id = piloto_id;
+  exportarExcel('api/pibox/export', params, btn, 'Picap_Pibox_Alertas');
 }
 
 async function cargarEstadisticasPibox() {
