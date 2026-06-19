@@ -456,6 +456,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
     <button class="tab-btn" onclick="openTab('MEX','seg')">📡 Seguimiento</button>
     <button class="tab-btn" onclick="openTab('MEX','det')">🔍 Detallado</button>
     <button class="tab-btn" onclick="openTab('MEX','cs')">🔧 Consulta Servicios</button>
+    <button class="tab-btn" onclick="openTab('MEX','tyc')">📄 Auditor TyC</button>
   </div>
   <div class="filters-bar" id="fbar-MEX">
     <div class="filter-row">
@@ -531,6 +532,35 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
       <div id="cs-status-MEX" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px"></div>
       <div class="table-wrap" style="max-height:480px;overflow-y:auto;margin-top:10px;" id="cs-tbl-MEX"></div>
     </div>
+
+    <!-- v3.3.109: Auditor TyC en MEX -->
+    <div class="tab-panel" id="MEX-tyc">
+      <div class="tyc-form">
+        <div class="cs-row">
+          <label>URL del PDF:</label>
+          <input type="text" id="tyc-url-MEX" placeholder="https://static.picap.co/campaigns/.../TyC_...pdf" style="font-family:monospace;font-size:11px;flex:1">
+          <button class="btn-search" onclick="cargarTyC('MEX')">📥 Cargar TyC</button>
+        </div>
+        <div class="cs-row">
+          <label>ID Piloto:</label>
+          <input type="text" id="tyc-driver-MEX" placeholder="24 hex chars del driver_id" maxlength="24" style="font-family:monospace;font-size:11px;flex:1">
+          <button class="btn-search" onclick="auditarTyC('MEX')" id="tyc-btn-audit-MEX" disabled>⚖️ Auditar piloto</button>
+        </div>
+        <div class="cs-row" title="Si lo dejas vacío, el backend busca la familia de campañas automáticamente por nombre del TyC.">
+          <label>ID Campaña (override, opcional):</label>
+          <input type="text" id="tyc-campaign-override-MEX" placeholder="hex 24 chars o slug" style="font-family:monospace;font-size:11px;flex:1">
+        </div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:11px;color:var(--text-muted)">¿No puedes descargar el PDF? (CORS) — pegar texto manualmente</summary>
+          <textarea id="tyc-text-MEX" placeholder="Pega aquí el texto del TyC del PDF..." rows="8"
+            style="width:100%;margin-top:6px;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)"></textarea>
+          <button class="btn-search" onclick="parsearTextoTyC('MEX')" style="margin-top:6px">🔍 Parsear texto</button>
+        </details>
+      </div>
+      <div id="tyc-status-MEX" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px"></div>
+      <div id="tyc-reglas-MEX" style="margin-top:12px"></div>
+      <div id="tyc-veredicto-MEX" style="margin-top:12px"></div>
+    </div>
   </div>
   </div><!-- /card-body MEX -->
 </div><!-- /Mexico -->
@@ -550,6 +580,7 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
     <button class="tab-btn" onclick="openTab('NIC','seg')">📡 Seguimiento</button>
     <button class="tab-btn" onclick="openTab('NIC','det')">🔍 Detallado</button>
     <button class="tab-btn" onclick="openTab('NIC','cs')">🔧 Consulta Servicios</button>
+    <button class="tab-btn" onclick="openTab('NIC','tyc')">📄 Auditor TyC</button>
   </div>
   <div class="filters-bar" id="fbar-NIC">
     <div class="filter-row">
@@ -624,6 +655,35 @@ td.wrap-cell{white-space:normal;min-width:160px;max-width:260px;}
       </div>
       <div id="cs-status-NIC" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px"></div>
       <div class="table-wrap" style="max-height:480px;overflow-y:auto;margin-top:10px;" id="cs-tbl-NIC"></div>
+    </div>
+
+    <!-- v3.3.109: Auditor TyC en NIC -->
+    <div class="tab-panel" id="NIC-tyc">
+      <div class="tyc-form">
+        <div class="cs-row">
+          <label>URL del PDF:</label>
+          <input type="text" id="tyc-url-NIC" placeholder="https://static.picap.co/campaigns/.../TyC_...pdf" style="font-family:monospace;font-size:11px;flex:1">
+          <button class="btn-search" onclick="cargarTyC('NIC')">📥 Cargar TyC</button>
+        </div>
+        <div class="cs-row">
+          <label>ID Piloto:</label>
+          <input type="text" id="tyc-driver-NIC" placeholder="24 hex chars del driver_id" maxlength="24" style="font-family:monospace;font-size:11px;flex:1">
+          <button class="btn-search" onclick="auditarTyC('NIC')" id="tyc-btn-audit-NIC" disabled>⚖️ Auditar piloto</button>
+        </div>
+        <div class="cs-row" title="Si lo dejas vacío, el backend busca la familia de campañas automáticamente por nombre del TyC.">
+          <label>ID Campaña (override, opcional):</label>
+          <input type="text" id="tyc-campaign-override-NIC" placeholder="hex 24 chars o slug" style="font-family:monospace;font-size:11px;flex:1">
+        </div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:11px;color:var(--text-muted)">¿No puedes descargar el PDF? (CORS) — pegar texto manualmente</summary>
+          <textarea id="tyc-text-NIC" placeholder="Pega aquí el texto del TyC del PDF..." rows="8"
+            style="width:100%;margin-top:6px;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)"></textarea>
+          <button class="btn-search" onclick="parsearTextoTyC('NIC')" style="margin-top:6px">🔍 Parsear texto</button>
+        </details>
+      </div>
+      <div id="tyc-status-NIC" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px"></div>
+      <div id="tyc-reglas-NIC" style="margin-top:12px"></div>
+      <div id="tyc-veredicto-NIC" style="margin-top:12px"></div>
     </div>
   </div>
   </div><!-- /card-body NIC -->
