@@ -122,6 +122,12 @@ Rails.application.routes.draw do
     end
     post "validador_dispersiones/enviar_email", to: "validador_dispersiones#enviar_email"
 
+    # v3.3.110: Asistente Picap v2.0 (LLM con Ollama)
+    namespace :asistente do
+      post "chat",   to: "/api/asistente#chat"
+      get  "status", to: "/api/asistente#status"
+    end
+
     # v3.3.58: PICAP CAMPAIGN VALIDATOR — pagos de campaña con datos reales de CH
     namespace :campaign_validator do
       get  "cargar_async",          to: "/api/campaign_validator#cargar_async"

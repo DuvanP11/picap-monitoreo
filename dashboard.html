@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.109-AUDITOR-TYC-MEX-NIC-20260619</title>
+<title>Picap · Monitoreo · v3.3.110-ASISTENTE-LLM-OLLAMA-V2-20260619</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -18109,6 +18109,23 @@ function asiPregunta(q){
   asiEnviar();
 }
 
+/* v3.3.110: si el backend tiene LLM habilitado, usa el endpoint;
+   sino cae al rule-based local. */
+let _asiLlmEnabled = null;  // cache
+
+async function _asiCheckLlm(){
+  if(_asiLlmEnabled !== null) return _asiLlmEnabled;
+  try {
+    const hdrs = {'Content-Type':'application/json'};
+    const tok = (typeof AUTH_TOKEN === 'function') ? AUTH_TOKEN() : null;
+    if(tok) hdrs['X-Token'] = tok;
+    const r = await fetch('/api/asistente/status', {headers:hdrs});
+    const d = await r.json();
+    _asiLlmEnabled = !!d.llm_enabled;
+  } catch(e){ _asiLlmEnabled = false; }
+  return _asiLlmEnabled;
+}
+
 function asiEnviar(){
   const inp = document.getElementById('asi-input');
   const text = (inp.value||'').trim();
@@ -18116,12 +18133,59 @@ function asiEnviar(){
   inp.value = '';
   asiAddMsg(text, 'user');
   asiAddMsg('<span class="asi-typing"><span></span><span></span><span></span></span>','bot');
-  setTimeout(()=>{
+
+  _asiCheckLlm().then(async (llm) => {
     document.getElementById('asi-messages').lastChild.remove();
-    const item = asiMatch(text);
-    if(item) asiAddBot(item);
-    else asiAddMsg('Hmm, no estoy seguro de qué buscas. Prueba con palabras como: <i>evasión, recaudos, estafa, auditorías, cronograma, exportar, email</i>. O dale click a uno de los botones de abajo.','bot');
-  }, 350);
+    if(llm){
+      await asiEnviarLlm(text);
+    } else {
+      const item = asiMatch(text);
+      if(item) asiAddBot(item);
+      else asiAddMsg('Hmm, no estoy seguro de qué buscas. Prueba con palabras como: <i>evasión, recaudos, estafa, auditorías, cronograma, exportar, email</i>. O dale click a uno de los botones de abajo.','bot');
+    }
+  });
+}
+
+async function asiEnviarLlm(text){
+  asiAddMsg('<span class="asi-typing"><span></span><span></span><span></span></span> <span style="color:var(--text-muted);font-size:11px">consultando datos…</span>','bot');
+  try {
+    const hdrs = {'Content-Type':'application/json'};
+    const tok = (typeof AUTH_TOKEN === 'function') ? AUTH_TOKEN() : null;
+    if(tok) hdrs['X-Token'] = tok;
+    const r = await fetch('/api/asistente/chat', {
+      method: 'POST',
+      headers: hdrs,
+      body: JSON.stringify({
+        mensaje: text,
+        vista:   (typeof currentView !== 'undefined' ? currentView : ''),
+        rol:     _asiRol(),
+      })
+    });
+    const d = await r.json();
+    document.getElementById('asi-messages').lastChild.remove();
+    if(!d.ok){
+      asiAddMsg(`❌ ${d.error || 'No pude procesar la pregunta'}`,'bot');
+      return;
+    }
+    let html = (d.respuesta || '').replace(/\n/g,'<br>');
+    if(d.modulo && d.modulo.slug){
+      const slug = d.modulo.slug.replace(/'/g,"\\'");
+      const lbl  = d.modulo.label || 'Ver módulo';
+      const btnId = 'asi-act-llm-' + Math.random().toString(36).slice(2,8);
+      html += `<div class="asi-msg-actions"><button class="asi-msg-action" id="${btnId}">📂 ${lbl}</button></div>`;
+      setTimeout(()=>{
+        const b = document.getElementById(btnId);
+        if(b) b.addEventListener('click', () => {
+          try { if(typeof switchView==='function') switchView(slug); asiToggle(); }
+          catch(e){ console.error(e); }
+        });
+      }, 0);
+    }
+    asiAddMsg(html, 'bot');
+  } catch(e){
+    document.getElementById('asi-messages').lastChild.remove();
+    asiAddMsg(`❌ Error de red: ${e.message}`,'bot');
+  }
 }
 
 function asiPoblarQuick(){
