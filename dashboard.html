@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.111-ASISTENTE-LLM-CLAUDE-HAIKU-20260619</title>
+<title>Picap · Monitoreo · v3.3.112-ROLES-MARKETING-CV-CARD-20260619</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -2740,6 +2740,26 @@ window.fetch = function(url, opts) {
             </div>
           </div>
           <div class="home-module-card-footer">🔹 Tu espacio personal · disponible para todos</div>
+        </div>
+
+        <!-- ── MARKETING ─────────────────────────────────── -->
+        <!-- v3.3.112: nueva card Marketing con Campaign Validator -->
+        <div class="home-module-card" id="hcard-marketing-mod" style="display:none">
+          <div class="home-module-card-top">
+            <div class="home-module-card-icon marketing" style="background:linear-gradient(135deg,#6b21a8,#a78bfa);color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px">📣</div>
+            <div>
+              <div class="home-module-card-name">Marketing</div>
+              <div class="home-module-card-count">Campañas y validación de pagos</div>
+            </div>
+          </div>
+          <div class="home-module-options">
+            <div class="home-module-option" onclick="window.location.href='/campaign_validator/'">
+              <span class="home-module-option-icon">🏍️</span>
+              <span class="home-module-option-label">Campaign Validator</span>
+              <span class="home-module-option-arrow">›</span>
+            </div>
+          </div>
+          <div class="home-module-card-footer">🔹 Auditoría de campañas con datos reales de ClickHouse</div>
         </div>
 
       </div>
@@ -7114,15 +7134,17 @@ function aplicarRol() {
   const adminNav = document.getElementById('nav-admin');
   if(adminNav) adminNav.style.display = (rol === 'admin') ? 'flex' : 'none';
 
-  // ── Módulos del home según rol (v3.3.15: + Informes, + Productividad) ──
+  // ── Módulos del home según rol ──
+  // v3.3.112: matriz redefinida + rol 'marketing' + card 'Campañas' (Campaign Validator)
   const HOME_ROLES = {
     'hcard-admin-mod':         ['admin'],
-    'hcard-sac':               ['admin','monitoreo','sac'],
-    'hcard-financiero-mod':    ['admin','monitoreo','financiero'],
+    'hcard-sac':               ['admin','sac'],
+    'hcard-financiero-mod':    ['admin','monitoreo','financiero','pibox','operaciones'],
     'hcard-mon-mod':           ['admin','monitoreo'],
-    'hcard-pivots-mod':        ['admin','monitoreo','pibox','financiero'],
+    'hcard-pivots-mod':        ['admin','monitoreo','financiero','pibox','operaciones'],
     'hcard-informes-mod':      ['admin','monitoreo','financiero'],
     'hcard-productividad-mod': ['admin','monitoreo','financiero','sac','pibox'],
+    'hcard-marketing-mod':     ['admin','monitoreo','financiero','sac','operaciones','marketing'],
   };
   Object.entries(HOME_ROLES).forEach(([id, roles]) => {
     const el = document.getElementById(id);
@@ -9882,12 +9904,14 @@ async function cargarUsuarios() {
     const r = await fetch(`${API}/api/admin/usuarios`, {headers:{'X-Token':_sesionToken}});
     const d = await r.json();
     if(!d.ok) throw new Error(d.error||'Error');
-    const roles = ['admin','monitoreo','financiero','sac','pibox','pendiente'];
+    // v3.3.112: + operaciones + marketing
+    const roles = ['admin','monitoreo','financiero','sac','pibox','operaciones','marketing','pendiente'];
     // v3.3.17: mostrar foto de perfil si la subió, sino las iniciales.
     const cards = d.usuarios.map(u => {
       const initials = (u.nombre||u.usuario||'U').slice(0,2).toUpperCase();
       const rolColor = {'admin':'#6b21a8','monitoreo':'#1d4ed8','financiero':'#047857',
-                        'sac':'#b45309','pibox':'#0e7490','pendiente':'#6b7280'}[u.rol] || '#6b7280';
+                        'sac':'#b45309','pibox':'#0e7490','operaciones':'#ea580c',
+                        'marketing':'#db2777','pendiente':'#6b7280'}[u.rol] || '#6b7280';
       const avatarHtml = u.tiene_foto
         ? `<img src="${u.foto_perfil}" alt="Foto" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
         : initials;
@@ -17316,14 +17340,15 @@ async function cargarInfoUsuario() {
 
 // ── Mostrar/ocultar cards en el module-grid según rol ──────────────────────
 function aplicarRolCards(rol) {
-  // v3.3.15: misma matriz de roles que aplicarRol() — sincronizadas.
+  // v3.3.112: matriz sincronizada con aplicarRol() — rol 'marketing' + card 'Marketing' (CV)
   const HOME_ROLES = {
-    'hcard-sac':               ['admin','monitoreo','sac'],
+    'hcard-sac':               ['admin','sac'],
     'hcard-admin-mod':         ['admin'],
-    'hcard-financiero-mod':    ['admin','monitoreo','financiero'],
-    'hcard-pivots-mod':        ['admin','monitoreo','pibox','financiero'],
+    'hcard-financiero-mod':    ['admin','monitoreo','financiero','pibox','operaciones'],
+    'hcard-pivots-mod':        ['admin','monitoreo','financiero','pibox','operaciones'],
     'hcard-informes-mod':      ['admin','monitoreo','financiero'],
     'hcard-productividad-mod': ['admin','monitoreo','financiero','sac','pibox'],
+    'hcard-marketing-mod':     ['admin','monitoreo','financiero','sac','operaciones','marketing'],
   };
   Object.entries(HOME_ROLES).forEach(([id,roles]) => {
     const el = document.getElementById(id);
@@ -18045,7 +18070,7 @@ const ASI_KB = [
 function _asiRol(){ try{ return (window._sesionRol||localStorage.getItem('rol')||'').toString().toLowerCase(); }catch(e){return '';} }
 function _asiRolLabel(){
   const r = _asiRol();
-  const map = {admin:'Administrador', monitoreo:'Monitoreo', financiero:'Financiero', sac:'SAC', pibox:'Pibox', operaciones:'Operaciones'};
+  const map = {admin:'Administrador', monitoreo:'Monitoreo', financiero:'Financiero', sac:'SAC', pibox:'Pibox', operaciones:'Operaciones', marketing:'Marketing'};
   return map[r] || (r ? r : 'sin rol asignado');
 }
 function _asiNombre(){

@@ -7,7 +7,8 @@ module Api
     before_action :authenticate_user!
     before_action :validar_rol
 
-    ROLES_PERMITIDOS = %w[admin monitoreo financiero operaciones].freeze
+    # v3.3.112: + sac + marketing
+    ROLES_PERMITIDOS = %w[admin monitoreo financiero operaciones sac marketing].freeze
 
     @@load_jobs       = {}
     @@load_jobs_mutex = Mutex.new
