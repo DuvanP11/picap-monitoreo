@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.101-CV-AUDITOR-TYC-POST-PERIODO-DEDUP-20260618</title>
+<title>Picap · Monitoreo · v3.3.102-ASISTENTE-PICAP-20260618</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -17800,5 +17800,301 @@ async function cargarEstadisticasPibox() {
 }
 
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     v3.3.102 — ASISTENTE PICAP (rule-based, $0 runtime)
+     Burbuja flotante + chat con conocimiento del portal.
+     Sin LLM: matching por keywords, respuestas predefinidas, filtro por rol.
+     ═══════════════════════════════════════════════════════════════ -->
+<style>
+#asistente-fab{position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;
+  background:linear-gradient(135deg,#6b21a8,#a78bfa);color:#fff;display:flex;align-items:center;
+  justify-content:center;font-size:26px;cursor:pointer;box-shadow:0 8px 24px rgba(107,33,168,.4);
+  z-index:9998;border:none;transition:transform .2s;}
+#asistente-fab:hover{transform:scale(1.08) rotate(-6deg);}
+#asistente-fab.active{background:#ef4444;}
+#asistente-panel{position:fixed;right:22px;bottom:90px;width:380px;max-width:calc(100vw - 44px);
+  height:560px;max-height:calc(100vh - 120px);background:var(--surface,#fff);
+  border:1px solid var(--border,#d8d0ec);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.18);
+  z-index:9999;display:flex;flex-direction:column;overflow:hidden;
+  animation:asisteSlide .25s cubic-bezier(.16,1,.3,1);}
+@keyframes asisteSlide{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:none;}}
+#asistente-panel[hidden]{display:none;}
+.asi-head{background:linear-gradient(135deg,#6b21a8,#7c3aed);color:#fff;padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.asi-head-title{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;}
+.asi-head-sub{font-size:11px;opacity:.85;}
+.asi-close{background:rgba(255,255,255,.18);color:#fff;border:none;width:28px;height:28px;
+  border-radius:50%;cursor:pointer;font-size:18px;line-height:1;}
+.asi-close:hover{background:rgba(255,255,255,.32);}
+#asi-messages{flex:1;overflow-y:auto;padding:14px 14px 4px;display:flex;flex-direction:column;gap:10px;
+  background:var(--surface2,#f5f1fb);}
+.asi-msg{padding:10px 13px;border-radius:14px;font-size:13px;line-height:1.45;max-width:88%;
+  word-wrap:break-word;}
+.asi-msg.bot{background:var(--surface,#fff);border:1px solid var(--border,#e5dff0);
+  align-self:flex-start;border-bottom-left-radius:4px;color:var(--text1,#1e1333);}
+.asi-msg.user{background:#7c3aed;color:#fff;align-self:flex-end;border-bottom-right-radius:4px;}
+.asi-msg.bot b{color:#6b21a8;}
+.asi-msg-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.asi-msg-action{background:linear-gradient(135deg,#ede9f5,#f5f1fb);color:#6b21a8;border:1px solid #d8cff0;
+  padding:5px 10px;border-radius:10px;font-size:11px;font-weight:600;cursor:pointer;
+  transition:all .15s;}
+.asi-msg-action:hover{background:#6b21a8;color:#fff;}
+.asi-quick{padding:8px 12px;border-top:1px solid var(--border,#e5dff0);background:var(--surface,#fff);
+  display:flex;flex-wrap:wrap;gap:6px;max-height:88px;overflow-y:auto;}
+.asi-quick-btn{background:var(--surface2,#f5f1fb);color:var(--text2,#6b5f8a);border:1px solid var(--border,#e5dff0);
+  padding:5px 10px;border-radius:14px;font-size:11px;cursor:pointer;}
+.asi-quick-btn:hover{background:#6b21a8;color:#fff;border-color:#6b21a8;}
+.asi-input{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border,#e5dff0);
+  background:var(--surface,#fff);}
+.asi-input input{flex:1;padding:8px 12px;border:1px solid var(--border,#d8d0ec);border-radius:18px;
+  font-size:13px;outline:none;background:var(--surface,#fff);color:var(--text1,#1e1333);}
+.asi-input input:focus{border-color:#7c3aed;}
+.asi-input button{background:#6b21a8;color:#fff;border:none;width:34px;height:34px;border-radius:50%;
+  font-size:16px;cursor:pointer;flex-shrink:0;}
+.asi-input button:hover{background:#7c3aed;}
+.asi-typing{display:inline-flex;gap:3px;align-items:center;}
+.asi-typing span{width:5px;height:5px;border-radius:50%;background:#a78bfa;animation:asiBlink 1.2s infinite;}
+.asi-typing span:nth-child(2){animation-delay:.2s;}
+.asi-typing span:nth-child(3){animation-delay:.4s;}
+@keyframes asiBlink{0%,80%,100%{opacity:.3;transform:scale(.8);}40%{opacity:1;transform:scale(1.1);}}
+@media (max-width:520px){
+  #asistente-panel{right:10px;left:10px;width:auto;bottom:80px;}
+}
+</style>
+
+<button id="asistente-fab" onclick="asiToggle()" title="Asistente Picap" aria-label="Abrir asistente">🤖</button>
+<div id="asistente-panel" hidden role="dialog" aria-label="Asistente Picap">
+  <div class="asi-head">
+    <div>
+      <div class="asi-head-title">🤖 Asistente Picap</div>
+      <div class="asi-head-sub">Te guío por el portal · pregúntame lo que necesites</div>
+    </div>
+    <button class="asi-close" onclick="asiToggle()" aria-label="Cerrar">×</button>
+  </div>
+  <div id="asi-messages" aria-live="polite"></div>
+  <div class="asi-quick" id="asi-quick"></div>
+  <div class="asi-input">
+    <input id="asi-input" type="text" placeholder="Escríbeme una pregunta…" maxlength="200"
+      onkeydown="if(event.key==='Enter'){asiEnviar();event.preventDefault();}">
+    <button onclick="asiEnviar()" aria-label="Enviar">→</button>
+  </div>
+</div>
+
+<script>
+/* ═════════════════ Asistente — base de conocimiento ═════════════════ */
+const ASI_KB = [
+  // ── Módulos principales (con permisos por rol) ──
+  { kw:['evasion','evasión','comision','comisión','cobro','cobrado'], roles:['admin','monitoreo'],
+    titulo:'Evasión de Comisión',
+    text:'El módulo <b>Monitoreo · Evasión de Comisión</b> te muestra los servicios donde el conductor evade pagar comisión al sistema. Filtra por mes, ciudad, conductor. Las KPIs del top muestran lo cobrado vs lo pagado en el periodo seleccionado.',
+    action:()=>switchView&&switchView('monitoreo'), actionLabel:'📊 Ir a Evasión' },
+
+  { kw:['estafa','sospechoso','fraude'], roles:['admin','monitoreo','sac'],
+    titulo:'Servicios Estafa',
+    text:'En <b>SAC · Servicios Estafa</b> ves los servicios con patrones sospechosos (cobros duplicados, montos inusuales, etc).',
+    action:()=>switchView&&switchView('estafa','stats'), actionLabel:'⚠️ Ir a Estafa' },
+
+  { kw:['bloqueo','bloqueado','bloquear','cuenta bloqueada'], roles:['admin','monitoreo','sac'],
+    titulo:'Bloqueos',
+    text:'<b>Vista de Bloqueos</b> lista las cuentas bloqueadas con motivo, fecha y tipo (conductor/pasajero). Puedes filtrar y exportar.',
+    action:()=>switchView&&switchView('bloqueos','alertas'), actionLabel:'🔒 Ir a Bloqueos' },
+
+  { kw:['reconocimiento','facial','rf','rostro','foto'], roles:['admin','monitoreo','sac'],
+    titulo:'Reconocimiento Facial',
+    text:'Módulo <b>Reconocimiento Facial</b>: verificaciones de identidad de conductores y alertas.',
+    action:()=>switchView&&switchView('rf'), actionLabel:'👤 Ir a RF' },
+
+  { kw:['pago','tc','tarjeta','promocode','promo'], roles:['admin','monitoreo','financiero'],
+    titulo:'Pagos — TC y Promocode',
+    text:'<b>Pagos — TC y Promocode</b> muestra las transacciones por tarjeta de crédito y los códigos promocionales redimidos.',
+    action:()=>switchView&&switchView('pagos','tc'), actionLabel:'💳 Ir a Pagos' },
+
+  { kw:['recaudo','recaudacion','recaudación','cobrar a comercio','validacion recaudos'], roles:['admin','monitoreo','financiero','pibox'],
+    titulo:'Validación de Recaudos',
+    text:'<b>Validación de Recaudos</b>: recaudos diarios por comercio (Picash + Ida y Vuelta), con conciliación y export Excel.',
+    action:()=>switchView&&switchView('recaudos','stats'), actionLabel:'🧾 Ir a Recaudos' },
+
+  { kw:['auditoria','auditoría','pibox','comercial'], roles:['admin','monitoreo','financiero','pibox'],
+    titulo:'Auditorías Pibox',
+    text:'<b>Auditorías Pibox</b>: revisión de comisiones, créditos y servicios B2B (Cruz Verde, etc).',
+    action:()=>switchView&&switchView('auditoria','com-stats'), actionLabel:'📋 Ir a Auditorías' },
+
+  { kw:['reporte ops','ops cv','cruz verde'], roles:['admin','monitoreo','financiero'],
+    titulo:'Reporte OPS CV',
+    text:'<b>Reporte OPS CV</b>: reporte detallado de servicios Pibox para Cruz Verde, con export Excel y envío por email.',
+    action:()=>switchView&&switchView('reporte_ops_cv'), actionLabel:'🚀 Ir a OPS CV' },
+
+  { kw:['dispersion','dispersión','daviplata','cashout','cash out'], roles:['admin','monitoreo','financiero'],
+    titulo:'Dispersiones',
+    text:'<b>Dispersiones — Daviplata CashOut</b>: dispersiones masivas a conductores con validación y reporte.',
+    action:()=>switchView&&switchView('dispersiones'), actionLabel:'💸 Ir a Dispersiones' },
+
+  { kw:['moviired','movii'], roles:['admin','monitoreo','financiero'],
+    titulo:'MoviiRed',
+    text:'<b>MoviiRed — Comisiones</b>: estadísticas de comisiones de la red MoviiRed.',
+    action:()=>switchView&&switchView('moviired'), actionLabel:'💎 Ir a MoviiRed' },
+
+  { kw:['cronograma','agenda','tarea','pendiente'], roles:['admin','monitoreo','financiero','sac','pibox'],
+    titulo:'Cronograma',
+    text:'Tu <b>Cronograma</b> personal con tareas, dona de progreso y notificaciones.',
+    action:()=>typeof irMiCronograma==='function' && irMiCronograma(), actionLabel:'📅 Ir a Cronograma' },
+
+  { kw:['recurso','biblioteca','documento','archivo'], roles:['admin','monitoreo','financiero','sac','pibox'],
+    titulo:'Biblioteca de Recursos',
+    text:'<b>Biblioteca de Recursos</b>: documentos compartidos y plantillas del equipo.',
+    action:()=>switchView&&switchView('recursos'), actionLabel:'📚 Ir a Recursos' },
+
+  { kw:['resumen','360','vista 360','dashboard general'], roles:['admin','monitoreo','financiero'],
+    titulo:'Resumen 360',
+    text:'<b>Resumen 360</b>: vista consolidada de todos los módulos en una sola pantalla.',
+    action:()=>switchView&&switchView('resumen'), actionLabel:'📊 Ir a Resumen 360' },
+
+  { kw:['admin','panel','usuario','rol'], roles:['admin'],
+    titulo:'Panel de Administración',
+    text:'<b>Panel de Administración</b>: gestión de usuarios, roles, fotos de perfil, logs de auditoría.',
+    action:()=>switchView&&switchView('admin'), actionLabel:'👥 Ir a Admin' },
+
+  { kw:['campaign','campaña','tyc','auditor tyc','pi-bono','bono'], roles:['admin','monitoreo','financiero','operaciones'],
+    titulo:'Campaign Validator',
+    text:'<b>Campaign Validator</b>: monitorea pagos de campañas (Picap, Pibox) con datos reales de ClickHouse. Tiene un Auditor de TyC que descarga el PDF y audita pilotos contra las reglas.',
+    action:()=>{window.location.href='/campaign_validator/';}, actionLabel:'🏍️ Ir a Campaign Validator' },
+
+  // ── Preguntas tipo "cómo / dónde / qué" ──
+  { kw:['como veo','cómo veo','donde veo','dónde veo','como consulto','dónde está'],
+    titulo:'Cómo navegar',
+    text:'Para consultar un dato, dime <b>qué módulo</b> te interesa: <i>evasión</i>, <i>recaudos</i>, <i>estafa</i>, <i>auditoría</i>, <i>cronograma</i>, etc. Te llevo directamente.' },
+
+  { kw:['rol','perfil','quien soy','quién soy','permiso'],
+    titulo:'Tu rol',
+    text:'Tu rol actual es: <b>{ROL}</b>. Los módulos visibles en el home dependen de tu rol. Si necesitas acceso a algo, pídelo al admin.' },
+
+  { kw:['exportar','excel','descargar','xls','csv'],
+    titulo:'Exportar datos',
+    text:'Casi todos los módulos tienen botón <b>⬇ Excel</b> arriba a la derecha de las tablas. Genera CSV/XLS compatible con Excel (BOM UTF-8).' },
+
+  { kw:['email','correo','enviar','reportar'],
+    titulo:'Enviar por email',
+    text:'En cada módulo el botón <b>📧 Correo</b> abre un modal para enviar el reporte por email (To/CC/BCC con múltiples destinatarios). Usa Resend.' },
+
+  { kw:['hola','buenos dias','buenas','que tal','qué tal','hello'],
+    titulo:'¡Hola!',
+    text:'¡Hola <b>{NOMBRE}</b>! Soy tu asistente del portal. Puedo guiarte por los módulos según tu rol. Pregúntame por <i>evasión</i>, <i>recaudos</i>, <i>auditorías</i>, <i>cronograma</i>, o cualquier funcionalidad.' },
+
+  { kw:['gracias','thanks'],
+    titulo:'De nada',
+    text:'¡Cuando quieras! Si necesitas algo más, aquí estoy. 🤖' },
+
+  { kw:['ayuda','help','ayúdame','que puedes hacer','qué puedes hacer'],
+    titulo:'Ayuda',
+    text:'Puedo:<ul style="margin:6px 0 0 18px;padding:0"><li>Llevarte al módulo que necesites</li><li>Explicarte qué hace cada módulo</li><li>Mostrarte cómo exportar o enviar por email</li><li>Decirte qué módulos puedes ver según tu rol</li></ul>Pregunta cosas como: <i>"¿dónde veo la evasión?"</i>, <i>"cómo veo recaudos"</i>, <i>"auditorías pibox"</i>.' },
+];
+
+/* ═════════════════ Motor ═════════════════ */
+function _asiRol(){ try{ return (window._sesionRol||localStorage.getItem('rol')||'pendiente').toString(); }catch(e){return 'pendiente';} }
+function _asiNombre(){
+  try {
+    const n = (document.getElementById('home-nombre')?.textContent||'').trim();
+    return (n && n !== '—') ? n.split(' ')[0] : 'usuario';
+  } catch(e){ return 'usuario'; }
+}
+function _asiVars(s){ return s.replace('{ROL}', _asiRol()).replace('{NOMBRE}', _asiNombre()); }
+function _asiPermitido(item){ return !item.roles || item.roles.includes(_asiRol()) || _asiRol()==='admin'; }
+
+function asiMatch(query){
+  const q = query.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  let best=null, bestScore=0;
+  ASI_KB.forEach(it=>{
+    let score=0;
+    it.kw.forEach(k=>{
+      const kn = k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+      if(q.includes(kn)) score += kn.length;
+    });
+    if(score === 0) return;
+    // Bonus a items con acción (módulos) sobre items genéricos (ayuda, hola, etc)
+    if(it.action) score += 50;
+    if(score>bestScore){ bestScore=score; best=it; }
+  });
+  return bestScore>0 ? best : null;
+}
+
+function asiAddMsg(html, who){
+  const c = document.getElementById('asi-messages');
+  const div = document.createElement('div');
+  div.className = 'asi-msg ' + (who||'bot');
+  div.innerHTML = html;
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+
+function asiAddBot(item){
+  let html = _asiVars(item.text);
+  if(item.action && _asiPermitido(item)){
+    const btnId = 'asi-act-' + Math.random().toString(36).slice(2,8);
+    html += `<div class="asi-msg-actions"><button class="asi-msg-action" id="${btnId}">${item.actionLabel||'Ir →'}</button></div>`;
+    setTimeout(()=>{
+      const b = document.getElementById(btnId);
+      if(b) b.addEventListener('click', () => { try{ item.action(); asiToggle(); }catch(e){ console.error(e); } });
+    }, 0);
+  } else if(item.action && !_asiPermitido(item)){
+    html += `<div style="margin-top:6px;font-size:11px;color:#f59e0b">⚠ Este módulo no está disponible para tu rol (${_asiRol()}).</div>`;
+  }
+  asiAddMsg(html, 'bot');
+}
+
+function asiPregunta(q){
+  document.getElementById('asi-input').value = q;
+  asiEnviar();
+}
+
+function asiEnviar(){
+  const inp = document.getElementById('asi-input');
+  const text = (inp.value||'').trim();
+  if(!text) return;
+  inp.value = '';
+  asiAddMsg(text, 'user');
+  asiAddMsg('<span class="asi-typing"><span></span><span></span><span></span></span>','bot');
+  setTimeout(()=>{
+    document.getElementById('asi-messages').lastChild.remove();
+    const item = asiMatch(text);
+    if(item) asiAddBot(item);
+    else asiAddMsg('Hmm, no estoy seguro de qué buscas. Prueba con palabras como: <i>evasión, recaudos, estafa, auditorías, cronograma, exportar, email</i>. O dale click a uno de los botones de abajo.','bot');
+  }, 350);
+}
+
+function asiPoblarQuick(){
+  const c = document.getElementById('asi-quick');
+  const sugerencias = [
+    ['¿Cuánto cobramos en evasión?','evasion'],
+    ['Ver recaudos','recaudos'],
+    ['Estafa sospechosa','estafa'],
+    ['Auditorías Pibox','auditoria'],
+    ['Mi cronograma','cronograma'],
+    ['Exportar a Excel','exportar'],
+    ['¿Cuál es mi rol?','rol'],
+    ['Ayuda','ayuda'],
+  ];
+  c.innerHTML = sugerencias
+    .map(([label,q])=>`<button class="asi-quick-btn" onclick="asiPregunta('${q}')">${label}</button>`).join('');
+}
+
+let _asiInit = false;
+function asiToggle(){
+  const panel = document.getElementById('asistente-panel');
+  const fab   = document.getElementById('asistente-fab');
+  if(panel.hidden){
+    panel.hidden = false; fab.classList.add('active'); fab.textContent='×';
+    if(!_asiInit){
+      asiAddMsg(`¡Hola <b>${_asiNombre()}</b>! 👋 Soy tu asistente del portal Picap. Puedo guiarte por los módulos disponibles para tu rol (<b>${_asiRol()}</b>). Pregúntame lo que necesites o usa los botones de abajo.`,'bot');
+      asiPoblarQuick();
+      _asiInit = true;
+    }
+    setTimeout(()=>document.getElementById('asi-input').focus(), 50);
+  } else {
+    panel.hidden = true; fab.classList.remove('active'); fab.textContent='🤖';
+  }
+}
+</script>
+
 </body>
 </html>
