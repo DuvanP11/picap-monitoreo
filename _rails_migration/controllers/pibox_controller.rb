@@ -267,45 +267,55 @@ module Api
 
     private
 
-    # v3.3.114: resumen wallet por booking_id (1 query batch)
-    # Devuelve { booking_id => { pagado_piloto:, cobrado_comercio: } } (en moneda nativa, ya en unidades)
+    # v3.3.115: batch en chunks de 500 ids para no superar max_query_size de CH
+    BATCH_SIZE = 500
+
+    # Resumen wallet por booking_id. Devuelve { booking_id => { pagado_piloto:, cobrado_comercio: } }
     def resumen_wallet_por_bookings(ids)
       return {} if ids.empty?
-      ids_sql = ids.map { |i| "'#{i.gsub("'", "''")}'" }.join(",")
-      sql = <<~SQL
-        SELECT
-          toString(booking_id) AS bid,
-          sumIf(intDiv(toInt64OrZero(JSONExtractString(amount,'cents')),100), _type = 'WalletAccountTransactionBookingDriverPayment')  AS pagado_piloto,
-          sumIf(intDiv(toInt64OrZero(JSONExtractString(amount,'cents')),100), _type = 'WalletAccountTransactionBookingCompanyCharge') AS cobrado_comercio
-        FROM picapmongoprod.wallet_account_transactions
-        WHERE toString(booking_id) IN (#{ids_sql})
-        GROUP BY booking_id
-      SQL
-      ch.query(sql, timeout: 60).each_with_object({}) do |r, h|
-        h[r["bid"]] = { pagado_piloto: r["pagado_piloto"].to_f, cobrado_comercio: r["cobrado_comercio"].to_f }
+      result = {}
+      ids.each_slice(BATCH_SIZE) do |chunk|
+        ids_sql = chunk.map { |i| "'#{i.gsub("'", "''")}'" }.join(",")
+        sql = <<~SQL
+          SELECT
+            toString(booking_id) AS bid,
+            sumIf(intDiv(toInt64OrZero(JSONExtractString(amount,'cents')),100), _type = 'WalletAccountTransactionBookingDriverPayment')  AS pagado_piloto,
+            sumIf(intDiv(toInt64OrZero(JSONExtractString(amount,'cents')),100), _type = 'WalletAccountTransactionBookingCompanyCharge') AS cobrado_comercio
+          FROM picapmongoprod.wallet_account_transactions
+          WHERE toString(booking_id) IN (#{ids_sql})
+          GROUP BY booking_id
+        SQL
+        ch.query(sql, timeout: 60).each do |r|
+          result[r["bid"]] = { pagado_piloto: r["pagado_piloto"].to_f, cobrado_comercio: r["cobrado_comercio"].to_f }
+        end
       end
+      result
     end
 
-    # v3.3.114: coords drop-off + distancia entre piloto-final y destino-cliente
+    # Coords drop-off + distancia entre piloto-final y destino-cliente
     def coords_destino_por_bookings(ids)
       return {} if ids.empty?
-      ids_sql = ids.map { |i| "'#{i.gsub("'", "''")}'" }.join(",")
-      sql = <<~SQL
-        SELECT
-          toString(_id) AS bid,
-          if(end_geojson IS NOT NULL AND end_geojson != '' AND destination_geojson IS NOT NULL AND destination_geojson != '',
-             round(geoDistance(
-               toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 1)),
-               toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 2)),
-               toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 1)),
-               toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 2))
-             ), 0), 0) AS dist_destino_m
-        FROM picapmongoprod.bookings FINAL
-        WHERE toString(_id) IN (#{ids_sql})
-      SQL
-      ch.query(sql, timeout: 60).each_with_object({}) do |r, h|
-        h[r["bid"]] = { dist_destino_m: r["dist_destino_m"].to_i }
+      result = {}
+      ids.each_slice(BATCH_SIZE) do |chunk|
+        ids_sql = chunk.map { |i| "'#{i.gsub("'", "''")}'" }.join(",")
+        sql = <<~SQL
+          SELECT
+            toString(_id) AS bid,
+            if(end_geojson IS NOT NULL AND end_geojson != '' AND destination_geojson IS NOT NULL AND destination_geojson != '',
+               round(geoDistance(
+                 toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 1)),
+                 toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 2)),
+                 toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 1)),
+                 toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 2))
+               ), 0), 0) AS dist_destino_m
+          FROM picapmongoprod.bookings FINAL
+          WHERE toString(_id) IN (#{ids_sql})
+        SQL
+        ch.query(sql, timeout: 60).each do |r|
+          result[r["bid"]] = { dist_destino_m: r["dist_destino_m"].to_i }
+        end
       end
+      result
     end
 
     def send_xlsx(xlsx)
