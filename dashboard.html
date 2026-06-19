@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.104-ASISTENTE-FAB-ZINDEX-FIX-20260618</title>
+<title>Picap · Monitoreo · v3.3.105-ASISTENTE-OCULTO-EN-LOGIN-20260618</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -17913,7 +17913,7 @@ async function cargarEstadisticasPibox() {
 }
 </style>
 
-<button id="asistente-fab" onclick="asiToggle()" title="Asistente Picap" aria-label="Abrir asistente">🤖</button>
+<button id="asistente-fab" onclick="asiToggle()" title="Asistente Picap" aria-label="Abrir asistente" style="display:none">🤖</button>
 <div id="asistente-panel" hidden role="dialog" aria-label="Asistente Picap">
   <div class="asi-head">
     <div class="asi-head-avatar">🤖</div>
@@ -18156,6 +18156,26 @@ function asiToggle(){
     panel.hidden = true; fab.classList.remove('active'); fab.textContent='🤖';
   }
 }
+
+/* v3.3.105: ocultar FAB en login (sin sesión). Polling cada 600ms. */
+function asiActualizarVisibilidad(){
+  const fab   = document.getElementById('asistente-fab');
+  const panel = document.getElementById('asistente-panel');
+  if(!fab) return;
+  // Considera "logueado" si hay rol detectado Y la vista de login no está activa
+  const login = document.getElementById('view-login');
+  const enLogin = login && getComputedStyle(login).display !== 'none';
+  const tieneRol = !!_asiRol();
+  const visible = tieneRol && !enLogin;
+  fab.style.display = visible ? '' : 'none';
+  // Si se cierra sesión con panel abierto, cerrarlo
+  if(!visible && panel && !panel.hidden){
+    panel.hidden = true; fab.classList.remove('active'); fab.textContent='🤖';
+  }
+}
+setInterval(asiActualizarVisibilidad, 600);
+document.addEventListener('DOMContentLoaded', asiActualizarVisibilidad);
+asiActualizarVisibilidad();
 </script>
 
 </body>
