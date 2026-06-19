@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.106-ASISTENTE-TOP-RIGHT-20260618</title>
+<title>Picap · Monitoreo · v3.3.107-ASISTENTE-FAB-TOP-FIX-20260619</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -18157,18 +18157,23 @@ function asiToggle(){
   }
 }
 
-/* v3.3.106: ocultar FAB solo en login. Polling cada 500ms.
-   Logica simplificada: si view-login esta visible -> ocultar FAB.
-   En cualquier otro caso -> mostrar (no requerimos rol detectado). */
+/* v3.3.107: deteccion robusta de login. Polling 500ms.
+   Estrategia: si hay un input[type=password] visible en la pagina,
+   estamos en login -> ocultar FAB. Funciona sin importar el ID del
+   contenedor (view-login, login-form, etc). */
 function asiActualizarVisibilidad(){
   const fab   = document.getElementById('asistente-fab');
   const panel = document.getElementById('asistente-panel');
   if(!fab) return;
+  let enLogin = false;
+  document.querySelectorAll('input[type="password"]').forEach(inp => {
+    if(inp.offsetParent !== null) enLogin = true;
+  });
+  // Doble check: si existe view-login y esta visible
   const login = document.getElementById('view-login');
-  const enLogin = login && getComputedStyle(login).display !== 'none';
+  if(login && getComputedStyle(login).display !== 'none') enLogin = true;
   const visible = !enLogin;
   fab.style.display = visible ? '' : 'none';
-  // Si se va al login con panel abierto, cerrarlo
   if(!visible && panel && !panel.hidden){
     panel.hidden = true; fab.classList.remove('active'); fab.textContent='🤖';
   }
