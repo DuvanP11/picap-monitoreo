@@ -292,30 +292,13 @@ module Api
       result
     end
 
-    # Coords drop-off + distancia entre piloto-final y destino-cliente
-    def coords_destino_por_bookings(ids)
-      return {} if ids.empty?
-      result = {}
-      ids.each_slice(BATCH_SIZE) do |chunk|
-        ids_sql = chunk.map { |i| "'#{i.gsub("'", "''")}'" }.join(",")
-        sql = <<~SQL
-          SELECT
-            toString(_id) AS bid,
-            if(end_geojson IS NOT NULL AND end_geojson != '' AND destination_geojson IS NOT NULL AND destination_geojson != '',
-               round(geoDistance(
-                 toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 1)),
-                 toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 2)),
-                 toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 1)),
-                 toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 2))
-               ), 0), 0) AS dist_destino_m
-          FROM picapmongoprod.bookings FINAL
-          WHERE toString(_id) IN (#{ids_sql})
-        SQL
-        ch.query(sql, timeout: 60).each do |r|
-          result[r["bid"]] = { dist_destino_m: r["dist_destino_m"].to_i }
-        end
-      end
-      result
+    # v3.3.116: la tabla bookings no tiene 'destination_geojson' (solo origin_geojson y
+    # end_geojson). Sin un campo de "destino solicitado por el cliente" no podemos
+    # calcular Llegó/No llegó. Pendiente: confirmar nombre del campo (puede estar en
+    # booking_stops u otra tabla relacionada). Hasta entonces, devolver hash vacío
+    # para que la columna muestre "N/A".
+    def coords_destino_por_bookings(_ids)
+      {}
     end
 
     def send_xlsx(xlsx)
