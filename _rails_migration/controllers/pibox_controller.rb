@@ -180,7 +180,133 @@ module Api
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
+    # v3.3.114: Verificación de Servicios Pibox B2B
+    # Devuelve 1 fila por servicio (no por alerta) con datos de wallet,
+    # Llegó/No llegó (perímetro 450m), Tipo de alerta combinado.
+    # GET /api/pibox/verificacion_b2b?desde=&hasta=&pais=&ciudad=&severidad=&tipo_obs=&q=
+    def verificacion_b2b
+      servicios = cargar_servicios
+
+      # Resumen wallet por booking (1 query batch)
+      booking_ids = servicios.map { |s| s["booking_id"].to_s }.reject(&:empty?).uniq
+      wallet = resumen_wallet_por_bookings(booking_ids)
+
+      # Coordenadas del cliente (drop-off) por booking — para calcular Llegó/No llegó
+      coords = coords_destino_por_bookings(booking_ids)
+
+      severidad_filter = params[:severidad].to_s.strip.upcase
+      tipo_obs_filter  = params[:tipo_obs].to_s.strip.upcase
+      q_search         = params[:q].to_s.strip.downcase
+      ciudad_filter    = params[:ciudad].to_s.strip.downcase
+
+      filas = []
+      servicios.each do |s|
+        next if debe_excluirse?(s)
+
+        bid       = s["booking_id"].to_s
+        ciudad    = s["ciudad"].to_s
+        next if !ciudad_filter.empty? && !ciudad.downcase.include?(ciudad_filter)
+
+        minutos = s["minutos_servicio"].to_i
+        alertas_tipos = []
+        alertas_tipos << "Tiempo" if minutos.positive? && minutos < TIEMPO_MINIMO
+        alertas_tipos << "GPS"    if s["flag_alerta_mismo_punto"].to_i == 1
+
+        # Filtros de severidad / tipo de observación
+        severidad = alertas_tipos.any? ? "ALTA" : "—"
+        next if !severidad_filter.empty? && severidad != severidad_filter
+        next if !tipo_obs_filter.empty?  && !alertas_tipos.any? { |t| t.upcase == tipo_obs_filter }
+
+        # Llegó/No llegó (450m desde drop-off del cliente)
+        co = coords[bid] || {}
+        llego = if co[:dist_destino_m] && co[:dist_destino_m] > 0
+                  co[:dist_destino_m] <= 450 ? "Llegó" : "No Llegó"
+                else
+                  "N/A"
+                end
+
+        wbal = wallet[bid] || {}
+        type_id = s["requested_service_type_id"].to_s
+        tipo_alerta = alertas_tipos.empty? ? "Sin alerta" : alertas_tipos.join("+")
+        revisar = alertas_tipos.any? ? "Sí — revisar evidencias" : "No"
+
+        fila = {
+          fecha_servicio:         s["fecha_servicio"].to_s,
+          id_booking:             bid,
+          id_piloto:              s["driver_id"].to_s,
+          name_piloto:            s["piloto_nombre"].to_s.presence || "N/A",
+          id_comercio:            s["company_id"].to_s,
+          name_comercio:          s["cliente_nombre"].to_s.presence || "N/A",
+          tipo_servicio:          SERVICE_TYPE_NAMES[type_id] || "Desconocido",
+          valor_pagado_piloto:    wbal[:pagado_piloto].to_f.round(0),
+          valor_cobrado_comercio: wbal[:cobrado_comercio].to_f.round(0),
+          duracion_minutos:       minutos,
+          llego_al_punto:         llego,
+          tipo_alerta:            tipo_alerta,
+          revisar_evidencias:     revisar,
+          severidad:              severidad,
+          pais:                   s["pais"].to_s,
+          ciudad:                 ciudad,
+          moneda:                 s["moneda"].to_s,
+        }
+
+        # Filtro de búsqueda libre (id_comercio, id_booking o id_piloto)
+        if !q_search.empty?
+          haystack = [bid, fila[:id_piloto], fila[:id_comercio], fila[:name_piloto].to_s.downcase, fila[:name_comercio].to_s.downcase].join(" ").downcase
+          next unless haystack.include?(q_search)
+        end
+
+        filas << fila
+      end
+
+      render json: { ok: true, fecha_desde: desde_param, fecha_hasta: hasta_param, filas: filas, total: filas.size }
+    rescue => e
+      Rails.logger.error("[PiboxController#verificacion_b2b] #{e.class}: #{e.message}\n#{e.backtrace.first(8).join("\n")}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
     private
+
+    # v3.3.114: resumen wallet por booking_id (1 query batch)
+    # Devuelve { booking_id => { pagado_piloto:, cobrado_comercio: } } (en moneda nativa, ya en unidades)
+    def resumen_wallet_por_bookings(ids)
+      return {} if ids.empty?
+      ids_sql = ids.map { |i| "'#{i.gsub("'", "''")}'" }.join(",")
+      sql = <<~SQL
+        SELECT
+          toString(booking_id) AS bid,
+          sumIf(intDiv(toInt64OrZero(JSONExtractString(amount,'cents')),100), _type = 'WalletAccountTransactionBookingDriverPayment')  AS pagado_piloto,
+          sumIf(intDiv(toInt64OrZero(JSONExtractString(amount,'cents')),100), _type = 'WalletAccountTransactionBookingCompanyCharge') AS cobrado_comercio
+        FROM picapmongoprod.wallet_account_transactions
+        WHERE toString(booking_id) IN (#{ids_sql})
+        GROUP BY booking_id
+      SQL
+      ch.query(sql, timeout: 60).each_with_object({}) do |r, h|
+        h[r["bid"]] = { pagado_piloto: r["pagado_piloto"].to_f, cobrado_comercio: r["cobrado_comercio"].to_f }
+      end
+    end
+
+    # v3.3.114: coords drop-off + distancia entre piloto-final y destino-cliente
+    def coords_destino_por_bookings(ids)
+      return {} if ids.empty?
+      ids_sql = ids.map { |i| "'#{i.gsub("'", "''")}'" }.join(",")
+      sql = <<~SQL
+        SELECT
+          toString(_id) AS bid,
+          if(end_geojson IS NOT NULL AND end_geojson != '' AND destination_geojson IS NOT NULL AND destination_geojson != '',
+             round(geoDistance(
+               toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 1)),
+               toFloat64OrZero(JSONExtractString(end_geojson, 'coordinates', 2)),
+               toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 1)),
+               toFloat64OrZero(JSONExtractString(destination_geojson, 'coordinates', 2))
+             ), 0), 0) AS dist_destino_m
+        FROM picapmongoprod.bookings FINAL
+        WHERE toString(_id) IN (#{ids_sql})
+      SQL
+      ch.query(sql, timeout: 60).each_with_object({}) do |r, h|
+        h[r["bid"]] = { dist_destino_m: r["dist_destino_m"].to_i }
+      end
+    end
 
     def send_xlsx(xlsx)
       send_data xlsx[:data], type: xlsx[:mimetype],

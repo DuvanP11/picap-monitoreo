@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Picap · Monitoreo · v3.3.113-PIBOX-FILTRO-ID-PILOTO-FIX-20260619</title>
+<title>Picap · Monitoreo · v3.3.114-PIBOX-SUBTAB-VERIFICACION-B2B-20260619</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236b21a8'/><polyline points='4,24 10,14 16,18 22,8 28,12' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='28' cy='12' r='2.5' fill='%2322c55e'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -2311,7 +2311,14 @@ window.fetch = function(url, opts) {
   <div class="view" id="view-pibox-alertas">
     <div class="wrap">
       <h2 style="font-size:18px;margin-bottom:16px;color:var(--text1)">🚨 Auditorías de Servicios Pibox — Alertas de Fraude</h2>
-      
+
+      <!-- v3.3.114: sub-tabs Alertas / Verificación B2B -->
+      <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:8px">
+        <button id="pibox-subtab-alertas" class="search-btn" style="background:#6b21a8;color:#fff" onclick="setPiboxSubTab('alertas')">🚨 Alertas Detectadas</button>
+        <button id="pibox-subtab-verificacion" class="search-btn" style="background:var(--surface2);color:var(--text2)" onclick="setPiboxSubTab('verificacion')">📋 Verificación B2B</button>
+      </div>
+
+      <div id="pibox-content-alertas">
       <!-- Filtros -->
       <div class="filters-bar">
         <label>Fecha desde:</label>
@@ -2437,7 +2444,78 @@ window.fetch = function(url, opts) {
           </table>
         </div>
       </div>
-      
+      </div><!-- /pibox-content-alertas -->
+
+      <!-- v3.3.114: Sub-tab Verificación B2B -->
+      <div id="pibox-content-verificacion" style="display:none">
+        <div class="filters-bar">
+          <label>Fecha desde:</label>
+          <input type="date" class="filter-select" id="pibox-v2-desde" value="2026-06-01">
+          <label>Fecha hasta:</label>
+          <input type="date" class="filter-select" id="pibox-v2-hasta" value="2026-06-30">
+          <div class="sep"></div>
+          <label>País:</label>
+          <select class="filter-select" id="pibox-v2-pais">
+            <option value="">Todos</option>
+            <option value="CO" selected>Colombia</option>
+            <option value="MX">México</option>
+            <option value="NI">Nicaragua</option>
+          </select>
+          <label>Ciudad:</label>
+          <input type="text" class="filter-select" id="pibox-v2-ciudad" placeholder="ej: Bogotá" style="width:120px">
+          <div class="sep"></div>
+          <label>Severidad:</label>
+          <select class="filter-select" id="pibox-v2-severidad">
+            <option value="">Todas</option>
+            <option value="ALTA">Altas</option>
+          </select>
+          <label>Tipo obs:</label>
+          <select class="filter-select" id="pibox-v2-tipo-obs">
+            <option value="">Todas</option>
+            <option value="TIEMPO">Tiempo</option>
+            <option value="GPS">GPS</option>
+          </select>
+          <div class="sep"></div>
+          <label>Buscar:</label>
+          <input type="text" class="filter-select" id="pibox-v2-q" placeholder="id_comercio · id_booking · id_piloto" style="width:240px;font-family:monospace;font-size:11px">
+          <div class="sep"></div>
+          <button class="search-btn" onclick="buscarVerificacionB2B()">🔍 Buscar</button>
+          <button class="search-btn" onclick="abrirModalEnviarEmailGenerico('pibox')" style="background:#ea580c">📧 Enviar por email</button>
+          <button class="search-btn" onclick="exportarVerificacionB2BExcel()">⬇ Exportar Excel</button>
+        </div>
+
+        <div id="pibox-v2-status" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px"></div>
+
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;overflow-x:auto">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <h3 style="font-size:14px;color:var(--text1);margin:0">Verificación de Servicios B2B</h3>
+            <span id="pibox-v2-count" style="font-size:11px;color:var(--text3)">— filas</span>
+          </div>
+          <table style="width:100%;font-size:11px;border-collapse:collapse">
+            <thead>
+              <tr style="background:var(--surface2);color:var(--text2);text-align:left">
+                <th style="padding:8px 6px">Fecha</th>
+                <th style="padding:8px 6px">Booking ID</th>
+                <th style="padding:8px 6px">ID Piloto</th>
+                <th style="padding:8px 6px">Piloto</th>
+                <th style="padding:8px 6px">ID Comercio</th>
+                <th style="padding:8px 6px">Comercio</th>
+                <th style="padding:8px 6px">Tipo Servicio</th>
+                <th style="padding:8px 6px;text-align:right">$ Pagado piloto</th>
+                <th style="padding:8px 6px;text-align:right">$ Cobrado comercio</th>
+                <th style="padding:8px 6px;text-align:right">Duración (min)</th>
+                <th style="padding:8px 6px">Llegó al punto</th>
+                <th style="padding:8px 6px">Tipo de Alerta</th>
+                <th style="padding:8px 6px">Revisar evidencias</th>
+              </tr>
+            </thead>
+            <tbody id="pibox-v2-tbody">
+              <tr><td colspan="13" style="text-align:center;padding:30px;color:var(--text3)">Pulsa "Buscar" para cargar resultados</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- /pibox-content-verificacion -->
+
     </div>
   </div>
 
@@ -17507,6 +17585,129 @@ const _piboxState = {
   totalServicios: 0,
   meta: {}, // país aplicado, rango, etc. para el subtítulo
 };
+
+/* ═══════════════ v3.3.114 — Sub-tab Verificación B2B ═══════════════ */
+
+let _piboxV2Data = { filas: [], desde: '', hasta: '', pais: '' };
+
+function setPiboxSubTab(tab) {
+  const isAlertas = (tab === 'alertas');
+  document.getElementById('pibox-content-alertas').style.display       = isAlertas ? '' : 'none';
+  document.getElementById('pibox-content-verificacion').style.display  = isAlertas ? 'none' : '';
+  const btnA = document.getElementById('pibox-subtab-alertas');
+  const btnV = document.getElementById('pibox-subtab-verificacion');
+  btnA.style.background = isAlertas ? '#6b21a8' : 'var(--surface2)';
+  btnA.style.color      = isAlertas ? '#fff'    : 'var(--text2)';
+  btnV.style.background = isAlertas ? 'var(--surface2)' : '#6b21a8';
+  btnV.style.color      = isAlertas ? 'var(--text2)'    : '#fff';
+}
+
+function _piboxV2Status(msg, type){
+  const el = document.getElementById('pibox-v2-status');
+  if (!msg) { el.style.display='none'; return; }
+  const colors = { info:['rgba(59,130,246,.15)','#3b82f6'], ok:['rgba(16,185,129,.15)','#10b981'],
+                   warn:['rgba(245,158,11,.15)','#f59e0b'], error:['rgba(239,68,68,.15)','#ef4444'] };
+  const [bg,fg] = colors[type||'info'];
+  el.style.display='block'; el.style.background=bg; el.style.color=fg; el.textContent=msg;
+}
+
+async function buscarVerificacionB2B() {
+  const desde      = document.getElementById('pibox-v2-desde').value;
+  const hasta      = document.getElementById('pibox-v2-hasta').value;
+  const pais       = document.getElementById('pibox-v2-pais').value;
+  const ciudad     = document.getElementById('pibox-v2-ciudad').value.trim();
+  const severidad  = document.getElementById('pibox-v2-severidad').value;
+  const tipoObs    = document.getElementById('pibox-v2-tipo-obs').value;
+  const q          = document.getElementById('pibox-v2-q').value.trim();
+
+  const tbody = document.getElementById('pibox-v2-tbody');
+  tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px">⏳ Cargando…</td></tr>';
+  _piboxV2Status('🔎 Consultando ClickHouse…', 'info');
+
+  try {
+    const token = _sesionToken || localStorage.getItem('picap_token');
+    if (!token) throw new Error('Sin autenticación, recarga la página');
+
+    const params = new URLSearchParams({ desde, hasta });
+    if (pais)      params.set('pais', pais);
+    if (ciudad)    params.set('ciudad', ciudad);
+    if (severidad) params.set('severidad', severidad);
+    if (tipoObs)   params.set('tipo_obs', tipoObs);
+    if (q)         params.set('q', q);
+
+    const r = await fetch(`/api/pibox/verificacion_b2b?${params}`, { headers: { 'X-Token': token } });
+    const data = await safeJson(r);
+    if (!data.ok) throw new Error(data.error || 'Error al cargar');
+
+    _piboxV2Data = { filas: data.filas || [], desde, hasta, pais };
+    renderVerificacionB2B();
+    _piboxV2Status(`✓ ${data.filas.length} filas`, 'ok');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--red)">❌ ${err.message}</td></tr>`;
+    _piboxV2Status('❌ ' + err.message, 'error');
+  }
+}
+
+function renderVerificacionB2B() {
+  const tbody = document.getElementById('pibox-v2-tbody');
+  const filas = _piboxV2Data.filas || [];
+  document.getElementById('pibox-v2-count').textContent = `${filas.length} filas`;
+
+  if (!filas.length) {
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;color:var(--text3)">Sin resultados en el rango</td></tr>';
+    return;
+  }
+  const fmt$ = n => '$' + (Number(n)||0).toLocaleString('es-CO');
+  const llegoBadge = v => v === 'Llegó' ? '<span style="color:#10b981;font-weight:700">✓ Llegó</span>'
+                       : v === 'No Llegó' ? '<span style="color:#ef4444;font-weight:700">✗ No llegó</span>'
+                       : '<span style="color:var(--text3)">N/A</span>';
+  const alertaBadge = v => v && v !== 'Sin alerta'
+    ? `<span style="background:rgba(239,68,68,.15);color:#dc2626;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700">${v}</span>`
+    : '<span style="color:var(--text3);font-size:10px">—</span>';
+  const revisarBadge = v => v && v.startsWith('Sí')
+    ? '<span style="color:#dc2626;font-weight:600">⚠ Sí — revisar</span>'
+    : '<span style="color:var(--text3)">No</span>';
+
+  tbody.innerHTML = filas.map(r => `
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px;white-space:nowrap">${(r.fecha_servicio||'').substring(0,16).replace('T',' ')}</td>
+      <td style="padding:6px;font-family:monospace;font-size:10px">${r.id_booking||''}</td>
+      <td style="padding:6px;font-family:monospace;font-size:10px">${r.id_piloto||''}</td>
+      <td style="padding:6px">${r.name_piloto||''}</td>
+      <td style="padding:6px;font-family:monospace;font-size:10px">${r.id_comercio||''}</td>
+      <td style="padding:6px">${r.name_comercio||''}</td>
+      <td style="padding:6px">${r.tipo_servicio||''}</td>
+      <td style="padding:6px;text-align:right">${fmt$(r.valor_pagado_piloto)}</td>
+      <td style="padding:6px;text-align:right">${fmt$(r.valor_cobrado_comercio)}</td>
+      <td style="padding:6px;text-align:right">${r.duracion_minutos||0}</td>
+      <td style="padding:6px">${llegoBadge(r.llego_al_punto)}</td>
+      <td style="padding:6px">${alertaBadge(r.tipo_alerta)}</td>
+      <td style="padding:6px">${revisarBadge(r.revisar_evidencias)}</td>
+    </tr>`).join('');
+}
+
+function exportarVerificacionB2BExcel() {
+  const filas = _piboxV2Data.filas || [];
+  if (!filas.length) { alert('No hay datos para exportar. Ejecuta una búsqueda primero.'); return; }
+  const esc = v => { const s = String(v??''); return /[",\n;\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const headers = ['Fecha servicio','Booking ID','ID Piloto','Nombre piloto','ID Comercio','Nombre comercio',
+                   'Tipo servicio','$ Pagado piloto','$ Cobrado comercio','Duración (min)','Llegó al punto',
+                   'Tipo de alerta','Revisar evidencias','Severidad','País','Ciudad'];
+  const lines = [headers.map(esc).join(';')];
+  filas.forEach(r => lines.push([
+    r.fecha_servicio, r.id_booking, r.id_piloto, r.name_piloto, r.id_comercio, r.name_comercio,
+    r.tipo_servicio, r.valor_pagado_piloto, r.valor_cobrado_comercio, r.duracion_minutos,
+    r.llego_al_punto, r.tipo_alerta, r.revisar_evidencias, r.severidad, r.pais, r.ciudad
+  ].map(esc).join(';')));
+  const csv = '﻿' + lines.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Picap_Verificacion_B2B_${_piboxV2Data.desde}_${_piboxV2Data.hasta}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 async function buscarAlertasPibox() {
   const desde = document.getElementById('pibox-desde').value;

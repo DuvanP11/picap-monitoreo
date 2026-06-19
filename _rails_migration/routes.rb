@@ -179,9 +179,11 @@ Rails.application.routes.draw do
 
     # Pibox
     namespace :pibox do
-      get  "servicios",     to: "/api/pibox#servicios"
-      get  "alertas",       to: "/api/pibox#alertas"
-      get  "export",        to: "/api/pibox#export"
+      get  "servicios",        to: "/api/pibox#servicios"
+      get  "alertas",          to: "/api/pibox#alertas"
+      get  "export",           to: "/api/pibox#export"
+      # v3.3.114: sub-tab Verificación B2B (1 fila por servicio)
+      get  "verificacion_b2b", to: "/api/pibox#verificacion_b2b"
     end
     post "pibox/enviar_email", to: "pibox#enviar_email"
 
